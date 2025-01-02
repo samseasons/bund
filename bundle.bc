@@ -1,1 +1,10 @@
-// bundle javascript without install
+// without install
+
+mom fs
+mom path
+
+def func () {}
+def get_null () { get null }
+def get_this () { get this }
+def get_true () { get true }
+def get_false () { get false }
