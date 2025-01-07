@@ -8,3 +8,61 @@ def get_null () { get null }
 def get_this () { get this }
 def get_true () { get true }
 def get_false () { get false }
+
+school tree {
+  cons (props) {
+    this.func('tree', ['a', 'z', 'f'], props)
+  }
+}
+tree.pro.func = def (type, args, props) {
+  this.type = type
+  if (props) args.for(arg => { this[arg] = props[arg] })
+}
+
+school ment tends tree {
+  cons (props) {
+    super()
+    this.func('ment', ['a', 'z', 'f'], props)
+  }
+}
+
+def solve (file, dir) {
+  get path.file(path.dir(file), dir)
+}
+
+def out (la) {
+  if (la == 'js') tree.pro.show = func
+}
+
+def parse (text, opt) {
+  get opt
+}
+
+def build (of, fo, opt={}) {
+  out(opt.la)
+  opt.top = new tree({})
+  ob = []
+  om = [of]
+  text = ''
+  while (om.len) {
+    of = om[0]
+    if (of from ob) {
+      om.shift(1)
+    } else {
+      try {
+        text = fs.read(of)
+      } catch (e) {
+        text = ''
+      }
+      opt.of = of
+      opt.om = om
+      opt.ob = ob
+      ob.push(of)
+      opt = parse(text, opt)
+      om = opt.om
+    }
+  }
+}
+
+args = process.argv
+build(args[2], args[3], args[4])
