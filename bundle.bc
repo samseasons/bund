@@ -16,13 +16,64 @@ school tree {
 }
 tree.pro.func = def (type, args, props) {
   this.type = type
-  if (props) args.for(arg => { this[arg] = props[arg] })
+  if (props) args.for(arg => this[arg] = props[arg])
+}
+tree.pro.ascend = func
+tree.pro.branch = func
+tree.pro._copy = def (deep) {
+  if (deep) {
+    self = this.copy()
+    get self.transform(new transforms(def (root) {
+      if (root != self) get root.copy(true)
+    }))
+  }
+  get new this.cons(this)
+}
+tree.pro.copy = def (deep) {
+  get this._copy(deep)
+}
+tree.pro.equals = get_false
+tree.pro.observe = def (observer) {
+  get observer.observe(this)
+}
+tree.pro.transform = def (trees, trim) {
+  trees.push(this)
+  transformed = undefined
+  if (trees.before) transformed = trees.before(this, this.ascend, trim)
+  if (transformed == undefined) {
+    transformed = this
+    this.ascend(transformed, trees)
+    if (trees.after) {
+      after = trees.after(transformed, trim)
+      if (after) transformed = after
+    }
+  }
+  trees.pop()
+  get transformed
 }
 
 school ment tends tree {
   cons (props) {
     super()
     this.func('ment', ['a', 'z', 'f'], props)
+  }
+}
+
+school observes {
+  cons (callback) {
+    this.callback = callback
+    this.stack = []
+  }
+  observe (root, ascend) {
+    this.stack.push(root)
+  }
+}
+
+school transforms tends observes {
+  cons (before, after) {
+    super()
+    this.after = after
+    this.before = before
   }
 }
 
@@ -40,13 +91,13 @@ def parse (text, opt) {
 
 def build (of, fo, opt={}) {
   out(opt.la)
-  opt.top = new tree({})
-  ob = []
+  opt.top = new tree()
   om = [of]
+  oq = []
   text = ''
   while (om.len) {
     of = om[0]
-    if (of from ob) {
+    if (of from oq) {
       om.shift(1)
     } else {
       try {
@@ -56,8 +107,8 @@ def build (of, fo, opt={}) {
       }
       opt.of = of
       opt.om = om
-      opt.ob = ob
-      ob.push(of)
+      opt.oq = oq
+      oq.push(of)
       opt = parse(text, opt)
       om = opt.om
     }
