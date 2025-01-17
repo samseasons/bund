@@ -52,10 +52,10 @@ tree.prototype.transform = function (trees, trim) {
   return transformed
 }
 
-class ment extends tree {
+class menta extends tree {
   constructor (props) {
     super()
-    this.func('ment', ['a', 'z', 'f'], props)
+    this.func('menta', ['a', 'z', 'f'], props)
   }
 }
 
