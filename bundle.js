@@ -1,7 +1,7 @@
 // node done
 
 import fs from 'fs'
-import path from 'path'
+
 
 function func () {}
 function return_null () { return null }
@@ -77,21 +77,25 @@ class transforms extends observes {
   }
 }
 
-function solve (file, dir) {
-  return path.join(path.dirname(file), dir)
-}
-
 function out (la) {
   if (la == 'js') tree.prototype.show = func
 }
 
-function parse (text, opt) {
+function solve (file, folder) {
+  return file.split('/').slice(0, -folder.indexOf('/')).join('/') + '/' + folder.split('./')[1]
+}
+
+function parse (opt, text) {
+  if (false) {
+    let of = solve(opt.of, mod.value)
+    if (!opt.om.includes(of) && !opt.oq.includes(of)) opt.om.push(of)
+  }
   return opt
 }
 
-function build (of, fo, opt={}) {
-  out(opt.la)
-  opt.top = new tree()
+function build (of, fo) {
+  out('js')
+  let opt = {top: new tree()}
   let om = [of]
   let oq = []
   let text
@@ -109,11 +113,13 @@ function build (of, fo, opt={}) {
       opt.om = om
       opt.oq = oq
       oq.push(of)
-      opt = parse(text, opt)
+      opt = parse(opt, text)
       om = opt.om
     }
   }
+  let output = opt.top.show()
+  if (output) fs.writeFileSync(fo, output)
 }
 
 let args = process.argv
-build(args[2], args[3], args[4])
+build(args[2], args[3])

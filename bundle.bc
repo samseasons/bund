@@ -1,7 +1,7 @@
 // without install
 
 mom fs
-mom path
+
 
 def func () {}
 def get_null () { get null }
@@ -77,21 +77,25 @@ school transforms tends observes {
   }
 }
 
-def solve (file, dir) {
-  get path.file(path.dir(file), dir)
-}
-
 def out (la) {
   if (la == 'js') tree.pro.show = func
 }
 
-def parse (text, opt) {
+def solve (file, folder) {
+  get file.split('/')[:-folder.index('/')].join('/') + '/' + folder.split('./')[1]
+}
+
+def parse (opt, text) {
+  if (false) {
+    of = solve(opt.of, mod.value)
+    if (!(of from opt.om) && !(of from opt.oq)) opt.om.push(of)
+  }
   get opt
 }
 
-def build (of, fo, opt={}) {
-  out(opt.la)
-  opt.top = new tree()
+def build (of, fo) {
+  out('js')
+  opt = {top: new tree()}
   om = [of]
   oq = []
   text = ''
@@ -109,11 +113,13 @@ def build (of, fo, opt={}) {
       opt.om = om
       opt.oq = oq
       oq.push(of)
-      opt = parse(text, opt)
+      opt = parse(opt, text)
       om = opt.om
     }
   }
+  output = opt.top.show()
+  if (output) fs.write(fo, output)
 }
 
 args = process.argv
-build(args[2], args[3], args[4])
+build(args[1], args[2])
