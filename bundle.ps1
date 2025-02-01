@@ -25,7 +25,7 @@ Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName _copy
         $self = $this.copy()
         function return_root ($root) { if ($root -ne $self) { return $root.copy($true) } }
 
-        return $self.transform([transforms]::new()(return_root))
+        return $self.transform([transforms]::new((return_root)))
     }
     return $this::new()
 }
@@ -39,16 +39,16 @@ Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName obser
 Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName transform -Value { param($trees, $trim)
     $trees += $this
 
-    if ($trees.before) $transformed = $trees.before($this, $this.ascend, $trim)
+    if ($trees.before) { $transformed = $trees.before($this, $this.ascend, $trim) }
     if (!$transformed) {
         $transformed = $this
         $this.ascend($transformed, $trees)
         if ($trees.after) {
             $after = $trees.after($transformed, $trim)
-            if ($after) $transformed = $after
+            if ($after) { $transformed = $after }
         }
     }
-    $trees = $trees[0..($trees.Length - 1)]
+    $trees = $trees[0..($trees.Length - 2)]
     return $transformed
 }
 
@@ -62,7 +62,7 @@ class menta : tree {
 class observes {
     $callback; $stack; observes ($callback) {
         $this.callback = $callback
-        $this.stack = []
+        $this.stack = @()
     }
     observe ($root, $ascend) {
         $this.stack += $root
@@ -78,7 +78,7 @@ class transforms : observes {
 
 
 function out ($la) {
-    if ($la == 'js') { Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName show -Value $func }
+    if ($la -eq 'js') { Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName show -Value $func }
 }
 
 function solve ($file, $folder) {
@@ -88,21 +88,21 @@ function solve ($file, $folder) {
 function parse ($opt, $text) {
     if ($false) {
         $of = solve $opt.of $mod.value
-        if (!($opt.om -contains $of) -and !($opt.oq -contains $of)) { $opt.om.push($of) }
+        if (($of -notin $opt.om) -and ($of -notin $opt.oq)) { $opt.om.push($of) }
     }
     return $opt
 }
 
 function build ($of, $fo) {
-    $out('js')
-    $opt = {top = [tree]::new()}
-    $om = [$of]
-    $oq = []
+    out 'js'
+    $opt = @{top = [tree]::new({})}
+    $om = @($of)
+    $oq = @()
 
     while ($om.Length) {
         $of = $om[0]
-        if ($oq -contains $of) {
-            $om = $om[1..($om.Length - 1)]
+        if ($of -in $oq) {
+            $om = $om[1..$om.Length]
         } else {
             try {
                 $text = Get-Content -Path $of
@@ -118,7 +118,7 @@ function build ($of, $fo) {
         }
     }
     $output = $opt.top.show()
-    if ($output) { $output > $of }
+    if ($output) { $output > $fo }
 }
 
 
