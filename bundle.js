@@ -59,6 +59,25 @@ class menta extends tree {
   }
 }
 
+class statea extends menta {
+  constructor (props) {
+    super()
+    this.func('statea', ['b', 'a', 'z', 'f'], props)
+  }
+}
+statea.prototype.ascend = function (self, trees) {
+  self.b = self.b.transform(trees)
+}
+statea.prototype.branch = function (push) {
+  push(this.b)
+}
+statea.prototype.equals = return_true
+statea.prototype.observe = function (observer) {
+  return observer.observe(this, function () {
+    this.b.observe(observer)
+  })
+}
+
 class observes {
   constructor (callback) {
     this.callback = callback
