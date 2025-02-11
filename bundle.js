@@ -1,4 +1,4 @@
-// node done
+// terser done
 
 import fs from 'fs'
 
