@@ -52,6 +52,37 @@ tree.prototype.transform = function (trees, trim) {
   return transformed
 }
 
+function tray (array, trees) {
+  let a
+  let t = []
+  for (let i = 0; i < array.length; i++) {
+    a = array[i].transform(trees, true)
+    a instanceof tree ? t.push(a) : a.v && t.push(...a.v)
+  }
+  return t
+}
+
+class arraya extends tree {
+  constructor (props) {
+    super()
+    this.func('arraya', ['s', 'a', 'z', 'f'], props)
+  }
+}
+arraya.prototype.ascend = function (self, trees) {
+  self.s = tray(self.s, trees)
+}
+arraya.prototype.branch = function (push) {
+  let i = this.s.length
+  while (i--) push(this.s[i])
+}
+arraya.prototype.equals = return_true
+arraya.prototype.observe = function (observer) {
+  return observer.observe(this, function () {
+    let i = this.s.length
+    while (i--) this.s[i].observe(observer)
+  })
+}
+
 class menta extends tree {
   constructor (props) {
     super()
