@@ -83,6 +83,104 @@ arraya.prototype.observe = function (observer) {
   })
 }
 
+class awaita extends tree {
+  constructor (props) {
+    super()
+    this.func('awaita', ['e', 'a', 'z', 'f'], props)
+  }
+}
+awaita.prototype.ascend = function (self, trees) {
+  self.e = self.e.transform(trees)
+}
+awaita.prototype.branch = function (push) {
+  push(this.e)
+}
+awaita.prototype.equals = return_true
+awaita.prototype.observe = function (observer) {
+  return observer.observe(this, function () {
+    this.e.observe(observer)
+  })
+}
+
+class spreada extends awaita {
+  constructor (props) {
+    super()
+    this.func('spreada', ['e', 'a', 'z', 'f'], props)
+  }
+}
+
+class tiea extends awaita {
+  constructor (props) {
+    super()
+    this.func('tiea', ['e', 'a', 'z', 'f'], props)
+  }
+}
+
+class unarya extends awaita {
+  constructor (props) {
+    super()
+    this.func('unarya', ['o', 'e', 'a', 'z', 'f'], props)
+  }
+}
+unarya.prototype.equals = function (other) {
+  return this.o == other.o
+}
+
+class prefixa extends unarya {
+  constructor (props) {
+    super()
+    this.func('prefixa', ['o', 'e', 'a', 'z', 'f'], props)
+  }
+}
+
+class postfixa extends unarya {
+  constructor (props) {
+    super()
+    this.func('postfixa', ['o', 'e', 'a', 'z', 'f'], props)
+  }
+}
+
+class yielda extends awaita {
+  constructor (props) {
+    super()
+    this.func('yielda', ['y', 'e', 'a', 'z', 'f'], props)
+  }
+}
+yielda.prototype.equals = function (other) {
+  return this.y == other.y
+}
+
+class binarya extends tree {
+  constructor (props) {
+    super()
+    this.func('binarya', ['o', 'l', 'r', 'a', 'z', 'f'], props)
+  }
+}
+binarya.prototype.ascend = function (self, trees) {
+  self.l = self.l.transform(trees)
+  self.r = self.r.transform(trees)
+}
+binarya.prototype.branch = function (push) {
+  push(this.l)
+  push(this.r)
+}
+binarya.prototype.equals = function (other) {
+  return this.o == other.o
+}
+binarya.prototype.observe = function (observer) {
+  return observer.observe(this, function () {
+    this.l.observe(observer)
+    this.r.observe(observer)
+  })
+}
+
+class seta extends binarya {
+  constructor (props) {
+    super()
+    this.func('seta', ['g', 'o', 'l', 'r', 'a', 'z', 'f'], props)
+  }
+}
+
 class menta extends tree {
   constructor (props) {
     super()
