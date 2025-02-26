@@ -181,6 +181,39 @@ class seta extends binarya {
   }
 }
 
+function traverse (self, observer) {
+  for (let i = 0, l = self.b.length; i < l; i++) {
+    self.b[i].observe(observer)
+  }
+}
+
+class blocka extends tree {
+  constructor (props) {
+    super()
+    this.func('blocka', ['b', 'k', 'a', 'z', 'f'], props)
+  }
+}
+blocka.prototype.ascend = function (self, trees) {
+  self.b = tray(self.b, trees)
+}
+blocka.prototype.branch = function (push) {
+  let i = this.b.length
+  while (i--) push(this.b[i])
+}
+blocka.prototype.equals = return_true
+blocka.prototype.observe = function (observer) {
+  return observer.observe(this, function () {
+    traverse(this, observer)
+  })
+}
+
+class blockmenta extends blocka {
+  constructor (props) {
+    super()
+    this.func('blockmenta', ['b', 'k', 'a', 'z', 'f'], props)
+  }
+}
+
 class menta extends tree {
   constructor (props) {
     super()
