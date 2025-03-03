@@ -1,4 +1,4 @@
-// terser done
+// terser egit
 
 import fs from 'fs'
 
