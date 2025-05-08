@@ -280,7 +280,7 @@ class ast_literal extends tree {
     this.func('ast_literal', ['start', 'end', 'file'], props)
   }
 }
-ast_literal.prototype.getValue = function () {
+ast_literal.prototype.get_value = function () {
   return this.value
 }
 
@@ -389,12 +389,10 @@ ast_string.prototype.equals = function (other) {
 }
 
 function member (name, array) { return array.includes(name) }
+
 function owns (obj, prop) { return Object.prototype.hasOwnProperty.call(obj, prop) }
-function list_overhead (array) { return array.length && array.length - 1 }
-function lambda_modifiers (func) { return func.gen ? 1 : 0 + func.sync ? 6 : 0}
-function key_size (key) { return typeof key == 'string' ? key.length : 0}
+
 function chars (string) { return string.split('') }
-function static_size (sttc) { return sttc ? 7 : 0}
 
 function defaults (args, defs) {
   if (args === true) args = {}
@@ -426,6 +424,7 @@ function remove (array, el) {
 
 function merge_sort (array, cmp) {
   if (array.length < 2) return array.slice()
+
   function merge (a, b) {
     const r = []
     let ai = 0, bi = 0, i = 0
@@ -436,6 +435,7 @@ function merge_sort (array, cmp) {
     if (bi < b.length) r.push.apply(r, b.slice(bi))
     return r
   }
+
   function _merge_sort (a) {
     if (a.length <= 1) return a
     const m = Math.floor(a.length / 2)
@@ -453,10 +453,11 @@ function make_set (words) {
 }
 
 function map_add (map, key, value) {
-  map.has(key) ? map.get(key).push(value) : map.set(key, [ value ])
+  map.has(key) ? map.get(key).push(value) : map.set(key, [value])
 }
 
 const line_escape = {'\0': '0', '\n': 'n', '\r': 'r', '\u2028': 'u2028', '\u2029': 'u2029'}
+
 function escape_regexp (match, offset) {
   const escaped = source[offset - 1] == '\\' && (source[offset - 2] != '\\'
     || /(?:^|[^\\])(?:\\{2})*$/.test(source.slice(0, offset - 1)))
@@ -467,7 +468,7 @@ function source_regexp (source) {
   return source.replace(/[\0\n\r\u2028\u2029]/g, escape_regexp)
 }
 
-const regexp_is_safe = (source) => /^[\\/|\0\s\w^$.[\]()]*$/.test(source)
+const regexp_is_safe = source => /^[\\/|\0\s\w^$.[\]()]*$/.test(source)
 const all_flags = 'dgimsuyv'
 function sort_regexp_flags (flags) {
   const existing_flags = new Set(flags.split(''))
@@ -768,7 +769,8 @@ ast_with.prototype.ascend = function (self, trees) {
 class ast_scope extends ast_block {
   constructor (props) {
     super()
-    this.func('ast_scope', ['variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_scope', ['vars', 'withs', 'eval', 'parents', 'encl',
+      'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 ast_scope.prototype.get_defun_scope = function () {
@@ -778,10 +780,10 @@ ast_scope.prototype.get_defun_scope = function () {
 }
 ast_scope.prototype.copy = function (deep, toplevel) {
   const root = this._copy(deep)
-  if (deep && this.variables && toplevel && !this._block_scope) {
+  if (deep && this.vars && toplevel && !this._block_scope) {
     root.figure_out_scope({}, {toplevel: toplevel, parents: this.parents})
   } else {
-    if (this.variables) root.variables = new Map(this.variables)
+    if (this.vars) root.vars = new Map(this.vars)
     if (this.encl) root.encl = this.encl.slice()
     if (this._block_scope) root._block_scope = this._block_scope
   }
@@ -794,7 +796,8 @@ ast_scope.prototype.pinned = function () {
 class ast_toplevel extends ast_scope {
   constructor (props) {
     super()
-    this.func('ast_toplevel', ['globals', 'variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_toplevel', ['globals', 'vars', 'withs', 'eval', 'parents', 'encl',
+      'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 ast_toplevel.prototype.equals = return_true
@@ -808,7 +811,8 @@ ast_toplevel.prototype.wrap_enclose = function () {
 class ast_lambda extends ast_scope {
   constructor (props) {
     super()
-    this.func('ast_lambda', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_lambda', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'vars', 'withs', 'eval',
+      'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 ast_lambda.prototype.equals = function (other) {
@@ -816,7 +820,7 @@ ast_lambda.prototype.equals = function (other) {
 }
 ast_lambda.prototype.args_as_names = function () {
   const out = []
-  for (let i = 0, len=this.argnames.length; i < len; i++) {
+  for (let i = 0, length = this.argnames.length; i < length; i++) {
     this.argnames[i] instanceof ast_destructure ? out.push(...this.argnames[i].all_symbols()) : out.push(this.argnames[i])
   }
   return out
@@ -825,7 +829,7 @@ ast_lambda.prototype.observe = function (observer) {
   return observer.observe(this, function () {
     if (this.name) this.name.observe(observer)
     const argnames = this.argnames
-    for (let i = 0, len = argnames.length; i < len; i++) {
+    for (let i = 0, length = argnames.length; i < length; i++) {
       argnames[i].observe(observer)
     }
     traverse(this, observer)
@@ -851,34 +855,38 @@ ast_lambda.prototype.length_property = function () {
 ast_lambda.prototype.ascend = function (self, trees) {
   if (self.name) self.name = self.name.transform(trees)
   self.argnames = tray(self.argnames, trees)
-  self.body instanceof tree ? self.body = self.body.transform(trees) : self.body = tray(self.body, trees)
+  self.body = self.body instanceof tree ? self.body.transform(trees) : tray(self.body, trees)
 }
 
 class ast_accessor extends ast_lambda {
   constructor (props) {
     super()
-    this.func('ast_accessor', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_accessor', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'vars', 'withs', 'eval',
+      'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 
 class ast_function extends ast_lambda {
   constructor (props) {
     super()
-    this.func('ast_function', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_function', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'vars', 'withs', 'eval',
+      'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 
 class ast_arrow extends ast_lambda {
   constructor (props) {
     super()
-    this.func('ast_arrow', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_arrow', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'vars', 'withs', 'eval',
+      'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 
 class ast_defun extends ast_lambda {
   constructor (props) {
     super()
-    this.func('ast_defun', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_defun', ['name', 'argnames', 'uses_args', 'gen', 'sync', 'vars', 'withs', 'eval',
+      'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 
@@ -1103,7 +1111,8 @@ class ast_try extends tree {
   }
 }
 ast_try.prototype.equals = function (other) {
-  return (this.body === other.body) && (this.bcatch == null ? other.bcatch == null : this.bcatch === other.bcatch) && (this.bfinally == null ? other.bfinally == null : this.bfinally === other.bfinally)
+  return this.body === other.body && (this.bcatch == null ? other.bcatch == null : this.bcatch === other.bcatch)
+    && (this.bfinally == null ? other.bfinally == null : this.bfinally === other.bfinally)
 }
 ast_try.prototype.observe = function (observer) {
   return observer.observe(this, function () {
@@ -1173,7 +1182,7 @@ ast_definitions.prototype.equals = return_true
 ast_definitions.prototype.observe = function (observer) {
   return observer.observe(this, function () {
     const defs = this.defs
-    for (let i = 0, len = defs.length; i < len; i++) {
+    for (let i = 0, length = defs.length; i < length; i++) {
       defs[i].observe(observer)
     }
   })
@@ -1259,7 +1268,7 @@ ast_name_mapping.prototype.ascend = function (self, trees) {
 class ast_import extends tree {
   constructor (props) {
     super()
-    this.func('ast_import', ['import_name', 'import_names', 'module_name', 'assert_clause', 'start', 'end', 'file'], props)
+    this.func('ast_import', ['import_name', 'import_names', 'module','assert_clause', 'start', 'end', 'file'], props)
   }
 }
 ast_import.prototype.equals = function (other) {
@@ -1274,11 +1283,11 @@ ast_import.prototype.observe = function (observer) {
         name_import.observe(observer)
       })
     }
-    this.module_name.observe(observer)
+    this.module.observe(observer)
   })
 }
 ast_import.prototype.branch = function (push) {
-  push(this.module_name)
+  push(this.module)
   if (this.import_names) {
     let i = this.import_names.length
     while (i--) push(this.import_names[i])
@@ -1288,17 +1297,21 @@ ast_import.prototype.branch = function (push) {
 ast_import.prototype.ascend = function (self, trees) {
   if (self.import_name) self.import_name = self.import_name.transform(trees)
   if (self.import_names) tray(self.import_names, trees)
-  self.module_name = self.module_name.transform(trees)
+  self.module = self.module.transform(trees)
 }
 
 class ast_export extends tree {
   constructor (props) {
     super()
-    this.func('ast_export', ['defined', 'value', 'is_default', 'names', 'module_name', 'assert_clause', 'start', 'end', 'file'], props)
+    this.func('ast_export', ['defined', 'value', 'is_default', 'names', 'module',
+      'assert_clause', 'start', 'end', 'file'], props)
   }
 }
 ast_export.prototype.equals = function (other) {
-  return (this.defined == null ? other.defined == null : this.defined === other.defined) && (this.value == null ? other.value == null : this.value === other.value) && (this.names == null ? other.names == null : this.names === other.names) && this.module_name === other.module_name && this.is_default === other.is_default
+  return (this.defined == null ? other.defined == null : this.defined === other.defined)
+    && (this.value == null ? other.value == null : this.value === other.value)
+    && (this.names == null ? other.names == null : this.names === other.names)
+    && this.module === other.module && this.is_default === other.is_default
 }
 ast_export.prototype.observe = function (observer) {
   return observer.observe(this, function () {
@@ -1309,11 +1322,11 @@ ast_export.prototype.observe = function (observer) {
         name_export.observe(observer)
       })
     }
-    if (this.module_name) this.module_name.observe(observer)
+    if (this.module) this.module.observe(observer)
   })
 }
 ast_export.prototype.branch = function (push) {
-  if (this.module_name) push(this.module_name)
+  if (this.module) push(this.module)
   if (this.names) {
     let i = this.names.length
     while (i--) push(this.names[i])
@@ -1325,30 +1338,30 @@ ast_export.prototype.ascend = function (self, trees) {
   if (self.defined) self.defined = self.defined.transform(trees)
   if (self.value) self.value = self.value.transform(trees)
   if (self.names) tray(self.names, trees)
-  if (self.module_name) self.module_name = self.module_name.transform(trees)
+  if (self.module) self.module = self.module.transform(trees)
 }
 
 class ast_sequence extends tree {
   constructor (props) {
     super()
-    this.func('ast_sequence', ['expressions', 'start', 'end', 'file'], props)
+    this.func('ast_sequence', ['exprs', 'start', 'end', 'file'], props)
   }
 }
 ast_sequence.prototype.equals = return_true
 ast_sequence.prototype.observe = function (observer) {
   return observer.observe(this, function () {
-    this.expressions.forEach(function (root) {
+    this.exprs.forEach(function (root) {
       root.observe(observer)
     })
   })
 }
 ast_sequence.prototype.branch = function (push) {
-  let i = this.expressions.length
-  while (i--) push(this.expressions[i])
+  let i = this.exprs.length
+  while (i--) push(this.exprs[i])
 }
 ast_sequence.prototype.ascend = function (self, trees) {
-  const result = tray(self.expressions, trees)
-  self.expressions = result.length ? result: [new ast_number({value: 0})]
+  const result = tray(self.exprs, trees)
+  self.exprs = result.length ? result : [new ast_number({value: 0})]
 }
 
 class ast_prop_access extends tree {
@@ -1359,14 +1372,14 @@ class ast_prop_access extends tree {
 }
 ast_prop_access.prototype.observe = function (observer) {
   return observer.observe(this, function () {
-    this.expressions.forEach(function (root) {
+    this.exprs.forEach(function (root) {
       root.observe(observer)
     })
   })
 }
 ast_prop_access.prototype.branch = function (push) {
-  let i = this.expressions.length
-  while (i--) push(this.expressions[i])
+  let i = this.exprs.length
+  while (i--) push(this.exprs[i])
 }
 ast_prop_access.prototype.ascend = function (self, trees) {
   self.expr = self.expr.transform(trees)
@@ -1440,7 +1453,7 @@ ast_object.prototype.equals = return_true
 ast_object.prototype.observe = function (observer) {
   return observer.observe(this, function () {
     const properties = this.properties
-    for (let i = 0, len = properties.length; i < len; i++) {
+    for (let i = 0, length = properties.length; i < length; i++) {
       properties[i].observe(observer)
     }
   })
@@ -1533,7 +1546,8 @@ ast_object_getter.prototype.computed_key = function () {
 class ast_concise_method extends ast_object_property {
   constructor (props) {
     super()
-    this.func('ast_concise_method', ['quote', 'static', 'gen', 'sync', 'key', 'value', 'anno', 'start', 'end', 'file'], props)
+    this.func('ast_concise_method', ['quote', 'static', 'gen', 'sync', 'key',
+      'value', 'anno', 'start', 'end', 'file'], props)
   }
 }
 ast_concise_method.prototype.equals = function (other) {
@@ -1553,17 +1567,19 @@ class ast_private_method extends ast_concise_method {
 class ast_class extends ast_scope {
   constructor (props) {
     super()
-    this.func('ast_class', ['name', 'extends', 'properties', 'variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_class', ['name', 'extends', 'properties', 'vars', 'withs', 'eval', 'parents', 'encl',
+      'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 ast_class.prototype.equals = function (other) {
-  return (this.name == null ? other.name == null : this.name === other.name) && (this.extends == null ? other.extends == null : this.extends === other.extends)
+  return (this.name == null ? other.name == null : this.name === other.name)
+    && (this.extends == null ? other.extends == null : this.extends === other.extends)
 }
 ast_class.prototype.observe = function (observer) {
   return observer.observe(this, function () {
     if (this.name) this.name.observe(observer)
     if (this.extends) this.extends.observe(observer)
-    this.properties.forEach((prop) => prop.observe(observer))
+    this.properties.forEach(prop => prop.observe(observer))
   })
 }
 ast_class.prototype.branch = function (push) {
@@ -1574,7 +1590,7 @@ ast_class.prototype.branch = function (push) {
 }
 ast_class.prototype.visit_nondeferred_class_parts = function (observer) {
   if (this.extends) this.extends.observe(observer)
-  this.properties.forEach((prop) => {
+  this.properties.forEach(prop => {
     if (prop instanceof ast_class_static) {
       prop.observe(observer)
       return
@@ -1592,7 +1608,7 @@ ast_class.prototype.visit_nondeferred_class_parts = function (observer) {
   })
 }
 ast_class.prototype.visit_deferred_class_parts = function (observer) {
-  this.properties.forEach((prop) => {
+  this.properties.forEach(prop => {
     if (prop instanceof ast_concise_method) {
       prop.observe(observer)
     } else if (prop instanceof ast_class_property && !prop.static && prop.value) {
@@ -1679,7 +1695,8 @@ ast_private_in.prototype.ascend = function (self, trees) {
 class ast_def_class extends ast_class {
   constructor (props) {
     super()
-    this.func('ast_def_class', ['name', 'extends', 'properties', 'variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_def_class', ['name', 'extends', 'properties', 'vars', 'withs', 'eval', 'parents',
+      'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 
@@ -1707,7 +1724,8 @@ ast_class_static.prototype.ascend = function (self, trees) {
 class ast_class_expression extends ast_class {
   constructor (props) {
     super()
-    this.func('ast_class_expression', ['name', 'extends', 'properties', 'variables', 'withs', 'eval', 'parents', 'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
+    this.func('ast_class_expression', ['name', 'extends', 'properties', 'vars', 'withs', 'eval', 'parents',
+      'encl', 'cname', 'body', 'blocks', 'start', 'end', 'file'], props)
   }
 }
 
@@ -1896,9 +1914,11 @@ class ast_super extends ast_this {
 }
 ast_super.prototype.equals = return_true
 
-function node_size (root, func) { root.prototype.size = func }
+function node_size (root, func) {
+  root.prototype.size = func
+}
 
-node_size(tree, function (compressor, stack) {
+node_size(tree, function (node, stack) {
   let size = 0
   walk_parent(this, (root, info) => {
     size += root._size(info)
@@ -1906,13 +1926,21 @@ node_size(tree, function (compressor, stack) {
       size += root.body[0].value._size(info)
       return true
     }
-  }, stack || (compressor && compressor.stack))
+  }, stack || (node && node.stack))
   return size
 })
 
+function len1 (array) { return array.length && array.length - 1 }
+
+function lambda_size (func) { return func.gen ? 1 : 0 + func.sync ? 6 : 0 }
+
+function key_size (key) { return typeof key == 'string' ? key.length : 0 }
+
+function static_size (sttc) { return sttc ? 7 : 0 }
+
 tree.prototype._size = () => 0
 ast_directive.prototype._size = () => 2 + this.value.length
-ast_block.prototype._size = () => 2 + list_overhead(this.body)
+ast_block.prototype._size = function () { return 2 + len1(this.body) }
 ast_empty_statement.prototype._size = () => 1
 ast_labeled_statement.prototype._size = () => 2
 ast_do.prototype._size = () => 9
@@ -1920,64 +1948,59 @@ ast_while.prototype._size = () => 7
 ast_for.prototype._size = () => 8
 ast_for_in.prototype._size = () => 8
 ast_with.prototype._size = () => 6
-ast_toplevel.prototype._size = () => list_overhead(this.body)
+ast_toplevel.prototype._size = function () { return len1(this.body) }
 ast_spread.prototype._size = () => 3
 ast_debugger.prototype._size = () => 8
-ast_accessor.prototype._size = function () {
-  4 + lambda_modifiers(this) + list_overhead(this.argnames) + list_overhead(this.body)
-}
-ast_function.prototype._size = function (info) {
-  12 + (!!first_in_statement(info) * 2) + lambda_modifiers(this) + list_overhead(this.argnames) + list_overhead(this.body)
-}
+ast_accessor.prototype._size = function () { 4 + lambda_size(this) + len1(this.argnames) + len1(this.body) }
+ast_function.prototype._size = function (info) { return 12 + (!!first(info) * 2) + lambda_size(this)
+  + len1(this.argnames) + len1(this.body) }
 ast_arrow.prototype._size = function () {
-  let args_and_arrow = 2 + list_overhead(this.argnames)
+  let args_and_arrow = 2 + len1(this.argnames)
   if (!(this.argnames.length === 1 && this.argnames[0] instanceof ast_symbol)) args_and_arrow += 2
-  return lambda_modifiers(this) + args_and_arrow + (this.is_braceless() ? 0: list_overhead(this.body) + 2)
+  return lambda_size(this) + args_and_arrow + (this.is_braceless() ? 0 : len1(this.body) + 2)
 }
-ast_defun.prototype._size = function () {
-  13 + lambda_modifiers(this) + list_overhead(this.argnames) + list_overhead(this.body)
-}
+ast_defun.prototype._size = function () { 13 + lambda_size(this) + len1(this.argnames) + len1(this.body) }
 ast_destructure.prototype._size = () => 2
-ast_template_string.prototype._size = () => 2 + (Math.floor(this.segments.length / 2) * 3)
-ast_template_segment.prototype._size = () => this.value.length
-ast_return.prototype._size = function () { return this.value ? 7: 6 }
+ast_template_string.prototype._size = function () { return 2 + (Math.floor(this.segments.length / 2) * 3) }
+ast_template_segment.prototype._size = function () { return this.value.length }
+ast_return.prototype._size = function () { return this.value ? 7 : 6 }
 ast_return.prototype._size = () => 6
 ast_break.prototype._size = function () { return this.label ? 6 : 5 }
 ast_continue.prototype._size = function () { return this.label ? 9 : 8 }
 ast_await.prototype._size = () => 6
 ast_yield.prototype._size = () => 6
 ast_if.prototype._size = () => 4
-ast_switch.prototype._size = function () { return 8 + list_overhead(this.body) }
-ast_default.prototype._size = function () { return 8 + list_overhead(this.body) }
-ast_case.prototype._size = function () { return 5 + list_overhead(this.body) }
+ast_switch.prototype._size = function () { return 8 + len1(this.body) }
+ast_default.prototype._size = function () { return 8 + len1(this.body) }
+ast_case.prototype._size = function () { return 5 + len1(this.body) }
 ast_try.prototype._size = () => 3
-ast_catch.prototype._size = function () { return 7 + list_overhead(this.body) + (this.argname ? 2 : 0) }
-ast_finally.prototype._size = function () { return 7 + list_overhead(this.body) }
-ast_var.prototype._size = function () { return 4 + list_overhead(this.defs) }
-ast_let.prototype._size = function () { return 4 + list_overhead(this.defs) }
-ast_const.prototype._size = function () { return 6 + list_overhead(this.defs) }
+ast_catch.prototype._size = function () { return 7 + len1(this.body) + (this.argname ? 2 : 0) }
+ast_finally.prototype._size = function () { return 7 + len1(this.body) }
+ast_var.prototype._size = function () { return 4 + len1(this.defs) }
+ast_let.prototype._size = function () { return 4 + len1(this.defs) }
+ast_const.prototype._size = function () { return 6 + len1(this.defs) }
 ast_var_def.prototype._size = function () { return this.value ? 1 : 0 }
-ast_name_mapping.prototype._size = function () { return this.name ? 4: 0 }
+ast_name_mapping.prototype._size = function () { return this.name ? 4 : 0 }
 ast_import.prototype._size = function () {
   let size = 6
   if (this.import_name) size += 1
   if (this.import_name || this.import_names) size += 5
-  if (this.import_names) size += 2 + list_overhead(this.import_names)
+  if (this.import_names) size += 2 + len1(this.import_names)
   return size
 }
 ast_export.prototype._size = function () {
-  let size = 7 + (this.is_default ? 8: 0)
+  let size = 7 + (this.is_default ? 8 : 0)
   if (this.value) size += this.value._size()
-  if (this.names) size += 2 + list_overhead(this.names)
-  if (this.module_name) size += 5
+  if (this.names) size += 2 + len1(this.names)
+  if (this.module) size += 5
   return size
 }
-ast_call.prototype._size = function () { return this.optional ? 4 + list_overhead(this.args): 2 + list_overhead(this.args) }
-ast_new.prototype._size = function () { return 6 + list_overhead(this.args) }
-ast_sequence.prototype._size = function () { return list_overhead(this.expressions) }
+ast_call.prototype._size = function () { return this.optional ? 4 + len1(this.args) : 2 + len1(this.args) }
+ast_new.prototype._size = function () { return 6 + len1(this.args) }
+ast_sequence.prototype._size = function () { return len1(this.exprs) }
 ast_dot.prototype._size = function () { return this.property.length + this.optional ? 2 : 1 }
-ast_dot_hash.prototype._size = function () { return this.property.length + this.optional ? 3: 2 }
-ast_sub.prototype._size = function () { return this.optional ? 4: 2 }
+ast_dot_hash.prototype._size = function () { return this.property.length + this.optional ? 3 : 2 }
+ast_sub.prototype._size = function () { return this.optional ? 4 : 2 }
 ast_unary.prototype._size = function () {
   if (this.operator == 'typeof') return 7
   if (this.operator == 'void') return 5
@@ -1986,19 +2009,23 @@ ast_unary.prototype._size = function () {
 ast_binary.prototype._size = function (info) {
   if (this.operator == 'in') return 4
   let size = this.operator.length
-  if ((this.operator == '+' || this.operator == '-') && this.right instanceof ast_unary && this.right.operator === this.operator) size += 1
+  if ((this.operator == '+' || this.operator == '-') && this.right instanceof ast_unary
+    && this.right.operator === this.operator) size += 1
   if (this.needs_parens(info)) size += 2
   return size
 }
 ast_conditional.prototype._size = () => 3
-ast_array.prototype._size = function () { return 2 + list_overhead(this.elements) }
-ast_object.prototype._size = function (info) { return 2 + list_overhead(this.properties) + first_in_statement(info) ? 2 : 0 }
+ast_array.prototype._size = function () { return 2 + len1(this.elements) }
+ast_object.prototype._size = function (info) { return 2 + len1(this.properties) + first(info) ? 2 : 0 }
 ast_key_value.prototype._size = function () { return key_size(this.key) + 1 }
-ast_private_getter.prototype._size = function () { return static_size(this.static) + key_size(this.key) + lambda_modifiers(this) + 4 }
+ast_private_getter.prototype._size = function () { return static_size(this.static) + key_size(this.key)
+  + lambda_size(this) + 4 }
 ast_object_setter.prototype._size = function () { return 5 + static_size(this.static) + key_size(this.key) }
 ast_object_getter.prototype._size = function () { return 5 + static_size(this.static) + key_size(this.key) }
-ast_concise_method.prototype._size = function () { return static_size(this.static) + key_size(this.key) + lambda_modifiers(this) }
-ast_private_method.prototype._size = function () { return static_size(this.static) + key_size(this.key) + lambda_modifiers(this) + 1 }
+ast_concise_method.prototype._size = function () { return static_size(this.static) + key_size(this.key)
+  + lambda_size(this) }
+ast_private_method.prototype._size = function () { return static_size(this.static) + key_size(this.key)
+  + lambda_size(this) + 1 }
 ast_class.prototype._size = function () { return (this.name ? 8 : 7) + (this.extends ? 8 : 0) }
 ast_class_property.prototype._size = function () {
   return static_size(this.static) + (typeof this.key == 'string' ? this.key.length + 2 : 0) + (this.value ? 1 : 0)
@@ -2007,7 +2034,7 @@ ast_private_property.prototype._size = function () {
   return static_size(this.static) + (typeof this.key == 'string' ? this.key.length + 2 : 0) + (this.value ? 1 : 0) + 1
 }
 ast_private_in.prototype._size = () => 5
-ast_class_static.prototype._size = function () { return 8 + list_overhead(this.body)}
+ast_class_static.prototype._size = function () { return 8 + len1(this.body) }
 ast_symbol.prototype._size = () => 1
 ast_new_target.prototype._size = () => 10
 ast_declaration.prototype._size = function () { return this.name == 'arguments' ? 9 : 1 }
@@ -2036,11 +2063,13 @@ ast_true.prototype._size = () => 4
 
 const dont_mangle = 1, want_mangle = 2
 
+const walk_abort = Symbol('abort walk')
+
 let block_scopes = null
 
 function redefined_catch_def (root) {
   if (root.orig[0] instanceof ast_symbol_catch && root.scope.is_block_scope()) {
-    return root.scope.get_defun_scope().variables.get(root.file + '/' + root.name)
+    return root.scope.get_defun_scope().vars.get(root.file + '/' + root.name)
   }
 }
 
@@ -2048,10 +2077,10 @@ class symbol_def {
   constructor (scope, orig, init) {
     this.name = orig.name
     this.file = orig.file
-    this.orig = [ orig ]
+    this.orig = [orig]
     this.init = init
     this.eliminated = 0
-    this.assignments = 0
+    this.assigns = 0
     this.scope = scope
     this.replaced = 0
     this.global = false
@@ -2084,11 +2113,11 @@ class symbol_def {
     if (this.global && cache && cache.has(this.name)) {
       this.mangled_name = cache.get(this.name)
     } else if (!this.mangled_name && !this.unmangleable(options)) {
-      const redefinition = redefined_catch_def(this)
-      this.mangled_name = redefinition ? redefinition.mangled_name || redefinition.name : this.scope.next_mangled(options, this)
+      const redef = redefined_catch_def(this)
+      this.mangled_name = redef ? redef.mangled_name || redef.name : this.scope.next_mangled(options, this)
       if (this.global && cache) cache.set(this.name, this.mangled_name)
-    } else if (this.global && cache) {
-      cache.set(this.name, this.mangled_name)
+    } else {
+      if (this.global && cache) cache.set(this.name, this.mangled_name)
     }
   }
   static next_id = 1
@@ -2097,7 +2126,7 @@ class symbol_def {
 ast_scope.prototype.figure_out_scope = function (options, {parents = null, toplevel = this} = {}) {
   options = defaults(options, {'cache': null, 'module': false})
   if (!(toplevel instanceof ast_toplevel)) throw new Error('bad toplevel scope')
-  let scope = this.parents = parents, labels = new Map(), defun = null, in_destructure = null
+  let scope = this.parents = parents, labels = new Map(), defun, destructure
   let trees = new observes((root, ascend) => {
     if (root.is_block_scope()) {
       const save_scope = scope
@@ -2121,10 +2150,10 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = null, tople
       return true
     }
     if (root instanceof ast_destructure) {
-      const save_destructure = in_destructure
-      in_destructure = root
+      const save_destructure = destructure
+      destructure = root
       ascend()
-      in_destructure = save_destructure
+      destructure = save_destructure
       return true
     }
     if (root instanceof ast_scope) {
@@ -2139,15 +2168,15 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = null, tople
       return true
     }
     if (root instanceof ast_labeled_statement) {
-      const l = root.label
-      if (labels.has(l.name)) throw new Error('duplciate label' + l)
-      labels.set(l.name, l)
+      const label = root.label
+      if (labels.has(label.name)) throw new Error('duplicate label' + label)
+      labels.set(label.name, label)
       ascend()
-      labels.delete(l.name)
+      labels.delete(label.name)
       return true
     }
     if (root instanceof ast_with) {
-      for (let s = scope; s; s = s.parents) s.withs = true
+      for (let s = scope; ; s = s.parents) s.withs = true
       return
     }
     if (root instanceof ast_symbol) root.scope = scope
@@ -2192,9 +2221,9 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = null, tople
   })
   this.observe(trees)
   function mark_export (defined, level) {
-    if (in_destructure) {
+    if (destructure) {
       let i = 0
-      do { level++ } while (trees.parent(i++) !== in_destructure)
+      do { level++ } while (trees.parent(i++) != destructure)
     }
     const root = trees.parent(level)
     if (defined.export = root instanceof ast_export ? dont_mangle : 0) {
@@ -2219,7 +2248,7 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = null, tople
         }
       }
       let sym
-      if (trees.parent() instanceof ast_name_mapping && trees.parent(1).module_name
+      if (trees.parent() instanceof ast_name_mapping && trees.parent(1).module
         || !(sym = root.scope.find_variable(root, options.imports))) {
         sym = toplevel.def_global(root)
         if (root instanceof ast_symbol_export) sym.export = dont_mangle
@@ -2228,7 +2257,9 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = null, tople
       }
       root.thedef = sym
       root.reference()
-      if (root.scope.is_block_scope() && !(sym.orig[0] instanceof ast_symbol_block)) root.scope = root.scope.get_defun_scope()
+      if (root.scope.is_block_scope() && !(sym.orig[0] instanceof ast_symbol_block)) {
+        root.scope = root.scope.get_defun_scope()
+      }
       return true
     }
     let defined
@@ -2249,16 +2280,16 @@ ast_toplevel.prototype.def_global = function (root) {
   if (globals.has(name)) {
     return globals.get(name)
   } else {
-    const g = new symbol_def(this, root)
-    g.undeclared = true
-    g.global = true
-    globals.set(name, g)
-    return g
+    const global = new symbol_def(this, root)
+    global.undeclared = true
+    global.global = true
+    globals.set(name, global)
+    return global
   }
 }
 
 ast_scope.prototype.init_scope_vars = function (parents) {
-  this.variables = new Map()
+  this.vars = new Map()
   this.withs = false
   this.eval = false
   this.parents = parents
@@ -2266,18 +2297,20 @@ ast_scope.prototype.init_scope_vars = function (parents) {
   this.cname = -1
 }
 ast_scope.prototype.conflicting_def = function (name, file) {
-  return this.encl.find(defined => defined.name === name) || this.variables.has(file + '/' + name)
+  return this.encl.find(defined => defined.name === name) || this.vars.has(file + '/' + name)
     || (this.parents && this.parents.conflicting_def(name, file))
 }
 ast_scope.prototype.conflicting_def_shallow = function (name, file) {
-  return this.encl.find(defined => defined.name === name) || this.variables.has(file + '/' + name)
+  return this.encl.find(defined => defined.name === name) || this.vars.has(file + '/' + name)
 }
 ast_scope.prototype.add_child_scope = function (scope) {
   if (scope.parents === this) return
   scope.parents = this
   if ((scope instanceof ast_arrow) && !this.uses_args) {
     this.uses_args = observe(scope, root => {
-      if (root instanceof ast_symbol_ref && root.scope instanceof ast_lambda && root.name == 'arguments') return walk_abort
+      if (root instanceof ast_symbol_ref && root.scope instanceof ast_lambda && root.name == 'arguments') {
+        return walk_abort
+      }
       if (root instanceof ast_lambda && !(root instanceof ast_arrow)) return true
     })
   }
@@ -2286,7 +2319,7 @@ ast_scope.prototype.add_child_scope = function (scope) {
   const scope_ancestry = (() => {
     const ancestry = []
     let cur = this
-    do { ancestry.push(cur) } while ((cur = cur.parents))
+    do { ancestry.push(cur) } while (cur = cur.parents)
     ancestry.reverse()
     return ancestry
   })()
@@ -2294,7 +2327,7 @@ ast_scope.prototype.add_child_scope = function (scope) {
   const to_enclose = []
   for (const scope_topdown of scope_ancestry) {
     to_enclose.forEach(expr => push_uniq(scope_topdown.encl, expr))
-    for (const defined of scope_topdown.variables.values()) {
+    for (const defined of scope_topdown.vars.values()) {
       if (new_scope_enclosed_set.has(defined)) {
         push_uniq(to_enclose, defined)
         push_uniq(scope_topdown.encl, defined)
@@ -2315,19 +2348,19 @@ function find_scopes_visible_from (scopes) {
   return [...found_scopes]
 }
 
-ast_scope.prototype.create_symbol = function (sym_class, { source, tentative_name, scope,
+ast_scope.prototype.create_symbol = function (sym_class, {source, name, scope,
   conflict_scopes = [scope], init = null} = {}) {
   let symbol_name
   conflict_scopes = find_scopes_visible_from(conflict_scopes)
-  if (tentative_name) {
-    tentative_name = symbol_name = tentative_name.replace(/(?:^[^a-z_$]|[^a-z0-9_$])/ig, '_')
+  if (name) {
+    name = symbol_name = name.replace(/(?:^[^a-z_$]|[^a-z0-9_$])/ig, '_')
     let i = 0
     while (conflict_scopes.find(s => s.conflicting_def_shallow(symbol_name, s.file))) {
-      symbol_name = tentative_name + '$' + i++
+      symbol_name = name + '$' + i++
     }
   }
   if (!symbol_name) throw new Error('no symbol_name')
-  const symbol = make_node(sym_class, source, { name: symbol_name, scope})
+  const symbol = make_node(sym_class, source, {name: symbol_name, scope})
   this.def_variable(symbol, init || null)
   symbol.mark_enclosed()
   return symbol
@@ -2368,9 +2401,9 @@ ast_scope.prototype.find_variable = function (root, imports) {
   if (root instanceof ast_symbol) {
     node_name = root.file + '/' + root.name
     if (imports && node_name in imports) node_name = imports[node_name]
-    return this.variables.get(node_name) || (this.parents && this.parents.find_variable(node_name, imports))
+    return this.vars.get(node_name) || (this.parents && this.parents.find_variable(node_name, imports))
   }
-  return this.variables.get(root) || (this.parents && this.parents.find_variable(root, imports))
+  return this.vars.get(root) || (this.parents && this.parents.find_variable(root, imports))
 }
 ast_scope.prototype.def_function = function (root, init) {
   let defined = this.def_variable(root, init)
@@ -2378,13 +2411,13 @@ ast_scope.prototype.def_function = function (root, init) {
   return defined
 }
 ast_scope.prototype.def_variable = function (root, init) {
-  let name = root.file + '/' + root.name, defined = this.variables.get(name)
+  let name = root.file + '/' + root.name, defined = this.vars.get(name)
   if (defined) {
     defined.orig.push(root)
     if (defined.init && (defined.scope !== root.scope || defined.init instanceof ast_function)) defined.init = init
   } else {
     defined = new symbol_def(this, root, init)
-    this.variables.set(name, defined)
+    this.vars.set(name, defined)
     defined.global = !this.parents
   }
   return root.thedef = defined
@@ -2473,11 +2506,11 @@ ast_toplevel.prototype.mangle_names = function (options) {
       block_scopes.add(root.parents.get_defun_scope())
     }
     if (root instanceof ast_scope) {
-      root.variables.forEach(collect)
+      root.vars.forEach(collect)
       return
     }
     if (root.is_block_scope()) {
-      root.blocks.variables.forEach(collect)
+      root.blocks.vars.forEach(collect)
       return
     }
     if (root instanceof ast_label) {
@@ -2499,7 +2532,7 @@ ast_toplevel.prototype.mangle_names = function (options) {
 tree.prototype.tail_node = return_this
 
 ast_sequence.prototype.tail_node = function () {
-  return this.expressions[this.expressions.length - 1]
+  return this.exprs[this.exprs.length - 1]
 }
 
 function skip_string (root) {
@@ -2541,24 +2574,27 @@ ast_toplevel.prototype.compute_char_frequency = function (options) {
 }
 
 const base54 = (() => {
-  const leading = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$_'.split('')
-  let frequency = new Map(), chars
+  const base = 54, leading = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$_'.split('')
+  let chars, frequency = new Map()
+
   function reset () {
     frequency = new Map()
-    leading.forEach(function (char) {
-      frequency.set(char, 0)
-    })
+    leading.forEach(char => frequency.set(char, 0))
   }
+
   function consider (string, delta) {
     for (let i = string.length; --i >= 0;) {
       frequency.set(string[i], frequency.get(string[i]) + delta)
     }
   }
+
   function compare (a, b) { return frequency.get(b) - frequency.get(a) }
+
   function sort () { chars = merge_sort(leading, compare) }
+
   reset()
   sort()
-  const base = 54
+
   function get (num) {
     let name = ''
     num++
@@ -2600,7 +2636,7 @@ function walk_parent (root, cb, initial_stack) {
         return initial_stack[initial_stack.length - (n + 1)]
       }
       return stack[stack.length - (1 + n)]
-    },
+    }
   }
   while (to_visit.length) {
     current = to_visit.pop()
@@ -2623,7 +2659,6 @@ function walk_parent (root, cb, initial_stack) {
   return false
 }
 
-const walk_abort = Symbol('abort observe')
 
 class observes {
   constructor (callback) {
@@ -2662,16 +2697,14 @@ class observes {
   }
   find_parent (type) {
     const stack = this.stack
-    let i, x
-    for (i = stack.length; --i >= 0;) {
+    for (let i = stack.length, x; --i >= 0;) {
       x = stack[i]
       if (x instanceof type) return x
     }
   }
   find_scope () {
     const stack = this.stack
-    let i, x
-    for (i = stack.length; --i >= 0;) {
+    for (let i = stack.length, x; --i >= 0;) {
       x = stack[i]
       if (x instanceof ast_toplevel) return x
       if (x instanceof ast_lambda) return x
@@ -2697,7 +2730,7 @@ class observes {
       for (i = stack.length; --i >= 0;) {
         x = stack[i]
         if (x instanceof ast_labeled_statement && x.label.name == root.label.name) return x.body
-      } 
+      }
     } else {
       for (i = stack.length; --i >= 0;) {
         x = stack[i]
@@ -2718,6 +2751,7 @@ class transforms extends observes {
 function mangle_props (ast, options) {
   let cprivate = -1
   const nth = base54, private_cache = new Map()
+
   function mangle_private(name) {
     let mangled = private_cache.get(name)
     if (!mangled) {
@@ -2726,22 +2760,22 @@ function mangle_props (ast, options) {
     }
     return mangled
   }
-  ast = ast.transform(new transforms(function (root) {
-    if (root instanceof ast_private_property || root instanceof ast_private_method || root instanceof ast_private_getter
-        || root instanceof ast_private_setter || root instanceof ast_private_in) {
+
+  return ast.transform(new transforms(function (root) {
+    if (root instanceof ast_private_property || root instanceof ast_private_method
+      || root instanceof ast_private_getter || root instanceof ast_private_setter || root instanceof ast_private_in) {
       root.key.name = mangle_private(root.key.name)
     } else if (root instanceof ast_dot_hash) {
       root.property = mangle_private(root.property)
     }
   }))
-  return ast
 }
 
-function first_in_statement (stack) {
+function first (stack) {
   let root = stack.parent(-1)
   for (let i = 0, p; p = stack.parent(i); i++) {
     if (p instanceof ast_state && p.body === root) return true
-    if ((p instanceof ast_sequence && p.expressions[0] === root) ||
+    if ((p instanceof ast_sequence && p.exprs[0] === root) ||
       (p.type == 'ast_call' && p.expr === root) ||
       (p instanceof ast_prefixed_template && p.prefix === root) ||
       (p instanceof ast_dot && p.expr === root) ||
@@ -2762,12 +2796,16 @@ const _inline = 2
 const _noinline = 4
 const _key = 8
 const _mangleprop = 16
+
 const keywords_atom = make_set('false null true')
-const keywords = make_set('break case catch class const continue debugger default delete do else export extends finally for function if in instanceof let new return switch throw try typeof var void while with')
+const keywords = make_set('break case catch class const continue debugger default delete do else export extends'
+  + ' finally for function if in instanceof let new return switch throw try typeof var void while with')
 const reserved_words = new Set([...make_set('enum import super this'), ...keywords_atom, ...keywords])
-const all_reserved_words = new Set([...make_set('implements interface package private protected public static'), ...reserved_words])
-const keywords_before_expression = make_set( 'return new delete throw else case yield await')
+const all_reserved_words = new Set([...make_set('implements interface package private protected public static'),
+  ...reserved_words])
+const keywords_before_expression = make_set('return new delete throw else case yield await')
 const operator_chars = make_set(chars('+-*&%=<>!?|~^'))
+
 const re_num_literal = /[0-9a-f]/i
 const re_hex_number = /^0x[0-9a-f]+$/i
 const re_oct_number = /^0[0-7]+$/
@@ -2775,13 +2813,17 @@ const re_es6_oct_number = /^0o[0-7]+$/i
 const re_bin_number = /^0b[01]+$/i
 const re_dec_number = /^\d*\.?\d*(?:e[+-]?\d*(?:\d\.?|\.?\d)\d*)?$/i
 const re_big_int = /^(0[xob])?[0-9a-f]+n$/i
-const operators = make_set([ 'in', 'instanceof', 'typeof', 'new', 'void', 'delete', '++', '--', '+', '-', '!', '~', '&', '|', '^', '*', '**', '/', '%', '>>', '<<',
- '>>>', '<', '>', '<=', '>=', '==', '===', '!=', '!==', '?', '=', '+=', '-=', '||=', '&&=', '??=', '/=', '*=', '**=', '%=', '>>=', '<<=', '>>>=', '|=', '^=', '&=', '&&', '??', '||' ])
-const whitespace_chars = make_set(chars(' \u00a0\n\r\t\f\u000b\u200b\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\uFEFF'))
+
+const operators = make_set(['delete', 'in', 'instanceof', 'new', 'typeof', 'void', '++', '--', '+', '-', '!', '~', '&',
+  '|', '^', '*', '**', '/', '%', '>>', '<<', '>>>', '<', '>', '<=', '>=', '==', '===', '!=', '!==', '?', '=', '+=',
+  '-=', '||=', '&&=', '??=', '/=', '*=', '**=', '%=', '>>=', '<<=', '>>>=', '|=', '^=', '&=', '&&', '??', '||'])
+const whitespace_chars = make_set(chars(' \u00a0\n\r\t\f\u000b\u200b\u2000\u2001\u2002\u2003\u2004\u2005\u2006'
+  + '\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\uFEFF'))
 const newline_chars = make_set(chars('\n\r\u2028\u2029'))
 const punc_after_expression = make_set(chars(']),:'))
 const punc_before_expression = make_set(chars('[{(,;:'))
 const punc_chars = make_set(chars('[]{}(),;:'))
+
 const unicode = {
   ustart: /[$A-Z_a-z\xAA\xB5\xBA\xC0-\xD6\xD8-\xF6\xF8-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u02EC\u02EE\u0370-\u0374\u0376\u0377\u037A-\u037D\u037F\u0386\u0388-\u038A\u038C\u038E-\u03A1\u03A3-\u03F5\u03F7-\u0481\u048A-\u052F\u0531-\u0556\u0559\u0561-\u0587\u05D0-\u05EA\u05F0-\u05F2\u0620-\u064A\u066E\u066F\u0671-\u06D3\u06D5\u06E5\u06E6\u06EE\u06EF\u06FA-\u06FC\u06FF\u0710\u0712-\u072F\u074D-\u07A5\u07B1\u07CA-\u07EA\u07F4\u07F5\u07FA\u0800-\u0815\u081A\u0824\u0828\u0840-\u0858\u08A0-\u08B4\u0904-\u0939\u093D\u0950\u0958-\u0961\u0971-\u0980\u0985-\u098C\u098F\u0990\u0993-\u09A8\u09AA-\u09B0\u09B2\u09B6-\u09B9\u09BD\u09CE\u09DC\u09DD\u09DF-\u09E1\u09F0\u09F1\u0A05-\u0A0A\u0A0F\u0A10\u0A13-\u0A28\u0A2A-\u0A30\u0A32\u0A33\u0A35\u0A36\u0A38\u0A39\u0A59-\u0A5C\u0A5E\u0A72-\u0A74\u0A85-\u0A8D\u0A8F-\u0A91\u0A93-\u0AA8\u0AAA-\u0AB0\u0AB2\u0AB3\u0AB5-\u0AB9\u0ABD\u0AD0\u0AE0\u0AE1\u0AF9\u0B05-\u0B0C\u0B0F\u0B10\u0B13-\u0B28\u0B2A-\u0B30\u0B32\u0B33\u0B35-\u0B39\u0B3D\u0B5C\u0B5D\u0B5F-\u0B61\u0B71\u0B83\u0B85-\u0B8A\u0B8E-\u0B90\u0B92-\u0B95\u0B99\u0B9A\u0B9C\u0B9E\u0B9F\u0BA3\u0BA4\u0BA8-\u0BAA\u0BAE-\u0BB9\u0BD0\u0C05-\u0C0C\u0C0E-\u0C10\u0C12-\u0C28\u0C2A-\u0C39\u0C3D\u0C58-\u0C5A\u0C60\u0C61\u0C85-\u0C8C\u0C8E-\u0C90\u0C92-\u0CA8\u0CAA-\u0CB3\u0CB5-\u0CB9\u0CBD\u0CDE\u0CE0\u0CE1\u0CF1\u0CF2\u0D05-\u0D0C\u0D0E-\u0D10\u0D12-\u0D3A\u0D3D\u0D4E\u0D5F-\u0D61\u0D7A-\u0D7F\u0D85-\u0D96\u0D9A-\u0DB1\u0DB3-\u0DBB\u0DBD\u0DC0-\u0DC6\u0E01-\u0E30\u0E32\u0E33\u0E40-\u0E46\u0E81\u0E82\u0E84\u0E87\u0E88\u0E8A\u0E8D\u0E94-\u0E97\u0E99-\u0E9F\u0EA1-\u0EA3\u0EA5\u0EA7\u0EAA\u0EAB\u0EAD-\u0EB0\u0EB2\u0EB3\u0EBD\u0EC0-\u0EC4\u0EC6\u0EDC-\u0EDF\u0F00\u0F40-\u0F47\u0F49-\u0F6C\u0F88-\u0F8C\u1000-\u102A\u103F\u1050-\u1055\u105A-\u105D\u1061\u1065\u1066\u106E-\u1070\u1075-\u1081\u108E\u10A0-\u10C5\u10C7\u10CD\u10D0-\u10FA\u10FC-\u1248\u124A-\u124D\u1250-\u1256\u1258\u125A-\u125D\u1260-\u1288\u128A-\u128D\u1290-\u12B0\u12B2-\u12B5\u12B8-\u12BE\u12C0\u12C2-\u12C5\u12C8-\u12D6\u12D8-\u1310\u1312-\u1315\u1318-\u135A\u1380-\u138F\u13A0-\u13F5\u13F8-\u13FD\u1401-\u166C\u166F-\u167F\u1681-\u169A\u16A0-\u16EA\u16EE-\u16F8\u1700-\u170C\u170E-\u1711\u1720-\u1731\u1740-\u1751\u1760-\u176C\u176E-\u1770\u1780-\u17B3\u17D7\u17DC\u1820-\u1877\u1880-\u18A8\u18AA\u18B0-\u18F5\u1900-\u191E\u1950-\u196D\u1970-\u1974\u1980-\u19AB\u19B0-\u19C9\u1A00-\u1A16\u1A20-\u1A54\u1AA7\u1B05-\u1B33\u1B45-\u1B4B\u1B83-\u1BA0\u1BAE\u1BAF\u1BBA-\u1BE5\u1C00-\u1C23\u1C4D-\u1C4F\u1C5A-\u1C7D\u1CE9-\u1CEC\u1CEE-\u1CF1\u1CF5\u1CF6\u1D00-\u1DBF\u1E00-\u1F15\u1F18-\u1F1D\u1F20-\u1F45\u1F48-\u1F4D\u1F50-\u1F57\u1F59\u1F5B\u1F5D\u1F5F-\u1F7D\u1F80-\u1FB4\u1FB6-\u1FBC\u1FBE\u1FC2-\u1FC4\u1FC6-\u1FCC\u1FD0-\u1FD3\u1FD6-\u1FDB\u1FE0-\u1FEC\u1FF2-\u1FF4\u1FF6-\u1FFC\u2071\u207F\u2090-\u209C\u2102\u2107\u210A-\u2113\u2115\u2118-\u211D\u2124\u2126\u2128\u212A-\u2139\u213C-\u213F\u2145-\u2149\u214E\u2160-\u2188\u2C00-\u2C2E\u2C30-\u2C5E\u2C60-\u2CE4\u2CEB-\u2CEE\u2CF2\u2CF3\u2D00-\u2D25\u2D27\u2D2D\u2D30-\u2D67\u2D6F\u2D80-\u2D96\u2DA0-\u2DA6\u2DA8-\u2DAE\u2DB0-\u2DB6\u2DB8-\u2DBE\u2DC0-\u2DC6\u2DC8-\u2DCE\u2DD0-\u2DD6\u2DD8-\u2DDE\u3005-\u3007\u3021-\u3029\u3031-\u3035\u3038-\u303C\u3041-\u3096\u309B-\u309F\u30A1-\u30FA\u30FC-\u30FF\u3105-\u312D\u3131-\u318E\u31A0-\u31BA\u31F0-\u31FF\u3400-\u4DB5\u4E00-\u9FD5\uA000-\uA48C\uA4D0-\uA4FD\uA500-\uA60C\uA610-\uA61F\uA62A\uA62B\uA640-\uA66E\uA67F-\uA69D\uA6A0-\uA6EF\uA717-\uA71F\uA722-\uA788\uA78B-\uA7AD\uA7B0-\uA7B7\uA7F7-\uA801\uA803-\uA805\uA807-\uA80A\uA80C-\uA822\uA840-\uA873\uA882-\uA8B3\uA8F2-\uA8F7\uA8FB\uA8FD\uA90A-\uA925\uA930-\uA946\uA960-\uA97C\uA984-\uA9B2\uA9CF\uA9E0-\uA9E4\uA9E6-\uA9EF\uA9FA-\uA9FE\uAA00-\uAA28\uAA40-\uAA42\uAA44-\uAA4B\uAA60-\uAA76\uAA7A\uAA7E-\uAAAF\uAAB1\uAAB5\uAAB6\uAAB9-\uAABD\uAAC0\uAAC2\uAADB-\uAADD\uAAE0-\uAAEA\uAAF2-\uAAF4\uAB01-\uAB06\uAB09-\uAB0E\uAB11-\uAB16\uAB20-\uAB26\uAB28-\uAB2E\uAB30-\uAB5A\uAB5C-\uAB65\uAB70-\uABE2\uAC00-\uD7A3\uD7B0-\uD7C6\uD7CB-\uD7FB\uF900-\uFA6D\uFA70-\uFAD9\uFB00-\uFB06\uFB13-\uFB17\uFB1D\uFB1F-\uFB28\uFB2A-\uFB36\uFB38-\uFB3C\uFB3E\uFB40\uFB41\uFB43\uFB44\uFB46-\uFBB1\uFBD3-\uFD3D\uFD50-\uFD8F\uFD92-\uFDC7\uFDF0-\uFDFB\uFE70-\uFE74\uFE76-\uFEFC\uFF21-\uFF3A\uFF41-\uFF5A\uFF66-\uFFBE\uFFC2-\uFFC7\uFFCA-\uFFCF\uFFD2-\uFFD7\uFFDA-\uFFDC]|\uD800[\uDC00-\uDC0B\uDC0D-\uDC26\uDC28-\uDC3A\uDC3C\uDC3D\uDC3F-\uDC4D\uDC50-\uDC5D\uDC80-\uDCFA\uDD40-\uDD74\uDE80-\uDE9C\uDEA0-\uDED0\uDF00-\uDF1F\uDF30-\uDF4A\uDF50-\uDF75\uDF80-\uDF9D\uDFA0-\uDFC3\uDFC8-\uDFCF\uDFD1-\uDFD5]|\uD801[\uDC00-\uDC9D\uDD00-\uDD27\uDD30-\uDD63\uDE00-\uDF36\uDF40-\uDF55\uDF60-\uDF67]|\uD802[\uDC00-\uDC05\uDC08\uDC0A-\uDC35\uDC37\uDC38\uDC3C\uDC3F-\uDC55\uDC60-\uDC76\uDC80-\uDC9E\uDCE0-\uDCF2\uDCF4\uDCF5\uDD00-\uDD15\uDD20-\uDD39\uDD80-\uDDB7\uDDBE\uDDBF\uDE00\uDE10-\uDE13\uDE15-\uDE17\uDE19-\uDE33\uDE60-\uDE7C\uDE80-\uDE9C\uDEC0-\uDEC7\uDEC9-\uDEE4\uDF00-\uDF35\uDF40-\uDF55\uDF60-\uDF72\uDF80-\uDF91]|\uD803[\uDC00-\uDC48\uDC80-\uDCB2\uDCC0-\uDCF2]|\uD804[\uDC03-\uDC37\uDC83-\uDCAF\uDCD0-\uDCE8\uDD03-\uDD26\uDD50-\uDD72\uDD76\uDD83-\uDDB2\uDDC1-\uDDC4\uDDDA\uDDDC\uDE00-\uDE11\uDE13-\uDE2B\uDE80-\uDE86\uDE88\uDE8A-\uDE8D\uDE8F-\uDE9D\uDE9F-\uDEA8\uDEB0-\uDEDE\uDF05-\uDF0C\uDF0F\uDF10\uDF13-\uDF28\uDF2A-\uDF30\uDF32\uDF33\uDF35-\uDF39\uDF3D\uDF50\uDF5D-\uDF61]|\uD805[\uDC80-\uDCAF\uDCC4\uDCC5\uDCC7\uDD80-\uDDAE\uDDD8-\uDDDB\uDE00-\uDE2F\uDE44\uDE80-\uDEAA\uDF00-\uDF19]|\uD806[\uDCA0-\uDCDF\uDCFF\uDEC0-\uDEF8]|\uD808[\uDC00-\uDF99]|\uD809[\uDC00-\uDC6E\uDC80-\uDD43]|[\uD80C\uD840-\uD868\uD86A-\uD86C\uD86F-\uD872][\uDC00-\uDFFF]|\uD80D[\uDC00-\uDC2E]|\uD811[\uDC00-\uDE46]|\uD81A[\uDC00-\uDE38\uDE40-\uDE5E\uDED0-\uDEED\uDF00-\uDF2F\uDF40-\uDF43\uDF63-\uDF77\uDF7D-\uDF8F]|\uD81B[\uDF00-\uDF44\uDF50\uDF93-\uDF9F]|\uD82C[\uDC00\uDC01]|\uD82F[\uDC00-\uDC6A\uDC70-\uDC7C\uDC80-\uDC88\uDC90-\uDC99]|\uD835[\uDC00-\uDC54\uDC56-\uDC9C\uDC9E\uDC9F\uDCA2\uDCA5\uDCA6\uDCA9-\uDCAC\uDCAE-\uDCB9\uDCBB\uDCBD-\uDCC3\uDCC5-\uDD05\uDD07-\uDD0A\uDD0D-\uDD14\uDD16-\uDD1C\uDD1E-\uDD39\uDD3B-\uDD3E\uDD40-\uDD44\uDD46\uDD4A-\uDD50\uDD52-\uDEA5\uDEA8-\uDEC0\uDEC2-\uDEDA\uDEDC-\uDEFA\uDEFC-\uDF14\uDF16-\uDF34\uDF36-\uDF4E\uDF50-\uDF6E\uDF70-\uDF88\uDF8A-\uDFA8\uDFAA-\uDFC2\uDFC4-\uDFCB]|\uD83A[\uDC00-\uDCC4]|\uD83B[\uDE00-\uDE03\uDE05-\uDE1F\uDE21\uDE22\uDE24\uDE27\uDE29-\uDE32\uDE34-\uDE37\uDE39\uDE3B\uDE42\uDE47\uDE49\uDE4B\uDE4D-\uDE4F\uDE51\uDE52\uDE54\uDE57\uDE59\uDE5B\uDE5D\uDE5F\uDE61\uDE62\uDE64\uDE67-\uDE6A\uDE6C-\uDE72\uDE74-\uDE77\uDE79-\uDE7C\uDE7E\uDE80-\uDE89\uDE8B-\uDE9B\uDEA1-\uDEA3\uDEA5-\uDEA9\uDEAB-\uDEBB]|\uD869[\uDC00-\uDED6\uDF00-\uDFFF]|\uD86D[\uDC00-\uDF34\uDF40-\uDFFF]|\uD86E[\uDC00-\uDC1D\uDC20-\uDFFF]|\uD873[\uDC00-\uDEA1]|\uD87E[\uDC00-\uDE1D]/,
   ucontinue: /(?:[$0-9A-Z_a-z\xAA\xB5\xB7\xBA\xC0-\xD6\xD8-\xF6\xF8-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u02EC\u02EE\u0300-\u0374\u0376\u0377\u037A-\u037D\u037F\u0386-\u038A\u038C\u038E-\u03A1\u03A3-\u03F5\u03F7-\u0481\u0483-\u0487\u048A-\u052F\u0531-\u0556\u0559\u0561-\u0587\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\u05D0-\u05EA\u05F0-\u05F2\u0610-\u061A\u0620-\u0669\u066E-\u06D3\u06D5-\u06DC\u06DF-\u06E8\u06EA-\u06FC\u06FF\u0710-\u074A\u074D-\u07B1\u07C0-\u07F5\u07FA\u0800-\u082D\u0840-\u085B\u08A0-\u08B4\u08E3-\u0963\u0966-\u096F\u0971-\u0983\u0985-\u098C\u098F\u0990\u0993-\u09A8\u09AA-\u09B0\u09B2\u09B6-\u09B9\u09BC-\u09C4\u09C7\u09C8\u09CB-\u09CE\u09D7\u09DC\u09DD\u09DF-\u09E3\u09E6-\u09F1\u0A01-\u0A03\u0A05-\u0A0A\u0A0F\u0A10\u0A13-\u0A28\u0A2A-\u0A30\u0A32\u0A33\u0A35\u0A36\u0A38\u0A39\u0A3C\u0A3E-\u0A42\u0A47\u0A48\u0A4B-\u0A4D\u0A51\u0A59-\u0A5C\u0A5E\u0A66-\u0A75\u0A81-\u0A83\u0A85-\u0A8D\u0A8F-\u0A91\u0A93-\u0AA8\u0AAA-\u0AB0\u0AB2\u0AB3\u0AB5-\u0AB9\u0ABC-\u0AC5\u0AC7-\u0AC9\u0ACB-\u0ACD\u0AD0\u0AE0-\u0AE3\u0AE6-\u0AEF\u0AF9\u0B01-\u0B03\u0B05-\u0B0C\u0B0F\u0B10\u0B13-\u0B28\u0B2A-\u0B30\u0B32\u0B33\u0B35-\u0B39\u0B3C-\u0B44\u0B47\u0B48\u0B4B-\u0B4D\u0B56\u0B57\u0B5C\u0B5D\u0B5F-\u0B63\u0B66-\u0B6F\u0B71\u0B82\u0B83\u0B85-\u0B8A\u0B8E-\u0B90\u0B92-\u0B95\u0B99\u0B9A\u0B9C\u0B9E\u0B9F\u0BA3\u0BA4\u0BA8-\u0BAA\u0BAE-\u0BB9\u0BBE-\u0BC2\u0BC6-\u0BC8\u0BCA-\u0BCD\u0BD0\u0BD7\u0BE6-\u0BEF\u0C00-\u0C03\u0C05-\u0C0C\u0C0E-\u0C10\u0C12-\u0C28\u0C2A-\u0C39\u0C3D-\u0C44\u0C46-\u0C48\u0C4A-\u0C4D\u0C55\u0C56\u0C58-\u0C5A\u0C60-\u0C63\u0C66-\u0C6F\u0C81-\u0C83\u0C85-\u0C8C\u0C8E-\u0C90\u0C92-\u0CA8\u0CAA-\u0CB3\u0CB5-\u0CB9\u0CBC-\u0CC4\u0CC6-\u0CC8\u0CCA-\u0CCD\u0CD5\u0CD6\u0CDE\u0CE0-\u0CE3\u0CE6-\u0CEF\u0CF1\u0CF2\u0D01-\u0D03\u0D05-\u0D0C\u0D0E-\u0D10\u0D12-\u0D3A\u0D3D-\u0D44\u0D46-\u0D48\u0D4A-\u0D4E\u0D57\u0D5F-\u0D63\u0D66-\u0D6F\u0D7A-\u0D7F\u0D82\u0D83\u0D85-\u0D96\u0D9A-\u0DB1\u0DB3-\u0DBB\u0DBD\u0DC0-\u0DC6\u0DCA\u0DCF-\u0DD4\u0DD6\u0DD8-\u0DDF\u0DE6-\u0DEF\u0DF2\u0DF3\u0E01-\u0E3A\u0E40-\u0E4E\u0E50-\u0E59\u0E81\u0E82\u0E84\u0E87\u0E88\u0E8A\u0E8D\u0E94-\u0E97\u0E99-\u0E9F\u0EA1-\u0EA3\u0EA5\u0EA7\u0EAA\u0EAB\u0EAD-\u0EB9\u0EBB-\u0EBD\u0EC0-\u0EC4\u0EC6\u0EC8-\u0ECD\u0ED0-\u0ED9\u0EDC-\u0EDF\u0F00\u0F18\u0F19\u0F20-\u0F29\u0F35\u0F37\u0F39\u0F3E-\u0F47\u0F49-\u0F6C\u0F71-\u0F84\u0F86-\u0F97\u0F99-\u0FBC\u0FC6\u1000-\u1049\u1050-\u109D\u10A0-\u10C5\u10C7\u10CD\u10D0-\u10FA\u10FC-\u1248\u124A-\u124D\u1250-\u1256\u1258\u125A-\u125D\u1260-\u1288\u128A-\u128D\u1290-\u12B0\u12B2-\u12B5\u12B8-\u12BE\u12C0\u12C2-\u12C5\u12C8-\u12D6\u12D8-\u1310\u1312-\u1315\u1318-\u135A\u135D-\u135F\u1369-\u1371\u1380-\u138F\u13A0-\u13F5\u13F8-\u13FD\u1401-\u166C\u166F-\u167F\u1681-\u169A\u16A0-\u16EA\u16EE-\u16F8\u1700-\u170C\u170E-\u1714\u1720-\u1734\u1740-\u1753\u1760-\u176C\u176E-\u1770\u1772\u1773\u1780-\u17D3\u17D7\u17DC\u17DD\u17E0-\u17E9\u180B-\u180D\u1810-\u1819\u1820-\u1877\u1880-\u18AA\u18B0-\u18F5\u1900-\u191E\u1920-\u192B\u1930-\u193B\u1946-\u196D\u1970-\u1974\u1980-\u19AB\u19B0-\u19C9\u19D0-\u19DA\u1A00-\u1A1B\u1A20-\u1A5E\u1A60-\u1A7C\u1A7F-\u1A89\u1A90-\u1A99\u1AA7\u1AB0-\u1ABD\u1B00-\u1B4B\u1B50-\u1B59\u1B6B-\u1B73\u1B80-\u1BF3\u1C00-\u1C37\u1C40-\u1C49\u1C4D-\u1C7D\u1CD0-\u1CD2\u1CD4-\u1CF6\u1CF8\u1CF9\u1D00-\u1DF5\u1DFC-\u1F15\u1F18-\u1F1D\u1F20-\u1F45\u1F48-\u1F4D\u1F50-\u1F57\u1F59\u1F5B\u1F5D\u1F5F-\u1F7D\u1F80-\u1FB4\u1FB6-\u1FBC\u1FBE\u1FC2-\u1FC4\u1FC6-\u1FCC\u1FD0-\u1FD3\u1FD6-\u1FDB\u1FE0-\u1FEC\u1FF2-\u1FF4\u1FF6-\u1FFC\u200C\u200D\u203F\u2040\u2054\u2071\u207F\u2090-\u209C\u20D0-\u20DC\u20E1\u20E5-\u20F0\u2102\u2107\u210A-\u2113\u2115\u2118-\u211D\u2124\u2126\u2128\u212A-\u2139\u213C-\u213F\u2145-\u2149\u214E\u2160-\u2188\u2C00-\u2C2E\u2C30-\u2C5E\u2C60-\u2CE4\u2CEB-\u2CF3\u2D00-\u2D25\u2D27\u2D2D\u2D30-\u2D67\u2D6F\u2D7F-\u2D96\u2DA0-\u2DA6\u2DA8-\u2DAE\u2DB0-\u2DB6\u2DB8-\u2DBE\u2DC0-\u2DC6\u2DC8-\u2DCE\u2DD0-\u2DD6\u2DD8-\u2DDE\u2DE0-\u2DFF\u3005-\u3007\u3021-\u302F\u3031-\u3035\u3038-\u303C\u3041-\u3096\u3099-\u309F\u30A1-\u30FA\u30FC-\u30FF\u3105-\u312D\u3131-\u318E\u31A0-\u31BA\u31F0-\u31FF\u3400-\u4DB5\u4E00-\u9FD5\uA000-\uA48C\uA4D0-\uA4FD\uA500-\uA60C\uA610-\uA62B\uA640-\uA66F\uA674-\uA67D\uA67F-\uA6F1\uA717-\uA71F\uA722-\uA788\uA78B-\uA7AD\uA7B0-\uA7B7\uA7F7-\uA827\uA840-\uA873\uA880-\uA8C4\uA8D0-\uA8D9\uA8E0-\uA8F7\uA8FB\uA8FD\uA900-\uA92D\uA930-\uA953\uA960-\uA97C\uA980-\uA9C0\uA9CF-\uA9D9\uA9E0-\uA9FE\uAA00-\uAA36\uAA40-\uAA4D\uAA50-\uAA59\uAA60-\uAA76\uAA7A-\uAAC2\uAADB-\uAADD\uAAE0-\uAAEF\uAAF2-\uAAF6\uAB01-\uAB06\uAB09-\uAB0E\uAB11-\uAB16\uAB20-\uAB26\uAB28-\uAB2E\uAB30-\uAB5A\uAB5C-\uAB65\uAB70-\uABEA\uABEC\uABED\uABF0-\uABF9\uAC00-\uD7A3\uD7B0-\uD7C6\uD7CB-\uD7FB\uF900-\uFA6D\uFA70-\uFAD9\uFB00-\uFB06\uFB13-\uFB17\uFB1D-\uFB28\uFB2A-\uFB36\uFB38-\uFB3C\uFB3E\uFB40\uFB41\uFB43\uFB44\uFB46-\uFBB1\uFBD3-\uFD3D\uFD50-\uFD8F\uFD92-\uFDC7\uFDF0-\uFDFB\uFE00-\uFE0F\uFE20-\uFE2F\uFE33\uFE34\uFE4D-\uFE4F\uFE70-\uFE74\uFE76-\uFEFC\uFF10-\uFF19\uFF21-\uFF3A\uFF3F\uFF41-\uFF5A\uFF66-\uFFBE\uFFC2-\uFFC7\uFFCA-\uFFCF\uFFD2-\uFFD7\uFFDA-\uFFDC]|\uD800[\uDC00-\uDC0B\uDC0D-\uDC26\uDC28-\uDC3A\uDC3C\uDC3D\uDC3F-\uDC4D\uDC50-\uDC5D\uDC80-\uDCFA\uDD40-\uDD74\uDDFD\uDE80-\uDE9C\uDEA0-\uDED0\uDEE0\uDF00-\uDF1F\uDF30-\uDF4A\uDF50-\uDF7A\uDF80-\uDF9D\uDFA0-\uDFC3\uDFC8-\uDFCF\uDFD1-\uDFD5]|\uD801[\uDC00-\uDC9D\uDCA0-\uDCA9\uDD00-\uDD27\uDD30-\uDD63\uDE00-\uDF36\uDF40-\uDF55\uDF60-\uDF67]|\uD802[\uDC00-\uDC05\uDC08\uDC0A-\uDC35\uDC37\uDC38\uDC3C\uDC3F-\uDC55\uDC60-\uDC76\uDC80-\uDC9E\uDCE0-\uDCF2\uDCF4\uDCF5\uDD00-\uDD15\uDD20-\uDD39\uDD80-\uDDB7\uDDBE\uDDBF\uDE00-\uDE03\uDE05\uDE06\uDE0C-\uDE13\uDE15-\uDE17\uDE19-\uDE33\uDE38-\uDE3A\uDE3F\uDE60-\uDE7C\uDE80-\uDE9C\uDEC0-\uDEC7\uDEC9-\uDEE6\uDF00-\uDF35\uDF40-\uDF55\uDF60-\uDF72\uDF80-\uDF91]|\uD803[\uDC00-\uDC48\uDC80-\uDCB2\uDCC0-\uDCF2]|\uD804[\uDC00-\uDC46\uDC66-\uDC6F\uDC7F-\uDCBA\uDCD0-\uDCE8\uDCF0-\uDCF9\uDD00-\uDD34\uDD36-\uDD3F\uDD50-\uDD73\uDD76\uDD80-\uDDC4\uDDCA-\uDDCC\uDDD0-\uDDDA\uDDDC\uDE00-\uDE11\uDE13-\uDE37\uDE80-\uDE86\uDE88\uDE8A-\uDE8D\uDE8F-\uDE9D\uDE9F-\uDEA8\uDEB0-\uDEEA\uDEF0-\uDEF9\uDF00-\uDF03\uDF05-\uDF0C\uDF0F\uDF10\uDF13-\uDF28\uDF2A-\uDF30\uDF32\uDF33\uDF35-\uDF39\uDF3C-\uDF44\uDF47\uDF48\uDF4B-\uDF4D\uDF50\uDF57\uDF5D-\uDF63\uDF66-\uDF6C\uDF70-\uDF74]|\uD805[\uDC80-\uDCC5\uDCC7\uDCD0-\uDCD9\uDD80-\uDDB5\uDDB8-\uDDC0\uDDD8-\uDDDD\uDE00-\uDE40\uDE44\uDE50-\uDE59\uDE80-\uDEB7\uDEC0-\uDEC9\uDF00-\uDF19\uDF1D-\uDF2B\uDF30-\uDF39]|\uD806[\uDCA0-\uDCE9\uDCFF\uDEC0-\uDEF8]|\uD808[\uDC00-\uDF99]|\uD809[\uDC00-\uDC6E\uDC80-\uDD43]|[\uD80C\uD840-\uD868\uD86A-\uD86C\uD86F-\uD872][\uDC00-\uDFFF]|\uD80D[\uDC00-\uDC2E]|\uD811[\uDC00-\uDE46]|\uD81A[\uDC00-\uDE38\uDE40-\uDE5E\uDE60-\uDE69\uDED0-\uDEED\uDEF0-\uDEF4\uDF00-\uDF36\uDF40-\uDF43\uDF50-\uDF59\uDF63-\uDF77\uDF7D-\uDF8F]|\uD81B[\uDF00-\uDF44\uDF50-\uDF7E\uDF8F-\uDF9F]|\uD82C[\uDC00\uDC01]|\uD82F[\uDC00-\uDC6A\uDC70-\uDC7C\uDC80-\uDC88\uDC90-\uDC99\uDC9D\uDC9E]|\uD834[\uDD65-\uDD69\uDD6D-\uDD72\uDD7B-\uDD82\uDD85-\uDD8B\uDDAA-\uDDAD\uDE42-\uDE44]|\uD835[\uDC00-\uDC54\uDC56-\uDC9C\uDC9E\uDC9F\uDCA2\uDCA5\uDCA6\uDCA9-\uDCAC\uDCAE-\uDCB9\uDCBB\uDCBD-\uDCC3\uDCC5-\uDD05\uDD07-\uDD0A\uDD0D-\uDD14\uDD16-\uDD1C\uDD1E-\uDD39\uDD3B-\uDD3E\uDD40-\uDD44\uDD46\uDD4A-\uDD50\uDD52-\uDEA5\uDEA8-\uDEC0\uDEC2-\uDEDA\uDEDC-\uDEFA\uDEFC-\uDF14\uDF16-\uDF34\uDF36-\uDF4E\uDF50-\uDF6E\uDF70-\uDF88\uDF8A-\uDFA8\uDFAA-\uDFC2\uDFC4-\uDFCB\uDFCE-\uDFFF]|\uD836[\uDE00-\uDE36\uDE3B-\uDE6C\uDE75\uDE84\uDE9B-\uDE9F\uDEA1-\uDEAF]|\uD83A[\uDC00-\uDCC4\uDCD0-\uDCD6]|\uD83B[\uDE00-\uDE03\uDE05-\uDE1F\uDE21\uDE22\uDE24\uDE27\uDE29-\uDE32\uDE34-\uDE37\uDE39\uDE3B\uDE42\uDE47\uDE49\uDE4B\uDE4D-\uDE4F\uDE51\uDE52\uDE54\uDE57\uDE59\uDE5B\uDE5D\uDE5F\uDE61\uDE62\uDE64\uDE67-\uDE6A\uDE6C-\uDE72\uDE74-\uDE77\uDE79-\uDE7C\uDE7E\uDE80-\uDE89\uDE8B-\uDE9B\uDEA1-\uDEA3\uDEA5-\uDEA9\uDEAB-\uDEBB]|\uD869[\uDC00-\uDED6\uDF00-\uDFFF]|\uD86D[\uDC00-\uDF34\uDF40-\uDFFF]|\uD86E[\uDC00-\uDC1D\uDC20-\uDFFF]|\uD873[\uDC00-\uDEA1]|\uD87E[\uDC00-\uDE1D]|\uDB40[\uDD00-\uDDEF])+/,
@@ -2808,8 +2850,8 @@ function get_full_char_code (string, pos) {
 }
 
 function get_full_char_length (string) {
-  let surrogates = 0, i, len
-  for (i = 0, len = string.length; i < len; i++) {
+  let surrogates = 0, i, length
+  for (i = 0, length = string.length; i < length; i++) {
     if (is_surrogate_pair_head(string.charCodeAt(i)) && is_surrogate_pair_tail(string.charCodeAt(i + 1))) {
       surrogates++
       i++
@@ -2848,7 +2890,7 @@ function is_identifier_string (string, allow_surrogates) {
   string = string.slice(match[0].length)
   if (!string) return true
   match = unicode.ucontinue.exec(string)
-  return !!match && match[0].length === string.length
+  return match && match[0].length === string.length
 }
 
 function parse_js_number (num, allow_e = true) {
@@ -2872,7 +2914,7 @@ function parse_js_number (num, allow_e = true) {
 class parse_error extends Error {
   constructor (message, file, line, col, pos) {
     super()
-    this.name = 'SyntaxError'
+    this.name = 'syntax_error'
     this.message = message
     this.file = file
     this.line = line
@@ -2889,12 +2931,14 @@ const new_line = 1
 const single_quote = 2
 const exists_quote = 4
 const end_templace = 8
+
 function has_tok_flag (self, flag) { return !!(self.flags & flag) }
-function set_tok_flag (self, flag, truth) { return (truth ? self.flags | flag : self.flags & ~flag) }
+
+function set_tok_flag (self, flag, truth) { return truth ? self.flags | flag : self.flags & ~flag }
 
 class ast_token {
   constructor (type, value, line, col, pos, nlb, comments_before, comments_after, file) {
-    this.flags = (nlb ? 1 : 0)
+    this.flags = nlb ? 1 : 0
     this.type = type
     this.value = value
     this.line = line
@@ -2939,7 +2983,7 @@ function tokenizer (text, file, comments, shebang) {
   function peek () { return get_full_char(scope.text, scope.pos) }
 
   function is_option_chain_op () {
-    const must_be_dot = scope.text.charCodeAt(scope.pos + 1) === 46
+    const must_be_dot = scope.text.charCodeAt(scope.pos + 1) == 46
     if (!must_be_dot) return false
     const cannot_be_digit = scope.text.charCodeAt(scope.pos + 2)
     return cannot_be_digit < 48 || cannot_be_digit > 57
@@ -2947,7 +2991,7 @@ function tokenizer (text, file, comments, shebang) {
 
   function next (signal_eof, in_string) {
     let char = get_full_char(scope.text, scope.pos++)
-    if (signal_eof && !char) throw ''
+    if (signal_eof && !char) throw new Error('no char left')
     if (newline_chars.has(char)) {
       scope.newline_before = scope.newline_before || !in_string
       ++scope.line
@@ -2982,7 +3026,7 @@ function tokenizer (text, file, comments, shebang) {
 
   function find (what, signal_eof) {
     const pos = scope.text.indexOf(what, scope.pos)
-    if (signal_eof && pos == -1) throw ''
+    if (signal_eof && pos == -1) throw new Error('what not found')
     return pos
   }
 
@@ -2995,11 +3039,11 @@ function tokenizer (text, file, comments, shebang) {
   let prev_was_dot = false, previous_token = null
 
   function token (type, value, is_comment) {
-    scope.regex_allowed = ((type == 'operator' && !UNARY_POSTFIX.has(value)) ||
+    scope.regex_allowed = ((type == 'operator' && !unary_postfix.has(value)) ||
                (type == 'keyword' && keywords_before_expression.has(value)) ||
                (type == 'punc' && punc_before_expression.has(value))) ||
                (type == 'arrow')
-    prev_was_dot = type == 'punc' && (value == '.' || value == '?.') ? true : false
+    prev_was_dot = type == 'punc' && (value == '.' || value == '?.')
     const line = scope.tokline
     const col = scope.tokcol
     const pos = scope.tokpos
@@ -3031,17 +3075,22 @@ function tokenizer (text, file, comments, shebang) {
   }
 
   function read_num (prefix) {
-    let has_e = false, after_e = false, has_x = false, has_dot = prefix == '.', is_big_int = false, numeric_separator = false
+    let has_e = false, after_e = false, has_x = false, has_dot = prefix == '.', is_big_int = false, separator = false
     let num = read_while(function (char, i) {
       if (is_big_int) return false
       switch (char.charCodeAt(0)) {
         case 95:
-          return (numeric_separator = true)
-        case 98: case 66:
+          return (separator = true)
+        case 66:
+        case 98:
           return (has_x = true)
-        case 111: case 79: case 120: case 88:
+        case 79:
+        case 88:
+        case 111:
+        case 120:
           return has_x ? false : (has_x = true)
-        case 101: case 69:
+        case 69:
+        case 101:
           return has_x ? true : has_e ? false : (has_e = after_e = true)
         case 45:
           return after_e || (i == 0 && !prefix)
@@ -3058,7 +3107,7 @@ function tokenizer (text, file, comments, shebang) {
     })
     if (prefix) num = prefix + num
     latest_raw = num
-    if (numeric_separator) {
+    if (separator) {
       if (num.endsWith('_')) {
         pr('numeric separators are not allowed at the end of numeric literals')
       } else if (member('__', num)) {
@@ -3081,9 +3130,7 @@ function tokenizer (text, file, comments, shebang) {
     }
   }
 
-  function is_octal (char) {
-    return char >= '0' && char <= '7'
-  }
+  function is_octal (char) { return char >= '0' && char <= '7' }
 
   function read_escaped_char (in_string, strict_hex, template_string) {
     const char = next(true, in_string)
@@ -3107,7 +3154,7 @@ function tokenizer (text, file, comments, shebang) {
           while (peek() == '0') next(true)
           const length = find('}', true) - scope.pos
           let result
-          if (length > 6 || (result = hex_bytes(length, strict_hex)) > 0x10FFFF) {pr('out of bounds')}
+          if (length > 6 || (result = hex_bytes(length, strict_hex)) > 0x10FFFF) pr('out of bounds')
           next(true)
           return from_char_code(result)
         }
@@ -3154,7 +3201,7 @@ function tokenizer (text, file, comments, shebang) {
         char = read_escaped_char(true, true)
       } else if (char == '\r' || char == '\n') {
         pr('unterminated string constant')
-      } else if (char == quote){
+      } else if (char == quote) {
         break
       }
       result.push(char)
@@ -3167,7 +3214,7 @@ function tokenizer (text, file, comments, shebang) {
 
   function read_template_characters (begin) {
     if (begin) scope.template_braces.push(scope.brace_counter)
-    let content = '', raw = '', char, tok, tmp, prev_is_tag
+    let content = '', raw = '', char, tok, tmp, is_tag
     next(true, true)
     while ((char = next(true, true)) != '`') {
       if (char == '\r') {
@@ -3184,8 +3231,9 @@ function tokenizer (text, file, comments, shebang) {
       raw += char
       if (char == '\\') {
         tmp = scope.pos
-        prev_is_tag = previous_token && (previous_token.type == 'name' || previous_token.type == 'punc' && (previous_token.value == ')' || previous_token.value == ']'))
-        char = read_escaped_char(true, !prev_is_tag, true)
+        is_tag = previous_token && (previous_token.type == 'name' || previous_token.type == 'punc'
+          && (previous_token.value == ')' || previous_token.value == ']'))
+        char = read_escaped_char(true, !is_tag, true)
         raw += scope.text.substr(tmp, scope.pos - tmp)
       }
       content += char
@@ -3229,7 +3277,7 @@ function tokenizer (text, file, comments, shebang) {
     function read_escaped_identifier_char () {
       escaped = true
       next()
-      if (peek() !== 'u') pr('expected unicode escape sequence uXXXX or u{XXXX}')
+      if (peek() != 'u') pr('expected unicode escape sequence uXXXX or u{XXXX}')
       return read_escaped_char(false, true)
     }
     if ((char = peek()) == '\\') {
@@ -3369,7 +3417,8 @@ function tokenizer (text, file, comments, shebang) {
       if (!char) return token('eof')
       code = char.charCodeAt(0)
       switch (code) {
-        case 34: case 39: return read_string()
+        case 34:
+        case 39: return read_string()
         case 46: return handle_dot()
         case 47: {
           tok = handle_slash()
@@ -3389,7 +3438,8 @@ function tokenizer (text, file, comments, shebang) {
           break
         case 125:
           scope.brace_counter--
-          if (scope.template_braces.length > 0 && scope.template_braces[scope.template_braces.length - 1] === scope.brace_counter) {
+          const length = scope.template_braces.length
+          if (length > 0 && scope.template_braces[length - 1] == scope.brace_counter) {
             return read_template_characters(false)
           }
           break
@@ -3419,7 +3469,7 @@ function tokenizer (text, file, comments, shebang) {
   }
   next_token.pop_directives_stack = function () {
     const directives = scope.directive_stack[scope.directive_stack.length - 1]
-    for (let i = 0, len = directives.length; i < len; i++) {
+    for (let i = 0, length = directives.length; i < length; i++) {
       scope.directives[directives[i]]--
     }
     scope.directive_stack.pop()
@@ -3430,12 +3480,14 @@ function tokenizer (text, file, comments, shebang) {
   return next_token
 }
 
-const UNARY_PREFIX = make_set([ 'typeof', 'void', 'delete', '--', '++', '!', '~', '-', '+' ])
-const UNARY_POSTFIX = make_set([ '--', '++' ])
-const assignment = make_set([ '=', '+=', '-=', '??=', '&&=', '||=', '/=', '*=', '**=', '%=', '>>=', '<<=', '>>>=', '|=', '^=', '&=' ])
-const logical_asignment = make_set([ '??=', '&&=', '||=' ])
+const unary_prefix = make_set(['typeof', 'void', 'delete', '--', '++', '!', '~', '-', '+'])
+const unary_postfix = make_set(['--', '++'])
+const assign = make_set(['=', '+=', '-=', '??=', '&&=', '||=', '/=', '*=', '**=', '%=', '>>=', '<<=', '>>>=', '|=',
+  '^=', '&='])
+const logical_asignment = make_set(['??=', '&&=', '||='])
 
-function set_precedence (a, result) {
+function set_precedence (a) {
+  const result = {}
   let i, b
   for (i = 0; i < a.length; ++i) {
     for (b of a[i]) {
@@ -3445,13 +3497,13 @@ function set_precedence (a, result) {
   return result
 }
 const precedence = set_precedence([['||'], ['??'], ['&&'], ['|'], ['^'], ['&'], ['==', '===', '!=', '!=='],
-    ['<', '>', '<=', '>=', 'in', 'instanceof'], ['>>', '<<', '>>>'], ['+', '-'], ['*', '/', '%'], ['**'] ], {})
+    ['<', '>', '<=', '>=', 'in', 'instanceof'], ['>>', '<<', '>>>'], ['+', '-'], ['*', '/', '%'], ['**']])
 
-const atom_token = make_set([ 'atom', 'num', 'big_int', 'string', 'regexp', 'name'])
+const atom_token = make_set(['atom', 'num', 'big_int', 'string', 'regexp', 'name'])
 
 function resolve (file, folder) {
   file = file.split('/').slice(0, -folder.indexOf('/')).join('/') + '/' + folder.split('./')[1]
-  if (file.slice(-3) !== '.js') file = file + '.js'
+  if (file.slice(-3) != '.js') file = file + '.js'
   return file
 }
 
@@ -3465,11 +3517,15 @@ function parse (text, options) {
     if (options.toplevel.imports) imports = options.toplevel.imports
   }
   options.file = file
-  const scope = {input: (typeof text == 'string' ? tokenizer(text, file, options.comments, options.shebang) : text), token: null,
-    prev: null, peeked: null, in_function: 0, in_async: -1, in_generator: -1, in_directives: true, in_loop: 0, labels: []}
+  const scope = {input: (typeof text == 'string' ? tokenizer(text, file, options.comments, options.shebang) : text),
+    token: null, prev: null, peeked: null, in_function: 0, in_async: -1, in_generator: -1, in_directives: true,
+    in_loop: 0, labels: []}
   scope.token = next()
+
   function is (type, value) { return is_token(scope.token, type, value) }
+
   function peek () { return scope.peeked || (scope.peeked = scope.input()) }
+
   function next () {
     scope.prev = scope.token
     if (!scope.peeked) peek()
@@ -3478,40 +3534,57 @@ function parse (text, options) {
     scope.in_directives = scope.in_directives && (scope.token.type == 'string' || is('punc', ';'))
     return scope.token
   }
+
   function prev () { return scope.prev }
+
   function cr (msg, line, col, pos) {
     const ctx = scope.input.context()
-    js_error(msg, ctx.file, line != null ? line : ctx.tokline, col != null ? col : ctx.tokcol, pos != null ? pos : ctx.tokpos)
+    js_error(msg, ctx.file, line != null ? line : ctx.tokline, col != null ? col : ctx.tokcol,
+      pos != null ? pos : ctx.tokpos)
   }
+
   function tr (token, msg) { cr(msg, token.line, token.col) }
+
   function unexpected (token) {
     if (token == null) token = scope.token
-    tr(token, 'Unexpected token: ' + token.type + ' (' + token.value + ')')
+    tr(token, 'unexpected token: ' + token.type + ' (' + token.value + ')')
   }
+
   function expect_token (type, val) {
     if (is(type, val)) return next()
-    tr(scope.token, 'Unexpected token ' + scope.token.type + ' «' + scope.token.value + '», expected ' + type + ' «' + val + '»')
+    tr(scope.token, 'expected ' + type + ' (' + val + ') got ' + scope.token.type + ' (' + scope.token.value + ')')
   }
+
   function expect (punc) { return expect_token('punc', punc) }
+
   function has_newline_before (token) {
-    return token.nlb() || !token.comments_before.every((comment) => !comment.nlb())
+    return token.nlb() || !token.comments_before.every(comment => !comment.nlb())
   }
+
   function can_insert_semicolon () {
     return !options.strict && (is('eof') || is('punc', '}') || has_newline_before(scope.token))
   }
+
   function is_in_generator () {
     return scope.in_generator === scope.in_function
   }
+
   function is_in_async () {
     return scope.in_async === scope.in_function
   }
+
   function can_await () {
     return scope.in_async === scope.in_function
   }
+
   function semicolon (optional) {
-    if (is('punc', ';')) next()
-    else if (!optional && !can_insert_semicolon()) unexpected()
+    if (is('punc', ';')) {
+      next()
+    } else if (!optional && !can_insert_semicolon()) {
+      unexpected()
+    }
   }
+
   function parenthesised () {
     expect('(')
     const expr = expression(true)
@@ -3559,14 +3632,20 @@ function parse (text, options) {
         }
         const dir = scope.in_directives, stat = simple_statement()
         return dir && stat.body instanceof ast_string ? new ast_directive(stat.body) : stat
-      case 'template_head': case 'num': case 'big_int': case 'regexp': case 'operator': case 'atom':
+      case 'atom':
+      case 'big_int':
+      case 'num':
+      case 'operator':
+      case 'regexp':
+      case 'template_head':
         return simple_statement()
-      case 'name': case 'pr iivatename':
-        if (is('privatename') && !scope.in_class) cr('private field must be used in an enclosing class')
+      case 'name':
+      case 'privatename':
+        if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
         if (scope.token.value == 'async' && is_token(peek(), 'keyword', 'function')) {
           next()
           next()
-          if (is_for_body) cr('functions are not allowed as the body of a loop')
+          if (is_for_body) cr('functions not allowed as body of loop')
           return function_(ast_defun, false, true, is_export_default)
         }
         if (scope.token.value == 'import' && !is_token(peek(), 'punc', '(') && !is_token(peek(), 'punc', '.')) {
@@ -3580,7 +3659,8 @@ function parse (text, options) {
         switch (scope.token.value) {
           case '{':
             return new ast_block_statement({start: scope.token, body: block_(), end: prev(), file})
-          case '[': case '(':
+          case '[':
+          case '(':
             return simple_statement()
           case ';':
             scope.in_directives = false
@@ -3610,7 +3690,7 @@ function parse (text, options) {
             return new ast_do({body, condition})
           case 'while':
             next()
-            return new ast_while({condition: parenthesised(), body: in_loop(function () { return statement(false, true) }) })
+            return new ast_while({condition: parenthesised(), body: in_loop(function () { return statement(false, true) })})
           case 'for':
             next()
             return for_()
@@ -3639,10 +3719,7 @@ function parse (text, options) {
             return new ast_return({value})
           case 'switch':
             next()
-            return new ast_switch({
-              expr: parenthesised(),
-              body: in_loop(switch_body_)
-            })
+            return new ast_switch({expr: parenthesised(), body: in_loop(switch_body_)})
           case 'throw':
             next()
             if (has_newline_before(scope.token)) cr('bad newline after throw')
@@ -3669,7 +3746,7 @@ function parse (text, options) {
             return root
           case 'with':
             next()
-            return new ast_with({expr: parenthesised(), body: statement() })
+            return new ast_with({expr: parenthesised(), body: statement()})
           case 'export':
             if (!is_token(peek(), 'punc', '(')) {
               next()
@@ -3685,7 +3762,7 @@ function parse (text, options) {
   function labeled_statement () {
     const label = as_symbol(ast_label)
     if (label.name == 'await' && is_in_async()) tr(scope.prev, 'await cannot be async function label')
-    if (scope.labels.some((l) => l.name === label.name)) cr('duplicate label ' + label.name)
+    if (scope.labels.some(l => l.name === label.name)) cr('duplicate label ' + label.name)
     expect(':')
     scope.labels.push(label)
     const stat = statement()
@@ -3702,18 +3779,18 @@ function parse (text, options) {
   }
 
   function simple_statement (tmp) {
-    return new ast_statement({body: (tmp = expression(true), semicolon(), tmp) })
+    return new ast_statement({body: (tmp = expression(true), semicolon(), tmp)})
   }
 
   function break_cont (type) {
     let label = null, ldef
     if (!can_insert_semicolon()) label = as_symbol(ast_label_ref, true)
     if (label != null) {
-      ldef = scope.labels.find((l) => l.name === label.name)
-      if (!ldef) cr('undefined label ' + label.name)
+      ldef = scope.labels.find(l => l.name === label.name)
+      if (!ldef) cr('no label ' + label.name)
       label.thedef = ldef
     } else if (scope.in_loop == 0) {
-      cr(type.type + ' not inside a loop or switch')
+      cr(type.type + ' not in loop or switch')
     }
     semicolon()
     const stat = new type({label})
@@ -3722,7 +3799,7 @@ function parse (text, options) {
   }
 
   function for_ () {
-    let await_tok = scope.token, init = null
+    let await_tok = scope.token, init
     if (await_tok.type == 'name' && await_tok.value == 'await') {
       if (!can_await()) tr(await_tok, 'bad for await')
       next()
@@ -3738,9 +3815,9 @@ function parse (text, options) {
       if (await_tok && !is_of) tr(await_tok, 'bad for await')
       if (is_in || is_of) {
         if (init instanceof ast_definitions) {
-          if (init.defs.length > 1) tr(init.start, 'Only one variable declaration allowed in for..in loop')
+          if (init.defs.length > 1) tr(init.start, 'only one variable declaration allowed in for..in loop')
         } else if (!(is_assignable(init) || (init = to_destructure(init)) instanceof ast_destructure)) {
-          tr(init.start, 'bad left-hand side in for..in loop')
+          tr(init.start, 'bad left hand side in for..in loop')
         }
         next()
         return is_in ? for_in(init) : for_of(init, !!await_tok)
@@ -3773,15 +3850,15 @@ function parse (text, options) {
   }
 
   function arrow_function (start, argnames, sync) {
-    if (has_newline_before(scope.token)) cr('Unexpected newline before arrow (=>)')
+    if (has_newline_before(scope.token)) cr('unexpected newline before arrow (=>)')
     expect_token('arrow', '=>')
     const body = _function_body(is('punc', '{'), false, sync)
-    const end = body instanceof Array && body.length ? body[body.length - 1].end : body instanceof Array ? start : body.end
+    const end = body instanceof Array ? (body.length ? body[body.length - 1].end : start) : body.end
     return new ast_arrow({start, end, file, sync, argnames, body})
   }
 
   function function_ (ctor, is_generator_property, sync, is_export_default) {
-    const in_statement = ctor === ast_defun, gen = is('operator', '*')
+    const in_statement = ctor == ast_defun, gen = is('operator', '*')
     if (gen) next()
     const name = is('name') ? as_symbol(in_statement ? ast_symbol_defun: ast_symbol_lambda) : null
     if (in_statement && !name) is_export_default ? ctor = ast_function : unexpected()
@@ -3797,7 +3874,7 @@ function parse (text, options) {
       this.duplicates_ok = duplicates_ok
       this.parameters = new Set()
       this.duplicate = null
-      this.default_assignment = false
+      this.default_assign = false
       this.spread = false
     }
     add_parameter (token) {
@@ -3816,8 +3893,8 @@ function parse (text, options) {
         }
       }
     }
-    mark_default_assignment (token) {
-      if (this.default_assignment === false) this.default_assignment = token
+    mark_default_assign (token) {
+      if (this.default_assign === false) this.default_assign = token
     }
     mark_spread (token) {
       if (this.spread === false) this.spread = token
@@ -3826,7 +3903,7 @@ function parse (text, options) {
       this.strict_mode = true
     }
     is_strict () {
-      return this.default_assignment !== false || this.spread !== false || this.strict_mode
+      return this.default_assign !== false || this.spread !== false || this.strict_mode
     }
     check_strict () {
       if (this.is_strict() && this.duplicate !== null && !this.duplicates_ok) {
@@ -3858,7 +3935,7 @@ function parse (text, options) {
     }
     param = binding_element(used, symbol_type)
     if (is('operator', '=') && expand === false) {
-      used.mark_default_assignment(scope.token)
+      used.mark_default_assign(scope.token)
       next()
       param = new ast_default_assign({start: param.start, left: param, operator: '=',
         right: expression(false), end: scope.token, file})
@@ -3894,7 +3971,8 @@ function parse (text, options) {
               continue
             case ']':
               break
-            case '[': case '{':
+            case '[':
+            case '{':
               elements.push(binding_element(used, symbol_type))
               break
             default:
@@ -3907,7 +3985,7 @@ function parse (text, options) {
           cr('bad function parameter')
         }
         if (is('operator', '=') && is_expand === false) {
-          used.mark_default_assignment(scope.token)
+          used.mark_default_assign(scope.token)
           next()
           elements[elements.length - 1] = new ast_default_assign({
             start: elements[elements.length - 1].start, left: elements[elements.length - 1],
@@ -3932,7 +4010,8 @@ function parse (text, options) {
           used.mark_spread(scope.token)
           next()
         }
-        if (is('name') && (is_token(peek(), 'punc') || is_token(peek(), 'operator')) && member(peek().value, [',', '}', '='])) {
+        if (is('name') && (is_token(peek(), 'punc') || is_token(peek(), 'operator'))
+          && member(peek().value, [',', '}', '='])) {
           used.add_parameter(scope.token)
           const start = prev(), value = as_symbol(symbol_type)
           if (is_expand) {
@@ -3956,9 +4035,9 @@ function parse (text, options) {
           }
         }
         if (is_expand) {
-          if (!is('punc', '}')) cr('Rest element must be last element')
+          if (!is('punc', '}')) cr('rest element must be last element')
         } else if (is('operator', '=')) {
-          used.mark_default_assignment(scope.token)
+          used.mark_default_assign(scope.token)
           next()
           elements[elements.length - 1].value = new ast_default_assign({
             start: elements[elements.length - 1].value.start, left: elements[elements.length - 1].value,
@@ -4007,10 +4086,10 @@ function parse (text, options) {
     return a
   }
 
-  function _function_body (block, generator, sync, name, args) {
-    const loop = scope.in_loop, labels = scope.labels, current_generator = scope.in_generator, current_async = scope.in_async
+  function _function_body (block, generate, sync, name, args) {
+    const loop = scope.in_loop, labels = scope.labels, is_generator = scope.in_generator, is_async = scope.in_async
     ++scope.in_function
-    if (generator) scope.in_generator = scope.in_function
+    if (generate) scope.in_generator = scope.in_function
     if (sync) scope.in_async = scope.in_function
     if (args) parameters(args)
     if (block) scope.in_directives = true
@@ -4029,14 +4108,14 @@ function parse (text, options) {
     --scope.in_function
     scope.in_loop = loop
     scope.labels = labels
-    scope.in_generator = current_generator
-    scope.in_async = current_async
+    scope.in_generator = is_generator
+    scope.in_async = is_async
     return a
   }
 
   function _await_expression () {
     if (!can_await()) cr('await outside async', scope.prev.line, scope.prev.col, scope.prev.pos)
-    return new ast_await({start: prev(), end: scope.token, file, expr: maybe_unary(true) })
+    return new ast_await({start: prev(), end: scope.token, file, expr: maybe_unary(true)})
   }
 
   function _yield_expression () {
@@ -4102,7 +4181,7 @@ function parse (text, options) {
 
   function try_ () {
     const body = new ast_try_block({start: scope.token, body: block_(), end: prev(), file})
-    let bcatch = null, bfinally = null, start, name
+    let bcatch, bfinally, start, name
     if (is('keyword', 'catch')) {
       start = scope.token
       next()
@@ -4120,22 +4199,24 @@ function parse (text, options) {
       next()
       bfinally = new ast_finally({start, body: block_(), end: prev(), file})
     }
-    if (!bcatch && !bfinally) cr('Missing catch/finally blocks')
+    if (!bcatch && !bfinally) cr('no catch or finally block')
     return new ast_try({body, bcatch, bfinally})
   }
 
-  function vardefs (no_in, kind) {
+  function vardefs (noin, kind) {
     const defs = []
     let defined, sym_type
     while (true) {
-      sym_type = kind == 'var' ? ast_symbol_var : kind == 'const' ? ast_symbol_const : kind == 'let' ? ast_symbol_let : null
+      sym_type = kind == 'var' ? ast_symbol_var : kind == 'const' ? ast_symbol_const
+        : kind == 'let' ? ast_symbol_let : null
       if (is('punc', '{') || is('punc', '[')) {
-        defined = new ast_var_def({start: scope.token, name: binding_element(undefined, sym_type), value: is('operator', '=')
-          ? (expect_token('operator', '='), expression(false, no_in)) : null, end: prev(), file})
+        defined = new ast_var_def({start: scope.token, name: binding_element(undefined, sym_type),
+          value: is('operator', '=') ? (expect_token('operator', '='), expression(false, noin)) : null, end: prev(),
+          file})
       } else {
         defined = new ast_var_def({start: scope.token, name: as_symbol(sym_type), value: is('operator', '=')
-          ? (next(), expression(false, no_in)) : (!no_in && kind == 'const') ? cr('no const init') : null, end: prev(), file})
-        if (defined.name.name == 'import') cr('Unexpected token: import')
+          ? (next(), expression(false, noin)) : (!noin && kind == 'const') ? cr('no init') : null, end: prev(), file})
+        if (defined.name.name == 'import') cr('unexpected import')
       }
       defs.push(defined)
       if (!is('punc', ',')) break
@@ -4144,16 +4225,16 @@ function parse (text, options) {
     return defs
   }
 
-  function var_ (no_in) {
-    return new ast_var({start: prev(), defs: vardefs(no_in, 'var'), end: prev(), file})
+  function var_ (noin) {
+    return new ast_var({start: prev(), defs: vardefs(noin, 'var'), end: prev(), file})
   }
 
-  function let_ (no_in) {
-    return new ast_let({start: prev(), defs: vardefs(no_in, 'let'), end: prev(), file})
+  function let_ (noin) {
+    return new ast_let({start: prev(), defs: vardefs(noin, 'let'), end: prev(), file})
   }
 
-  function const_ (no_in) {
-    return new ast_const({start: prev(), defs: vardefs(no_in, 'const'), end: prev(), file})
+  function const_ (noin) {
+    return new ast_const({start: prev(), defs: vardefs(noin, 'const'), end: prev(), file})
   }
 
   function new_ (allow_calls) {
@@ -4218,7 +4299,8 @@ function parse (text, options) {
 
   function to_fun_args (expr, above) {
     function insert_default (expr, default_value) {
-      if (default_value) return new ast_default_assign({start: expr.start, left: expr, operator: '=', right: default_value, end: default_value.end, file})
+      if (default_value) return new ast_default_assign({start: expr.start, left: expr, operator: '=', right: default_value,
+        end: default_value.end, file})
       return expr
     }
     if (expr instanceof ast_object) {
@@ -4261,7 +4343,7 @@ function parse (text, options) {
         case '(':
           if (async && !allow_calls) break
           const exprs = params_or_seq_(allow_arrows, !async)
-          if (allow_arrows && is('arrow', '=>')) return arrow_function(start, exprs.map(expr => to_fun_args(expr)), !!async)
+          if (allow_arrows && is('arrow', '=>')) return arrow_function(start, exprs.map(e => to_fun_args(e)), !!async)
           const expr = async ? new ast_call({expr: async, args: exprs}) : to_expr_or_sequence(start, exprs)
           if (expr.start) {
             const outer_comments_before = start.comments_before.length
@@ -4333,7 +4415,7 @@ function parse (text, options) {
     }
     next()
 
-    return new ast_template_string({start, segments: segments, end: scope.token, file})
+    return new ast_template_string({start, segments, end: scope.token, file})
   }
 
   function expr_list (closing, allow_trailing_comma, allow_empty) {
@@ -4357,7 +4439,7 @@ function parse (text, options) {
 
   const array_ = embed_tokens(function () {
     expect('[')
-    return new ast_array({elements: expr_list(']', !options.strict, true) })
+    return new ast_array({elements: expr_list(']', !options.strict, true)})
   })
 
   const create_accessor = embed_tokens((gen, sync) => {
@@ -4365,7 +4447,7 @@ function parse (text, options) {
   })
 
   const object_or_destructure_ = embed_tokens(function object_or_destructure_ () {
-    const a = []
+    const properties = []
     let start = scope.token, first = true
     expect('{')
     while (!is('punc', '}')) {
@@ -4374,7 +4456,7 @@ function parse (text, options) {
       start = scope.token
       if (start.type == 'expand') {
         next()
-        a.push(new ast_spread({start, expr: expression(false), end: prev(), file}))
+        properties.push(new ast_spread({start, expr: expression(false), end: prev(), file}))
         continue
       }
       if (is('privatename')) cr('private fields are not allowed in an object')
@@ -4383,7 +4465,7 @@ function parse (text, options) {
       if (!is('punc', ':')) {
         const concise = concise_method_or_getset(name, start)
         if (concise) {
-          a.push(concise)
+          properties.push(concise)
           continue
         }
         value = new ast_symbol_ref({start: prev(), name, end: prev(), file})
@@ -4395,12 +4477,13 @@ function parse (text, options) {
       }
       if (is('operator', '=')) {
         next()
-        value = new ast_assign({start, left: value, operator: '=', right: expression(false), logical: false, end: prev(), file})
+        value = new ast_assign({start, left: value, operator: '=', right: expression(false), logical: false, end: prev(),
+          file})
       }
-      a.push(annotate(new ast_key_value({start, quote: start.quote, key: name instanceof tree ? name : '' + name, value, end: prev(), file})))
+      properties.push(annotate(new ast_key_value({start, quote: start.quote, key: name, value, end: prev(), file})))
     }
     next()
-    return new ast_object({properties: a})
+    return new ast_object({properties})
   })
 
   function class_ (kind, is_export_default) {
@@ -4418,7 +4501,7 @@ function parse (text, options) {
     expect('{')
     const save_in_class = scope.in_class
     scope.in_class = true
-    while (is('punc', ';')) { next() }
+    while (is('punc', ';')) next()
     while (!is('punc', '}')) {
       start = scope.token
       method = concise_method_or_getset(as_property_name(), start, true)
@@ -4433,15 +4516,16 @@ function parse (text, options) {
   }
 
   function concise_method_or_getset (name, start, is_class) {
-    const get_symbol_ast = (name, SymbolClass = ast_symbol_method) => {
+    const get_symbol_ast = (name, symbol = ast_symbol_method) => {
       if (typeof name == 'string' || typeof name == 'number') {
-        return new SymbolClass({start, name: '' + name, end: prev(), file})
+        return new symbol({start, name: '' + name, end: prev(), file})
       } else if (name === null) {
         unexpected()
       }
       return name
     }
-    const is_not_method_start = () => !is('punc', '(') && !is('punc', ',') && !is('punc', '}') && !is('punc', ';') && !is('operator', '=')
+    const is_not_method_start = () => !is('punc', '(') && !is('punc', ',') && !is('punc', '}') && !is('punc', ';')
+      && !is('operator', '=')
     let sync, sttc, gen, is_private, accessor_type
     if (is_class && name == 'static' && is_not_method_start()) {
       const static_block = class_static_block()
@@ -4465,20 +4549,21 @@ function parse (text, options) {
     const property_token = prev()
     if (accessor_type != null) {
       if (!is_private) {
-        const AccessorClass = accessor_type == 'get' ? ast_object_getter : ast_object_setter
+        const accessor = accessor_type == 'get' ? ast_object_getter : ast_object_setter
         name = get_symbol_ast(name)
-        return annotate(new AccessorClass({start, static: sttc, key: name,
+        return annotate(new accessor({start, static: sttc, key: name,
           quote: name instanceof ast_symbol_method ? property_token.quote : undefined,
           value: create_accessor(), end: prev()}))
       } else {
-        const AccessorClass = accessor_type == 'get' ? ast_private_getter : ast_private_setter
-        return annotate(new AccessorClass({start, static: sttc, key: get_symbol_ast(name), value: create_accessor(), end: prev()}))
+        const accessor = accessor_type == 'get' ? ast_private_getter : ast_private_setter
+        return annotate(new accessor({start, static: sttc, key: get_symbol_ast(name), value: create_accessor(),
+          end: prev()}))
       }
     }
     if (is('punc', '(')) {
       name = get_symbol_ast(name)
       const ast_method_variant = is_private ? ast_private_method : ast_concise_method
-      const root = new ast_method_variant({start, static: sttc, gen, sync: sync, key: name,
+      const root = new ast_method_variant({start, static: sttc, gen, sync, key: name,
         quote: name instanceof ast_symbol_method ? property_token.quote : undefined,
         value: create_accessor(gen, sync), end: prev(), file})
       return annotate(root)
@@ -4522,7 +4607,7 @@ function parse (text, options) {
     import_names = map_names(true)
     if (import_names || import_name) expect_token('name', 'from')
     const module = scope.token
-    if (module.type !== 'string') unexpected()
+    if (module.type != 'string') unexpected()
     next()
     const assert_clause = maybe_import_assertion()
     const resolved = resolve(file, module.value)
@@ -4537,7 +4622,7 @@ function parse (text, options) {
       imports[file + '/' + i.name.name] = resolved + '/' + i.foreign_name.name
     })
     return new ast_import({start, import_name, import_names,
-      module_name: new ast_string({start: module, value: module.value, quote: module.quote, end: module, file}),
+      module: new ast_string({start: module, value: module.value, quote: module.quote, end: module, file}),
       assert_clause, end: scope.token, file})
   }
 
@@ -4603,18 +4688,19 @@ function parse (text, options) {
     } else if (names = map_names(false)) {
       if (is('name', 'from')) {
         next()
-        const mod_str = scope.token
-        if (mod_str.type !== 'string') unexpected()
+        const string = scope.token
+        if (string.type != 'string') unexpected()
         next()
         const assert_clause = maybe_import_assertion()
-        return new ast_export({start, assert_clause, is_default, names,
-          module_name: new ast_string({start: mod_str, value: mod_str.value, quote: mod_str.quote, end: mod_str, file}), end: prev(), file})
+        return new ast_export({start, assert_clause, is_default, names, module: new ast_string({start: string,
+          value: string.value, quote: string.quote, end: string, file}), end: prev(), file})
       } else {
         return new ast_export({start, is_default, names, end: prev(), file})
       }
     }
     let root, value, defined
-    if (is('punc', '{') || is_default && (is('keyword', 'class') || is('keyword', 'function')) && is_token(peek(), 'punc')) {
+    if (is('punc', '{') || is_default && (is('keyword', 'class') || is('keyword', 'function'))
+      && is_token(peek(), 'punc')) {
       value = expression(false)
       semicolon()
     } else if ((root = statement(is_default)) instanceof ast_definitions && is_default) {
@@ -4646,10 +4732,16 @@ function parse (text, options) {
       case 'operator':
         if (tmp.value == '*') {
           next()
-          return null
+          return
         }
         if (!member(tmp.value, ['delete', 'in', 'instanceof', 'new', 'typeof', 'void'])) unexpected(tmp)
-      case 'name': case 'privatename': case 'string': case 'num': case 'big_int': case 'keyword': case 'atom':
+      case 'atom':
+      case 'big_int':
+      case 'keyword':
+      case 'name':
+      case 'num':
+      case 'privatename':
+      case 'string':
         next()
         return tmp.value
       default:
@@ -4676,7 +4768,7 @@ function parse (text, options) {
 
   function as_symbol (type, noerror) {
     if (!is('name')) {
-      if (!noerror) cr('Name expected')
+      if (!noerror) cr('expected name')
       return null
     }
     const sym = _make_symbol(type)
@@ -4687,7 +4779,7 @@ function parse (text, options) {
 
   function as_symbol_or_string (type) {
     if (!is('name')) {
-      if (!is('string')) cr('Name or string expected')
+      if (!is('string')) cr('name or string expected')
       const tok = scope.token
       const result = new type({start: tok, end: tok, file, name: tok.value, quote: tok.quote})
       next()
@@ -4737,13 +4829,15 @@ function parse (text, options) {
       next()
       if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
       const ast_dot_variant = is('privatename') ? ast_dot_hash : ast_dot
-      return annotate(subscripts(new ast_dot_variant({start, expr, optional: false, property: as_name(), end: prev(), file}), allow_calls, is_chain))
+      return annotate(subscripts(new ast_dot_variant({start, expr, optional: false, property: as_name(), end: prev(),
+        file}), allow_calls, is_chain))
     }
     if (is('punc', '[')) {
       next()
       const property = expression(true)
       expect(']')
-      return annotate(subscripts(new ast_sub({start, expr, optional: false, property, end: prev(), file}), allow_calls, is_chain))
+      return annotate(subscripts(new ast_sub({start, expr, optional: false, property, end: prev(), file}), allow_calls,
+       is_chain))
     }
     if (allow_calls && is('punc', '(')) {
       next()
@@ -4760,7 +4854,7 @@ function parse (text, options) {
         annotate(call)
         chain_contents = subscripts(call, true, true)
       } else if (is('name') || is('privatename')) {
-        if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
+        if (is('privatename') && !scope.in_class) cr('use private field for enclosing class')
         const ast_dot_variant = is('privatename') ? ast_dot_hash : ast_dot
         chain_contents = annotate(subscripts(new ast_dot_variant({start, expr, optional: true,
           property: as_name(), end: prev(), file}), allow_calls, true))
@@ -4768,7 +4862,8 @@ function parse (text, options) {
         next()
         const property = expression(true)
         expect(']')
-        chain_contents = annotate(subscripts(new ast_sub({start, expr, optional: true, property, end: prev(), file}), allow_calls, true))
+        chain_contents = annotate(subscripts(new ast_sub({start, expr, optional: true, property, end: prev(), file}),
+          allow_calls, true))
       }
       if (!chain_contents) unexpected()
       if (chain_contents instanceof ast_chain) return chain_contents
@@ -4803,7 +4898,7 @@ function parse (text, options) {
       next()
       return _await_expression()
     }
-    if (is('operator') && UNARY_PREFIX.has(start.value)) {
+    if (is('operator') && unary_prefix.has(start.value)) {
       next()
       handle_regexp()
       const expr = make_unary(ast_unary_prefix, start, maybe_unary(allow_calls))
@@ -4812,7 +4907,7 @@ function parse (text, options) {
       return expr
     }
     let val = expr_atom(allow_calls, allow_arrows)
-    while (is('operator') && UNARY_POSTFIX.has(scope.token.value) && !has_newline_before(scope.token)) {
+    while (is('operator') && unary_postfix.has(scope.token.value) && !has_newline_before(scope.token)) {
       if (val instanceof ast_arrow) unexpected()
       val = make_unary(ast_unary_postfix, scope.token, val)
       val.start = start
@@ -4825,7 +4920,8 @@ function parse (text, options) {
   function make_unary (ctor, token, expr) {
     const operator = token.value
     switch (operator) {
-      case '++': case '--':
+      case '++':
+      case '--':
         if (!is_assignable(expr)) cr('bad use of ' + operator + ' operator', token.line, token.col, token.pos)
         break
       case 'delete':
@@ -4834,42 +4930,42 @@ function parse (text, options) {
     return new ctor({operator, expr})
   }
 
-  function expr_op (left, min_prec, no_in) {
-    let op = is('operator') ? scope.token.value : null
-    if (op == 'in' && no_in) op = null
-    if (op == '**' && left instanceof ast_unary_prefix && !is_token(left.start, 'punc', '(')
-      && left.operator !== '--' && left.operator !== '++') unexpected(left.start)
-    const prec = op != null ? precedence[op] : null
-    if (prec != null && (prec > min_prec || (op == '**' && min_prec === prec))) {
+  function expr_op (left, min_prec, noin) {
+    let operator = is('operator') ? scope.token.value : null
+    if (operator == 'in' && noin) operator = null
+    if (operator == '**' && left instanceof ast_unary_prefix && !is_token(left.start, 'punc', '(')
+      && left.operator != '--' && left.operator != '++') unexpected(left.start)
+    const prec = operator != null ? precedence[operator] : null
+    if (prec != null && (prec > min_prec || (operator == '**' && min_prec === prec))) {
       next()
-      const right = expr_ops(no_in, prec, true)
-      return expr_op(new ast_binary({start: left.start, left, operator: op, right, end: right.end, file}), min_prec, no_in)
+      const right = expr_ops(noin, prec, true)
+      return expr_op(new ast_binary({start: left.start, left, operator, right, end: right.end, file}), min_prec, noin)
     }
     return left
   }
 
-  function expr_ops (no_in, min_prec, allow_calls, allow_arrows) {
-    if (!no_in && min_prec < precedence['in'] && is('privatename')) {
+  function expr_ops (noin, min_prec, allow_calls, allow_arrows) {
+    if (!noin && min_prec < precedence['in'] && is('privatename')) {
       if (!scope.in_class) cr('private field')
       const start = scope.token
       const key = new ast_symbol_private_property({start, name: start.value, end: start, file})
       next()
       expect_token('operator', 'in')
-      const private_in = new ast_private_in({start, key, value: expr_ops(no_in, precedence['in'], true), end: prev(), file})
-      return expr_op(private_in, 0, no_in)
+      return expr_op(new ast_private_in({start, key, value: expr_ops(noin, precedence['in'], true, true), end: prev(),
+        file}), 0, noin)
     } else {
-      return expr_op(maybe_unary(allow_calls, allow_arrows), min_prec, no_in)
+      return expr_op(maybe_unary(allow_calls, allow_arrows), min_prec, noin)
     }
   }
 
-  function maybe_conditional (no_in) {
-    const start = scope.token, expr = expr_ops(no_in, 0, true, true)
+  function maybe_conditional (noin) {
+    const start = scope.token, expr = expr_ops(noin, 0, true, true)
     if (is('operator', '?')) {
       next()
       const consequent = expression(false)
       expect(':')
       return new ast_conditional({start, condition: expr, consequent,
-        alt: expression(false, no_in), end: prev(), file})
+        alt: expression(false, noin), end: prev(), file})
     }
     return expr
   }
@@ -4880,12 +4976,13 @@ function parse (text, options) {
 
   function to_destructure (root) {
     if (root instanceof ast_object) {
-      root = new ast_destructure({start: root.start, names: root.properties.map(to_destructure), is_array: false, end: root.end, file})
+      root = new ast_destructure({start: root.start, names: root.properties.map(to_destructure), is_array: false,
+        end: root.end, file})
     } else if (root instanceof ast_array) {
       const names = []
-      for (let i = 0, len = root.elements.length; i < len; i++) {
+      for (let i = 0, length = root.elements.length; i < length; i++) {
         if (root.elements[i] instanceof ast_spread) {
-          if (i + 1 !== root.elements.length) tr(root.elements[i].start, 'spread must be last element')
+          if (i + 1 != root.elements.length) tr(root.elements[i].start, 'spread must be last element')
           root.elements[i].expr = to_destructure(root.elements[i].expr)
         }
         names.push(to_destructure(root.elements[i]))
@@ -4900,7 +4997,7 @@ function parse (text, options) {
     return root
   }
 
-  function maybe_assign (no_in) {
+  function maybe_assign (noin) {
     handle_regexp()
     let start = scope.token
     if (start.type == 'name' && start.value == 'yield') {
@@ -4909,14 +5006,14 @@ function parse (text, options) {
         return _yield_expression()
       }
     }
-    let left = maybe_conditional(no_in), val = scope.token.value
-    if (is('operator') && assignment.has(val)) {
+    let left = maybe_conditional(noin), val = scope.token.value
+    if (is('operator') && assign.has(val)) {
       if (is_assignable(left) || (left = to_destructure(left)) instanceof ast_destructure) {
         next()
-        return new ast_assign({start, left, operator: val, right: maybe_assign(no_in),
+        return new ast_assign({start, left, operator: val, right: maybe_assign(noin),
           logical: logical_asignment.has(val), end: prev(), file})
       }
-      cr('bad assignment')
+      cr('bad assign')
     }
     return left
   }
@@ -4925,16 +5022,16 @@ function parse (text, options) {
     if (exprs.length === 1) {
       return exprs[0]
     } else if (exprs.length > 1) {
-      return new ast_sequence({start, expressions: exprs, end: peek(), file})
+      return new ast_sequence({start, exprs: exprs, end: peek(), file})
     } else {
       cr('bad parenthesized expr')
     }
   }
 
-  function expression (commas, no_in) {
+  function expression (commas, noin) {
     const exprs = [], start = scope.token
     while (true) {
-      exprs.push(maybe_assign(no_in))
+      exprs.push(maybe_assign(noin))
       if (!commas || !is('punc', ',')) break
       next()
       commas = true
@@ -4957,28 +5054,24 @@ function parse (text, options) {
       const sta = statement()
       sta.file = file
       if (sta instanceof ast_import) {
-        resolved = resolve(file, sta.module_name.value)
+        resolved = resolve(file, sta.module.value)
         if (!member(resolved, imported) && !member(resolved, imports)) {
           imports.unshift(resolved)
           toplevel = options.toplevel
           if (toplevel) {
             toplevel.imports = imports
-            toplevel.imports = imports
             toplevel.pushed = false
           }
           return toplevel
         }
-        body.push(sta)
-      } else {
-        body.push(sta)
       }
+      body.push(sta)
     }
     scope.input.pop_directives_stack()
     const end = prev()
     toplevel = options.toplevel
     if (toplevel) {
       toplevel.imports = imports
-      toplevel.imports
       if (!toplevel.body) toplevel.body = []
       toplevel.body = toplevel.body.concat(body)
       toplevel.end = end
@@ -4998,7 +5091,7 @@ const r_annotation = /[@#]__(PURE|INLINE|NOINLINE)__/
 
 function left_is_object (root) {
   if (root instanceof ast_object) return true
-  if (root instanceof ast_sequence) return left_is_object(root.expressions[0])
+  if (root instanceof ast_sequence) return left_is_object(root.exprs[0])
   if (root instanceof ast_sequence) return left_is_object(root.expr)
   if (root instanceof ast_prefixed_template) return left_is_object(root.prefix)
   if (root instanceof ast_dot || root instanceof ast_sub) return left_is_object(root.expr)
@@ -5010,7 +5103,8 @@ function left_is_object (root) {
 }
 
 function is_some_comments (comment) {
-  return ((comment.type == 'comment2' || comment.type == 'comment1') && /@preserve|@copyright|@lic|@cc_on|^\**!/i.test(comment.value))
+  return ((comment.type == 'comment2' || comment.type == 'comment1')
+    && /@preserve|@copyright|@lic|@cc_on|^\**!/i.test(comment.value))
 }
 
 class rope {
@@ -5154,7 +5248,7 @@ function output_stream (options) {
         case '\u2028': return '\\u2028'
         case '\u2029': return '\\u2029'
         case '\ufeff': return '\\ufeff'
-        case '\0': return /[0-9]/.test(get_full_char(string, i+1)) ? '\\x00' : '\\0'
+        case '\0': return /[0-9]/.test(get_full_char(string, i + 1)) ? '\\x00' : '\\0'
       }
       return s
     })
@@ -5174,14 +5268,10 @@ function output_stream (options) {
     string = to_utf8(string)
     if (quote == '`') return quote_template()
     switch (options.quote_style) {
-      case 1:
-      return single_quote()
-      case 2:
-      return quote_double()
-      case 3:
-      return quote == '"' ? quote_double() : single_quote()
-      default:
-      return dq > sq ? single_quote() : quote_double()
+      case 1: return single_quote()
+      case 2: return quote_double()
+      case 3: return quote == '"' ? quote_double() : single_quote()
+      default: return dq > sq ? single_quote() : quote_double()
     }
   }
 
@@ -5221,7 +5311,7 @@ function output_stream (options) {
           mapping.token.line, mapping.token.col,
           is_basic_identifier_string(name) ? name : undefined
         )
-      } catch(error) {}
+      } catch {}
     })
     mappings = []
   } : func
@@ -5256,7 +5346,7 @@ function output_stream (options) {
     const char = get_full_char(string, 0)
     if (need_newline_indented && char) {
       need_newline_indented = false
-      if (char !== '\n') {
+      if (char != '\n') {
         print('\n')
         indent()
       }
@@ -5269,7 +5359,7 @@ function output_stream (options) {
     const prev = last.charAt(last.length - 1)
     if (might_need_semicolon) {
       might_need_semicolon = false
-      if (prev == ':' && char == '}' || (!char || !member(char, ';}')) && prev !== ';') {
+      if (prev == ':' && char == '}' || (!char || !member(char, ';}')) && prev != ';') {
         if (options.semicolons || require_semicolon.has(char)) {
           outp.append(';')
           current_col++
@@ -5299,12 +5389,7 @@ function output_stream (options) {
     }
 
     if (mapping_token) {
-      mappings.push({
-        token: mapping_token,
-        name: mapping_name,
-        line: current_line,
-        col: current_col
-      })
+      mappings.push({token: mapping_token, name: mapping_name, line: current_line, col: current_col})
       mapping_token = false
       if (!might_add_newline) do_add_mapping()
     }
@@ -5322,12 +5407,16 @@ function output_stream (options) {
     last = string
   }
 
+  const indent_level = options.indent_level
+
   function star () { print('*') }
 
   const space = options.beautify ? function () { print(' ') } : function () { might_need_space = true }
-  const indent_level = options.indent_level
+
   const redent = options.beautify ? function () { indentation += indent_level } : func
+
   const undent = options.beautify ? function () { indentation -= indent_level } : func
+
   const indent = options.beautify ? function (level=0) {
     indentation += level * indent_level
     print(' '.repeat(options.indent_start + indentation))
@@ -5413,11 +5502,12 @@ function output_stream (options) {
   }
 
   function prepend_comments (root) {
-    const self = this
     const start = root.start
     if (!start) return
+    const self = this
     const printed_comments = self.printed_comments
-    const keyword_with_value = root instanceof ast_exit && root.value || ((root instanceof ast_await) || root instanceof ast_yield) && root.expr
+    const keyword_with_value = root instanceof ast_exit && root.value
+      || (root instanceof ast_await || root instanceof ast_yield) && root.expr
     if (start.comments_before && printed_comments.has(start.comments_before)) {
       if (keyword_with_value) {
         start.comments_before = []
@@ -5436,9 +5526,10 @@ function output_stream (options) {
         const parent = trees.parent()
         if (parent instanceof ast_exit || parent instanceof ast_await || parent instanceof ast_yield
           || parent instanceof ast_binary && parent.left === root || parent instanceof ast_call && parent.expr === root
-          || parent instanceof ast_conditional && parent.condition === root || parent instanceof ast_dot && parent.expr === root
-          || parent instanceof ast_sequence && parent.expressions[0] === root || parent instanceof ast_sub && parent.expr === root
-          || parent instanceof ast_unary_postfix) {
+          || parent instanceof ast_conditional && parent.condition === root
+          || parent instanceof ast_dot && parent.expr === root
+          || parent instanceof ast_sequence && parent.exprs[0] === root
+          || parent instanceof ast_sub && parent.expr === root || parent instanceof ast_unary_postfix) {
           if (!root.start) return
           const text = root.start.comments_before
           if (text && !printed_comments.has(text)) {
@@ -5505,14 +5596,14 @@ function output_stream (options) {
   function append_comments (root, tail) {
     const token = root.end
     if (!token) return
-    const self = this, printed_comments = self.printed_comments, comments = token[tail ? 'comments_before' : 'comments_after']
-    if (!comments || printed_comments.has(comments)) return
-    if (!(root instanceof ast_state || comments.every((c) => !/comment[134]/.test(c.type)))) return
-    if (comments.length) printed_comments.add(comments)
+    const self = this, printed = self.printed_comments, comments = token[tail ? 'comments_before' : 'comments_after']
+    if (!comments || printed.has(comments)) return
+    if (!(root instanceof ast_state || comments.every(c => !/comment[134]/.test(c.type)))) return
+    if (comments.length) printed.add(comments)
     const insert = outp.length()
     comments.filter(comment_filter, root).forEach(function (c, i) {
-      if (printed_comments.has(c)) return
-      if (c.length) printed_comments.add(c)
+      if (printed.has(c)) return
+      if (c.length) printed.add(c)
       need_space = false
       if (need_newline_indented) {
         print('\n')
@@ -5571,7 +5662,7 @@ function output_stream (options) {
     append_comments: readonly || comment_filter === return_false ? func : append_comments,
     line: function () { return current_line}, col: function () { return current_col },
     pos: function () { return current_pos }, push_node: function (root) { stack.push(root) },
-    pop_node: function () { return stack.pop() }, parent: function (n) { return stack[stack.length - 2 - (n || 0)]}}
+    pop_node: function () { return stack.pop() }, parent: function (n) { return stack[(stack.length - 2) - (n || 0)]}}
 }
 
 function def_parens (root, func) {
@@ -5581,7 +5672,7 @@ function def_parens (root, func) {
 def_parens(tree, return_false)
 
 def_parens(ast_function, function (output) {
-  if (!output.has_parens() && first_in_statement(output)) return true
+  if (!output.has_parens() && first(output)) return true
   if (output.options['webkit']) {
     const p = output.parent()
     if (p instanceof ast_prop_access && p.expr === this) return true
@@ -5603,14 +5694,15 @@ def_parens(ast_arrow, function (output) {
   return p instanceof ast_prop_access && p.expr === this || p instanceof ast_conditional && p.condition === this
 })
 
-def_parens(ast_object, function (output) { return !output.has_parens() && first_in_statement(output) })
+def_parens(ast_object, function (output) { return !output.has_parens() && first(output) })
 
-def_parens(ast_class_expression, first_in_statement)
+def_parens(ast_class_expression, first)
 
 def_parens(ast_unary, function (output) {
   const p = output.parent()
-  return p instanceof ast_prop_access && p.expr === this || p instanceof ast_call && p.expr === this || p instanceof ast_binary
-      && p.operator == '**' && this instanceof ast_unary_prefix && p.left === this && this.operator !== '++' && this.operator !== '--'
+  return p instanceof ast_prop_access && p.expr === this || p instanceof ast_call && p.expr === this
+    || p instanceof ast_binary && p.operator == '**' && this instanceof ast_unary_prefix && p.left === this
+    && this.operator != '++' && this.operator != '--'
 })
 
 def_parens(ast_await, function (output) {
@@ -5665,7 +5757,7 @@ def_parens(ast_private_in, function (output) {
 
 def_parens(ast_yield, function (output) {
   const p = output.parent()
-  if (p instanceof ast_binary && p.operator !== '=') return true
+  if (p instanceof ast_binary && p.operator != '=') return true
   if (p instanceof ast_call && p.expr === this) return true
   if (p instanceof ast_conditional && p.condition === this) return true
   if (p instanceof ast_unary) return true
@@ -5691,7 +5783,8 @@ def_parens(ast_prop_access, function (output) {
 def_parens(ast_call, function (output) {
   const p = output.parent()
   let p1
-  if (p instanceof ast_new && p.expr === this || p instanceof ast_export && p.is_default && this.expr instanceof ast_function) return true
+  if (p instanceof ast_new && p.expr === this || p instanceof ast_export && p.is_default
+    && this.expr instanceof ast_function) return true
   return this.expr instanceof ast_function && p instanceof ast_prop_access
     && p.expr === this && (p1 = output.parent(1)) instanceof ast_assign && p1.left === p
 })
@@ -5706,7 +5799,7 @@ def_parens(ast_new, function (output) {
 def_parens(ast_number, function (output) {
   const p = output.parent()
   if (p instanceof ast_prop_access && p.expr === this) {
-    const value = this.getValue()
+    const value = this.get_value()
     if (value < 0 || /^0/.test(make_num(value))) return true
   }
 })
@@ -5714,7 +5807,7 @@ def_parens(ast_number, function (output) {
 def_parens(ast_big_int, function (output) {
   const p = output.parent()
   if (p instanceof ast_prop_access && p.expr === this) {
-    const value = this.getValue()
+    const value = this.get_value()
     if (value.startsWith('-')) return true
   }
 })
@@ -5743,18 +5836,18 @@ function output_js () {
     } else if (!output.use_asm && self instanceof ast_directive && self.value == 'use asm') {
       output.use_asm = output.active_scope
     }
+
     function generate () {
       output.prepend_comments(self)
       self.add_source_map(output)
       generator(self, output)
       output.append_comments(self)
     }
+
     output.push_node(self)
     force_parens || self.needs_parens(output) ? output.with_parens(generate) : generate()
     output.pop_node()
-    if (self === output.use_asm) {
-      output.use_asm = null
-    }
+    if (self === output.use_asm) output.use_asm = null
   }
   tree.prototype._print = tree.prototype.print
   tree.prototype.print_to_string = function (options) {
@@ -5773,11 +5866,11 @@ function output_js () {
   })
   def_print(ast_destructure, function (self, output) {
     output.print(self.is_array ? '[' : '{')
-    const len = self.names.length
+    const length = self.names.length
     self.names.forEach(function (name, i) {
       if (i > 0) output.comma()
       name.print(output)
-      if (i == len - 1 && name instanceof ast_hole) output.comma()
+      if (i == length - 1 && name instanceof ast_hole) output.comma()
     })
     output.print(self.is_array ? ']' : '}')
   })
@@ -5790,7 +5883,8 @@ function output_js () {
     const last = body.length - 1
     output.in_directive = allow_directives
     body.forEach(function (statement, i) {
-      if (output.in_directive === true && !(statement instanceof ast_directive || statement instanceof ast_empty_statement
+      if (output.in_directive === true && !(statement instanceof ast_directive
+        || statement instanceof ast_empty_statement
         || (statement instanceof ast_statement && statement.body instanceof ast_string))) {
         output.in_directive = false
       }
@@ -5953,7 +6047,8 @@ function output_js () {
   def_print(ast_prefixed_template, function (self, output) {
     const tag = self.prefix
     const parenthesize_tag = tag instanceof ast_lambda || tag instanceof ast_binary || tag instanceof ast_conditional
-      || tag instanceof ast_sequence  || tag instanceof ast_unary || tag instanceof ast_dot && tag.expr instanceof ast_object
+      || tag instanceof ast_sequence || tag instanceof ast_unary
+      || tag instanceof ast_dot && tag.expr instanceof ast_object
     if (parenthesize_tag) output.print('(')
     self.prefix.print(output)
     if (parenthesize_tag) output.print(')')
@@ -5962,7 +6057,7 @@ function output_js () {
   def_print(ast_template_string, function (self, output) {
     const is_tagged = output.parent() instanceof ast_prefixed_template
     output.print('`')
-    for (let i = 0, len = self.segments.length; i < len; i++) {
+    for (let i = 0, length = self.segments.length; i < length; i++) {
       if (!(self.segments[i] instanceof ast_template_segment)) {
         output.print('${')
         self.segments[i].print(output)
@@ -6051,11 +6146,12 @@ function output_js () {
     output.print('await')
     output.space()
     const expr = self.expr
-    const parens = !(expr instanceof ast_call || expr instanceof ast_symbol_ref || expr instanceof ast_prop_access
-      || expr instanceof ast_unary || expr instanceof ast_literal || expr instanceof ast_await || expr instanceof ast_object)
-    if (parens) output.print('(')
+    const parentheses = !(expr instanceof ast_call || expr instanceof ast_symbol_ref || expr instanceof ast_prop_access
+      || expr instanceof ast_unary || expr instanceof ast_literal || expr instanceof ast_await
+      || expr instanceof ast_object)
+    if (parentheses) output.print('(')
     self.expr.print(output)
-    if (parens) output.print(')')
+    if (parentheses) output.print(')')
   })
 
   ast_loop_control.prototype._do_print = function (output, kind) {
@@ -6096,9 +6192,7 @@ function output_js () {
   def_print(ast_if, function (self, output) {
     output.print('if')
     output.space()
-    output.with_parens(function () {
-      self.condition.print(output)
-    })
+    output.with_parens(function () { self.condition.print(output) })
     output.space()
     if (self.alt) {
       make_then(self, output)
@@ -6207,13 +6301,13 @@ function output_js () {
   })
   def_print(ast_import, function (self, output) {})
   def_print(ast_name_mapping, function (self, output) {
-    const is_import = output.parent() instanceof ast_import, defined = self.name.defined(), foreign_name = self.foreign_name
-    const different_names = (defined && defined.mangled_name || self.name.name) !== foreign_name.name
-    if (!different_names && foreign_name.name == '*' && foreign_name.quote != self.name.quote) different_names = true
-    const is_name = foreign_name.quote == null
+    const is_import = output.parent() instanceof ast_import, defined = self.name.defined(), foreign = self.foreign_name
+    const different_names = (defined && defined.mangled_name || self.name.name) !== foreign.name
+    if (!different_names && foreign.name == '*' && foreign.quote != self.name.quote) different_names = true
+    const is_name = foreign.quote == null
     if (different_names) {
       if (is_import) {
-        is_name ? output.print(foreign_name.name) : output.print_string(foreign_name.name, foreign_name.quote)
+        is_name ? output.print(foreign.name) : output.print_string(foreign.name, foreign.quote)
       } else {
         self.name.quote == null ? self.name.print(output) : output.print_string(self.name.name, self.name.quote)
       }
@@ -6223,7 +6317,7 @@ function output_js () {
       if (is_import) {
         self.name.print(output)
       } else {
-        is_name ? output.print(foreign_name.name) : output.print_string(foreign_name.name, foreign_name.quote)
+        is_name ? output.print(foreign.name) : output.print_string(foreign.name, foreign.quote)
       }
     } else {
       self.name.quote == null ? self.name.print(output) : output.print_string(self.name.name, self.name.quote)
@@ -6251,11 +6345,11 @@ function output_js () {
       self.defined.print(output)
       if (self.defined instanceof ast_definitions) return
     }
-    if (self.module_name) {
+    if (self.module) {
       output.space()
       output.print('from')
       output.space()
-      self.module_name.print(output)
+      self.module.print(output)
     }
     if (self.assert_clause) {
       output.print('assert')
@@ -6263,7 +6357,7 @@ function output_js () {
     }
     if (self.value && !(self.value instanceof ast_defun
       || self.value instanceof ast_function || self.value instanceof ast_class)
-      || self.module_name || self.names) {
+      || self.module || self.names) {
       output.semicolon()
     }
   })
@@ -6310,7 +6404,7 @@ function output_js () {
     ast_call.prototype.codegen(self, output)
   })
   ast_sequence.prototype._do_print = function (output) {
-    this.expressions.forEach(function (root, index) {
+    this.exprs.forEach(function (root, index) {
       if (index > 0) {
         output.comma()
         if (output.should_break()) {
@@ -6341,7 +6435,7 @@ function output_js () {
       output.print_string(prop)
       output.print(']')
     } else {
-      if (expr instanceof ast_number && expr.getValue() >= 0 && !/[xa-f.)]/i.test(output.last())) output.print('.')
+      if (expr instanceof ast_number && expr.get_value() >= 0 && !/[xa-f.)]/i.test(output.last())) output.print('.')
       if (!self.optional) output.print('.')
       output.add_mapping(self.end)
       output.print_name(prop)
@@ -6398,14 +6492,14 @@ function output_js () {
   })
   def_print(ast_array, function (self, output) {
     output.with_square(function () {
-      const a = self.elements, len = a.length
-      if (len > 0) output.space()
+      const a = self.elements, length = a.length
+      if (length > 0) output.space()
       a.forEach(function (expr, i) {
         if (i) output.comma()
         expr.print(output)
-        if (i === len - 1 && expr instanceof ast_hole) output.comma()
+        if (i === length - 1 && expr instanceof ast_hole) output.comma()
       })
-      if (len > 0) output.space()
+      if (length > 0) output.space()
     })
   })
   def_print(ast_object, function (self, output) {
@@ -6631,20 +6725,20 @@ function output_js () {
     output.print('super')
   })
   def_print(ast_literal, function (self, output) {
-    output.print(self.getValue())
+    output.print(self.get_value())
   })
   def_print(ast_string, function (self, output) {
-    output.print_string(self.getValue(), self.quote, output.in_directive)
+    output.print_string(self.get_value(), self.quote, output.in_directive)
   })
   def_print(ast_number, function (self, output) {
     if ((output.options['keep_numbers'] || output.use_asm) && self.raw) {
       output.print(self.raw)
     } else {
-      output.print(make_num(self.getValue()))
+      output.print(make_num(self.get_value()))
     }
   })
   def_print(ast_big_int, function (self, output) {
-    output.print(self.getValue() + 'n')
+    output.print(self.get_value() + 'n')
   })
 
   const r_slash_script = /(<\s*\/\s*script)/i
@@ -6652,7 +6746,7 @@ function output_js () {
   const slash_script_replace = (_, script) => script.replace('/', '\\/')
 
   def_print(ast_reg_exp, function (self, output) {
-    let { source, flags } = self.getValue()
+    let { source, flags } = self.get_value()
     source = source_regexp(source)
     flags = flags ? sort_regexp_flags(flags) : ''
     source = source.replace(r_slash_script, slash_script_replace)
@@ -6677,11 +6771,11 @@ function output_js () {
   }
 
   function best_of (a) {
-    let best = a[0], len = best.length, i = 1, j = a.length
+    let best = a[0], length = best.length, i = 1, j = a.length
     for (; i < j; ++i) {
-      if (a[i].length < len) {
+      if (a[i].length < length) {
         best = a[i]
-        len = best.length
+        length = best.length
       }
     }
     return best
@@ -6689,22 +6783,22 @@ function output_js () {
 
   function make_num (num) {
     const string = num.toString(10).replace(/^0\./, '.').replace('e+', 'e')
-    const strings = [string]
+    const st = [string]
     if (Math.floor(num) === num) {
-      num < 0 ? strings.push('-0x' + (-num).toString(16).toLowerCase()) : strings.push('0x' + num.toString(16).toLowerCase())
+      num < 0 ? st.push('-0x' + (-num).toString(16).toLowerCase()) : st.push('0x' + num.toString(16).toLowerCase())
     }
-    let match, len, digits
+    let match, length, digits
     if (match = /^\.0+/.exec(string)) {
-      len = match[0].length
-      digits = string.slice(len)
-      strings.push(digits + 'e-' + (digits.length + len - 1))
+      length = match[0].length
+      digits = string.slice(length)
+      st.push(digits + 'e-' + (digits.length + length - 1))
     } else if (match = /0+$/.exec(string)) {
-      len = match[0].length
-      strings.push(string.slice(0, -len) + 'e' + len)
+      length = match[0].length
+      st.push(string.slice(0, -length) + 'e' + length)
     } else if (match = /^(\d)\.(\d+)e(-?\d+)$/.exec(string)) {
-      strings.push(match[1] + match[2] + 'e' + (match[3] - match[2].length))
+      st.push(match[1] + match[2] + 'e' + (match[3] - match[2].length))
     }
-    return best_of(strings)
+    return best_of(st)
   }
 
   function make_block (statement, output) {
@@ -6728,47 +6822,40 @@ function defmap (nodetype, generator) {
   })
 }
 
-defmap([ tree, ast_labeled_statement, ast_toplevel ], func)
-defmap([ ast_array, ast_block_statement, ast_catch, ast_class, ast_literal, ast_debugger,
+defmap([tree, ast_labeled_statement, ast_toplevel], func)
+defmap([ast_array, ast_block_statement, ast_catch, ast_class, ast_literal, ast_debugger,
   ast_definitions, ast_directive, ast_finally, ast_jump, ast_lambda, ast_new, ast_object,
   ast_statement_with_body, ast_symbol, ast_switch, ast_switch_branch, ast_template_string,
-  ast_template_segment, ast_try ], function (output) { output.add_mapping(this.start) })
-defmap([ ast_object_getter, ast_object_setter, ast_private_getter, ast_private_setter,
-  ast_concise_method, ast_private_method ], function (output) { output.add_mapping(this.start, false) })
-defmap([ ast_symbol_method, ast_symbol_private_property ], function (output) {
+  ast_template_segment, ast_try], function (output) { output.add_mapping(this.start) })
+defmap([ast_object_getter, ast_object_setter, ast_private_getter, ast_private_setter,
+  ast_concise_method, ast_private_method], function (output) { output.add_mapping(this.start, false) })
+defmap([ast_symbol_method, ast_symbol_private_property], function (output) {
   const tok_type = this.end && this.end.type
   output.add_mapping(this.end, (tok_type == 'name' || tok_type == 'privatename') && this.name)
 })
-defmap([ ast_object_property ], function (output) {
+defmap([ast_object_property], function (output) {
   output.add_mapping(this.start, this.key)
 })
 
-const unused_flag = 1
-const true_flag = 2
-const false_flag = 4
-const undefined_flag = 8
-const inlined_flag = 16
-const write_only_flag = 32
-const squeezed_flag = 256
-const optimized_flag = 512
-const topped_flag = 1024
+const unused_flag = 1, true_flag = 2, false_flag = 4, undefined_flag = 8
+const inlined_flag = 16, write_only_flag = 32, squeezed_flag = 256, optimized_flag = 512, topped_flag = 1024
 const pass_flag = squeezed_flag | optimized_flag | topped_flag
 
 const has_flag = (root, flag) => root.flags & flag
 const set_flag = (root, flag) => { root.flags |= flag }
 const clear_flag = (root, flag) => { root.flags &= ~flag }
 
-function trim (nodes, comp, first_in_statement) {
-  const len = nodes.length
-  if (!len) return null
+function trim (nodes, comp, first) {
+  const length = nodes.length
+  if (!length) return null
   const result = []
-  let changed = false, root
-  for (let i = 0; i < len; i++) {
-    root = nodes[i].drop(comp, first_in_statement)
+  let changed = false, root, i
+  for (i = 0; i < length; i++) {
+    root = nodes[i].drop(comp, first)
     changed |= root !== nodes[i]
     if (root) {
       result.push(root)
-      first_in_statement = false
+      first = false
     }
   }
   return changed ? result.length ? result : null : nodes
@@ -6777,13 +6864,13 @@ function trim (nodes, comp, first_in_statement) {
 tree.prototype.drop = return_this
 ast_literal.prototype.drop = return_null
 ast_this.prototype.drop = return_null
-ast_call.prototype.drop = function (comp, first_in_statement) {
-  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first_in_statement)
+ast_call.prototype.drop = function (comp, first) {
+  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first)
   if (!this.is_callee_pure(comp)) {
     if (this.expr.is_call_pure(comp)) {
       let exprs = this.args.slice()
       exprs.unshift(this.expr.expr)
-      exprs = trim(exprs, comp, first_in_statement)
+      exprs = trim(exprs, comp, first)
       return exprs && make_sequence(this, exprs)
     }
     if (is_func_expr(this.expr) && (!this.expr.name || !this.expr.name.defined().references.length)) {
@@ -6793,7 +6880,7 @@ ast_call.prototype.drop = function (comp, first_in_statement) {
     }
     return this
   }
-  const args = trim(this.args, comp, first_in_statement)
+  const args = trim(this.args, comp, first)
   return args && make_sequence(this, args)
 }
 ast_accessor.prototype.drop = return_null
@@ -6822,17 +6909,17 @@ ast_class_property.prototype.drop = function (comp) {
   if (key && value) return make_sequence(this, [key, value])
   return key || value || null
 }
-ast_binary.prototype.drop = function (comp, first_in_statement) {
+ast_binary.prototype.drop = function (comp, first) {
   const right = this.right.drop(comp)
-  if (!right) return this.left.drop(comp, first_in_statement)
+  if (!right) return this.left.drop(comp, first)
   if (lazy_op.has(this.operator)) {
     if (right === this.right) return this
     const root = this.copy()
     root.right = right
     return root
   } else {
-    const left = this.left.drop(comp, first_in_statement)
-    if (!left) return this.right.drop(comp, first_in_statement)
+    const left = this.left.drop(comp, first)
+    if (!left) return this.right.drop(comp, first)
     return make_sequence(this, [left, right])
   }
 }
@@ -6842,30 +6929,31 @@ ast_assign.prototype.drop = function (comp) {
   if (left.has_side_effects(comp) && left instanceof ast_prop_access && left.expr.is_constant()) return this
   set_flag(this, write_only_flag)
   while (left instanceof ast_prop_access) left = left.expr
-  if (left.is_constant_expression(comp.find_parent(ast_scope))) return this.right.drop(comp)
+  if (left.constant_expression(comp.find_parent(ast_scope))) return this.right.drop(comp)
   return this
 }
 ast_conditional.prototype.drop = function (comp) {
   const right = this.consequent.drop(comp)
   const alt = this.alt.drop(comp)
   if (right === this.consequent && alt === this.alt) return this
-  if (!right) return alt ? make_node(ast_binary, this, {operator: '||', left: this.condition, right: alt}) : this.condition.drop(comp)
+  if (!right) return alt ? make_node(ast_binary, this, {operator: '||', left: this.condition, right: alt})
+    : this.condition.drop(comp)
   if (!alt) return make_node(ast_binary, this, {operator: '&&', left: this.condition, right})
   const root = this.copy()
   root.consequent = right
   root.alt = alt
   return root
 }
-ast_unary.prototype.drop = function (comp, first_in_statement) {
+ast_unary.prototype.drop = function (comp, first) {
   if (unary_side_effects.has(this.operator)) {
     !this.expr.has_side_effects(comp) ? set_flag(this, write_only_flag) : clear_flag(this, write_only_flag)
     return this
   }
   if (this.operator == 'typeof' && this.expr instanceof ast_symbol_ref) return null
-  const expr = this.expr.drop(comp, first_in_statement)
-  if (first_in_statement && expr && is_iife_call(expr)) {
+  const expr = this.expr.drop(comp, first)
+  if (first && expr && is_iife_call(expr)) {
     if (expr === this.expr && this.operator == '!') return this
-    return expr.negate(comp, first_in_statement)
+    return expr.negate(comp, first)
   }
   return expr
 }
@@ -6873,14 +6961,14 @@ ast_symbol_ref.prototype.drop = function (comp) {
   const safe_access = this.is_declared(comp) || safe_globals.has(this.name)
   return safe_access ? null : this
 }
-ast_object.prototype.drop = function (comp, first_in_statement) {
-  const values = trim(this.properties, comp, first_in_statement)
+ast_object.prototype.drop = function (comp, first) {
+  const values = trim(this.properties, comp, first)
   return values && make_sequence(this, values)
 }
-ast_object_property.prototype.drop = function (comp, first_in_statement) {
+ast_object_property.prototype.drop = function (comp, first) {
   const computed_key = this instanceof ast_key_value && this.key instanceof tree
-  const key = computed_key && this.key.drop(comp, first_in_statement)
-  const value = this.value && this.value.drop(comp, first_in_statement)
+  const key = computed_key && this.key.drop(comp, first)
+  const value = this.value && this.value.drop(comp, first)
   if (key && value) return make_sequence(this, [key, value])
   return key || value
 }
@@ -6893,61 +6981,64 @@ ast_object_getter.prototype.drop = function () {
 ast_object_setter.prototype.drop = function () {
   return this.computed_key() ? this.key : null
 }
-ast_array.prototype.drop = function (comp, first_in_statement) {
-  const values = trim(this.elements, comp, first_in_statement)
+ast_array.prototype.drop = function (comp, first) {
+  const values = trim(this.elements, comp, first)
   return values && make_sequence(this, values)
 }
-ast_dot.prototype.drop = function (comp, first_in_statement) {
-  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first_in_statement)
+ast_dot.prototype.drop = function (comp, first) {
+  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first)
   if (!this.optional && this.expr.may_throw_on_access(comp)) return this
-  return this.expr.drop(comp, first_in_statement)
+  return this.expr.drop(comp, first)
 }
-ast_sub.prototype.drop = function (comp, first_in_statement) {
-  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first_in_statement)
+ast_sub.prototype.drop = function (comp, first) {
+  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first)
   if (!this.optional && this.expr.may_throw_on_access(comp)) return this
   const property = this.property.drop(comp)
   if (property && this.optional) return this
-  const expr = this.expr.drop(comp, first_in_statement)
+  const expr = this.expr.drop(comp, first)
   if (expr && property) return make_sequence(this, [expr, property])
   return expr || property
 }
-ast_chain.prototype.drop = function (comp, first_in_statement) {
-  return this.expr.drop(comp, first_in_statement)
+ast_chain.prototype.drop = function (comp, first) {
+  return this.expr.drop(comp, first)
 }
 ast_sequence.prototype.drop = function (comp) {
   const last = this.tail_node()
   const expr = last.drop(comp)
   if (expr === last) return this
-  const expressions = this.expressions.slice(0, -1)
-  if (expr) expressions.push(expr)
-  if (!expressions.length) return make_node(ast_number, this, {value: 0})
-  return make_sequence(this, expressions)
+  const exprs = this.exprs.slice(0, -1)
+  if (expr) exprs.push(expr)
+  if (!exprs.length) return make_node(ast_number, this, {value: 0})
+  return make_sequence(this, exprs)
 }
-ast_spread.prototype.drop = function (comp, first_in_statement) {
-  return this.expr.drop(comp, first_in_statement)
+ast_spread.prototype.drop = function (comp, first) {
+  return this.expr.drop(comp, first)
 }
 ast_template_segment.prototype.drop = return_null
 ast_template_string.prototype.drop = function (comp) {
-  const values = trim(this.segments, comp, first_in_statement)
+  const values = trim(this.segments, comp, first)
   return values && make_sequence(this, values)
 }
 
 const r_keep_assign = /keep_assign/
+
 ast_scope.prototype.drop_unused = function (comp) {
   if (!comp.options['unused']) return
   if (comp.has_directive('use asm')) return
-  if (!this.variables) return
+  if (!this.vars) return
   const self = this
   if (self.pinned()) return
   const drop_funcs = !(self instanceof ast_toplevel) || comp.toplevel.funcs
   const drop_vars = !(self instanceof ast_toplevel) || comp.toplevel.vars
   const assign_as_unused = r_keep_assign.test(comp.options['unused']) ? return_false : function (root) {
-    if (root instanceof ast_assign && !root.logical && (has_flag(root, write_only_flag) || root.operator == '=')) return root.left
+    if (root instanceof ast_assign && !root.logical && (has_flag(root, write_only_flag) || root.operator == '=')) {
+      return root.left
+    }
     if (root instanceof ast_unary && has_flag(root, write_only_flag)) return root.expr
   }
   const in_use_ids = new Map(), fixed_ids = new Map()
   if (self instanceof ast_toplevel && comp.top_retain) {
-    self.variables.forEach(function (defined) {
+    self.vars.forEach(function (defined) {
       if (comp.top_retain(defined)) in_use_ids.set(defined.id, defined)
     })
   }
@@ -6968,8 +7059,8 @@ ast_scope.prototype.drop_unused = function (comp) {
     }
     if (root instanceof ast_defun || root instanceof ast_def_class) {
       const node_def = root.name.defined()
-      const in_= trees.parent() instanceof ast_export
-      if (in_|| !drop_funcs && scope === self) {
+      const in_ = trees.parent() instanceof ast_export
+      if (in_ || !drop_funcs && scope === self) {
         if (node_def.global) in_use_ids.set(node_def.id, node_def)
       }
       map_add(initializations, node_def.id, root)
@@ -6980,12 +7071,12 @@ ast_scope.prototype.drop_unused = function (comp) {
       map_add(var_defs_by_id, root.defined().id, root)
     }
     if (root instanceof ast_definitions && in_root_scope) {
-      const in_= trees.parent() instanceof ast_export
+      const in_ = trees.parent() instanceof ast_export
       root.defs.forEach(function (defined) {
         if (defined.name instanceof ast_symbol_var) {
           map_add(var_defs_by_id, defined.name.defined().id, defined)
         }
-        if (in_|| !drop_vars) {
+        if (in_ || !drop_vars) {
           observe(defined.name, root => {
             if (root instanceof ast_declaration) {
               const defined = root.defined()
@@ -7012,9 +7103,9 @@ ast_scope.prototype.drop_unused = function (comp) {
     if (init) init.forEach(function (init) { init.observe(trees) })
   })
   self_referential_classes.forEach(function (cls) { cls.observe(trees) })
-  const trans = new transforms(
+  const transformer = new transforms(
     function before (root, ascend, list) {
-      const parent = trans.parent()
+      const parent = transformer.parent()
       if (drop_vars) {
         const sym = assign_as_unused(root)
         if (sym instanceof ast_symbol_ref) {
@@ -7022,7 +7113,7 @@ ast_scope.prototype.drop_unused = function (comp) {
           const in_use = in_use_ids.has(defined.id)
           if (root instanceof ast_assign) {
             if (!in_use || fixed_ids.has(defined.id) && fixed_ids.get(defined.id) !== root) {
-              return maintain_bind(parent, root, root.right.transform(trans))
+              return maintain_bind(parent, root, root.right.transform(transformer))
             }
           } else if (!in_use) {
             return list ? {} : make_node(ast_number, root, {value: 0})
@@ -7075,22 +7166,25 @@ ast_scope.prototype.drop_unused = function (comp) {
         const body = [], head = [], tail = []
         let side_effects = []
         root.defs.forEach(function (defined) {
-          if (defined.value) defined.value = defined.value.transform(trans)
+          if (defined.value) defined.value = defined.value.transform(transformer)
           const is_destructure = defined.name instanceof ast_destructure
           const sym = is_destructure ? new symbol_def(null, {name: 'destructure'}) : defined.name.defined()
           if (drop_block && sym.global) return tail.push(defined)
-          if (!(drop_vars || drop_block) || is_destructure
-            && (defined.name.names.length || defined.name.is_array || comp.options['pure_getters'] != true) || in_use_ids.has(sym.id)) {
-            if (defined.value && fixed_ids.has(sym.id) && fixed_ids.get(sym.id) !== defined) defined.value = defined.value.drop(comp)
+          if (!(drop_vars || drop_block) || is_destructure && (defined.name.names.length || defined.name.is_array
+            || comp.options['pure_getters'] != true) || in_use_ids.has(sym.id)) {
+            if (defined.value && fixed_ids.has(sym.id) && fixed_ids.get(sym.id) !== defined) {
+              defined.value = defined.value.drop(comp)
+            }
             if (defined.name instanceof ast_symbol_var) {
               const var_defs = var_defs_by_id.get(sym.id)
               if (var_defs.length > 1 && (!defined.value || sym.orig.indexOf(defined.name) > sym.eliminated)) {
                 if (defined.value) {
                   const ref = make_node(ast_symbol_ref, defined.name, defined.name)
                   sym.references.push(ref)
-                  const assign = make_node(ast_assign, defined, {operator: '=', logical: false, left: ref, right: defined.value})
+                  const assign = make_node(ast_assign, defined, {operator: '=', logical: false, left: ref,
+                    right: defined.value})
                   if (fixed_ids.get(sym.id) === defined) fixed_ids.set(sym.id, assign)
-                  side_effects.push(assign.transform(trans))
+                  side_effects.push(assign.transform(transformer))
                 }
                 remove(var_defs, defined)
                 sym.eliminated++
@@ -7131,11 +7225,11 @@ ast_scope.prototype.drop_unused = function (comp) {
         }
         switch (body.length) {
           case 0:
-          return list ? {} : make_node(ast_empty_statement, root)
+            return list ? {} : make_node(ast_empty_statement, root)
           case 1:
-          return body[0]
+            return body[0]
           default:
-          return list ? _splice(body) : make_node(ast_block_statement, root, {body})
+            return list ? _splice(body) : make_node(ast_block_statement, root, {body})
         }
       }
       if (root instanceof ast_for) {
@@ -7179,14 +7273,14 @@ ast_scope.prototype.drop_unused = function (comp) {
     }
   )
 
-  self.transform(trans)
+  self.transform(transformer)
 
   function scan_ref_scoped (root, ascend) {
     let node_def
     const sym = assign_as_unused(root)
     const node_name = sym ? sym.file + '/' + sym.name : ''
     if (sym instanceof ast_symbol_ref && !ref_of(root.left, ast_symbol_block)
-      && self.variables.get(node_name) === (node_def = sym.defined())) {
+      && self.vars.get(node_name) === (node_def = sym.defined())) {
       if (root instanceof ast_assign) {
         root.right.observe(trees)
         if (!node_def.chained && root.left.fixed_value() === root.right) fixed_ids.set(node_def.id, root)
@@ -7199,7 +7293,7 @@ ast_scope.prototype.drop_unused = function (comp) {
         in_use_ids.set(node_def.id, node_def)
         if (node_def.orig[0] instanceof ast_symbol_catch) {
           const node_name = node_def.file + '/' + node_def.name
-          const redef = node_def.scope.is_block_scope() && node_def.scope.get_defun_scope().variables.get(node_name)
+          const redef = node_def.scope.is_block_scope() && node_def.scope.get_defun_scope().vars.get(node_name)
           if (redef) in_use_ids.set(redef.id, redef)
         }
       }
@@ -7294,7 +7388,7 @@ function tighten_body (statements, comp) {
     changed = false
     eliminate_spurious_blocks(statements)
     if (comp.options['dead_code']) eliminate_dead_code(statements, comp)
-    if (comp.options['if_return'])  handle_if_return(statements, comp)
+    if (comp.options['if_return']) handle_if_return(statements, comp)
     if (comp.sequences_limit > 0) {
       sequencesize(statements, comp)
       sequencesize_2(statements, comp)
@@ -7338,7 +7432,8 @@ function tighten_body (statements, comp) {
         || root instanceof ast_call && lhs instanceof ast_prop_access && lhs.equivalent_to(root.expr)
         || (root instanceof ast_call || root instanceof ast_prop_access) && root.optional
         || root instanceof ast_debugger || root instanceof ast_destructure
-        || root instanceof ast_spread && root.expr instanceof ast_symbol && (root.expr instanceof ast_this || root.expr.defined().references.length > 1)
+        || root instanceof ast_spread && root.expr instanceof ast_symbol
+          && (root.expr instanceof ast_this || root.expr.defined().references.length > 1)
         || root instanceof ast_iteration_statement && !(root instanceof ast_for)
         || root instanceof ast_loop_control || root instanceof ast_try || root instanceof ast_with
         || root instanceof ast_yield || root instanceof ast_export || root instanceof ast_class
@@ -7383,12 +7478,13 @@ function tighten_body (statements, comp) {
         return candidate
       }
       let sym
-      if (root instanceof ast_call || root instanceof ast_exit && (side_effects || lhs instanceof ast_prop_access || may_modify(lhs))
-        || root instanceof ast_prop_access && (side_effects || root.expr.may_throw_on_access(comp))
-        || root instanceof ast_symbol_ref && ((lvalues.has(root.name) && lvalues.get(root.name).modified) || side_effects && may_modify(root))
-        || root instanceof ast_var_def && root.value  && (lvalues.has(root.name.name) || side_effects && may_modify(root.name))
-        || (sym = is_lhs(root.left, root)) && (sym instanceof ast_prop_access || lvalues.has(sym.name))
-        || may_throw && (in_try ? root.has_side_effects(comp) : side_effects_external(root))) {
+      if (root instanceof ast_call || root instanceof ast_exit && (side_effects || lhs instanceof ast_prop_access
+        || may_modify(lhs)) || root instanceof ast_prop_access && (side_effects || root.expr.may_throw_on_access(comp))
+        || root instanceof ast_symbol_ref && ((lvalues.has(root.name) && lvalues.get(root.name).modified)
+        || side_effects && may_modify(root)) || root instanceof ast_var_def && root.value
+        && (lvalues.has(root.name.name) || side_effects && may_modify(root.name)) || (sym = is_lhs(root.left, root))
+        && (sym instanceof ast_prop_access || lvalues.has(sym.name)) || may_throw
+        && (in_try ? root.has_side_effects(comp) : side_effects_external(root))) {
         stop_after = root
         if (root instanceof ast_scope) abort = true
       }
@@ -7433,7 +7529,7 @@ function tighten_body (statements, comp) {
         if (!lhs || is_lhs_read_only(lhs) || lhs.has_side_effects(comp)) continue
         lvalues = get_lvalues(candidate)
         lhs_local = is_lhs_local(lhs)
-        if (lhs instanceof ast_symbol_ref) lvalues.set(lhs.name, { defined: lhs.defined(), modified: false})
+        if (lhs instanceof ast_symbol_ref) lvalues.set(lhs.name, {defined: lhs.defined(), modified: false})
         side_effects = value_has_side_effects(candidate)
         replace_all = replace_all_symbols()
         may_throw = candidate.may_throw(comp)
@@ -7448,7 +7544,7 @@ function tighten_body (statements, comp) {
           }
           can_replace = true
         }
-        for (let i = stat_index, len = statements.length; !abort && i < len; i++) {
+        for (let i = stat_index, length = statements.length; !abort && i < length; i++) {
           statements[i].transform(scanner)
         }
         if (value_def) {
@@ -7458,7 +7554,7 @@ function tighten_body (statements, comp) {
             abort = false
             hit_index = 0
             hit = funarg
-            for (let i = stat_index, len = statements.length; !abort && i < len; i++) {
+            for (let i = stat_index, length = statements.length; !abort && i < length; i++) {
               statements[i].transform(multi_replacer)
             }
             value_def.single_use = false
@@ -7472,8 +7568,8 @@ function tighten_body (statements, comp) {
       if (root instanceof ast_scope) return root
       if (root instanceof ast_switch) {
         root.expr = root.expr.transform(scanner)
-        let i = 0, len = root.body.length, branch
-        for (i; !abort && i < len; i++) {
+        let i = 0, length = root.body.length, branch
+        for (i; !abort && i < length; i++) {
           branch = root.body[i]
           if (branch instanceof ast_case) {
             if (!hit) {
@@ -7494,7 +7590,7 @@ function tighten_body (statements, comp) {
       let cur_scope = defined.scope, name
       while (cur_scope && cur_scope !== scope) {
         name = defined.file + '/' + defined.name
-        if (cur_scope.variables.has(name)) return true
+        if (cur_scope.vars.has(name)) return true
         cur_scope = cur_scope.parents
       }
       return false
@@ -7505,7 +7601,7 @@ function tighten_body (statements, comp) {
       arg.observe(new observes(function (root, ascend) {
         if (found) return true
         const name = root.file + '/' + root.name
-        if (root instanceof ast_symbol_ref && (fn.variables.has(name) || redefined_within_scope(root.defined(), fn))) {
+        if (root instanceof ast_symbol_ref && (fn.vars.has(name) || redefined_within_scope(root.defined(), fn))) {
           let scope = root.defined().scope
           if (scope !== defun_scope) while (scope = scope.parents) if (scope === defun_scope) return true
           return found = true
@@ -7524,20 +7620,21 @@ function tighten_body (statements, comp) {
 
     function arg_is_injectable (arg) {
       if (arg instanceof ast_spread) return false
-      const contains_await = observe(arg, (root) => { if (root instanceof ast_await) return walk_abort })
+      const contains_await = observe(arg, root => { if (root instanceof ast_await) return walk_abort })
       if (contains_await) return false
       return true
     }
+
     function extract_args () {
       const fn = comp.self()
       let iife
       if (is_func_expr(fn) && !fn.name && !fn.uses_args && !fn.pinned() && (iife = comp.parent()) instanceof ast_call
         && iife.expr === fn && iife.args.every(arg_is_injectable)) {
-        const len = fn.argnames.length
-        args = iife.args.slice(len)
+        const length = fn.argnames.length
+        args = iife.args.slice(length)
         const names = new Set()
         let sym, arg, defined, is_reassigned, elements
-        for (let i = len; --i >= 0;) {
+        for (let i = length; --i >= 0;) {
           sym = fn.argnames[i]
           arg = iife.args[i]
           defined = sym.defined && sym.defined()
@@ -7548,8 +7645,9 @@ function tighten_body (statements, comp) {
           names.add(sym.name)
           if (sym instanceof ast_spread) {
             elements = iife.args.slice(i)
-            if (elements.every((arg) => !has_overlapping_symbol(fn, arg, false))) {
-              candidates.unshift([make_node(ast_var_def, sym, {name: sym.expr, value: make_node(ast_array, iife, {elements})})])
+            if (elements.every(arg => !has_overlapping_symbol(fn, arg, false))) {
+              candidates.unshift([make_node(ast_var_def, sym, {name: sym.expr, value: make_node(ast_array, iife,
+                {elements})})])
             }
           } else {
             if (!arg) {
@@ -7581,10 +7679,10 @@ function tighten_body (statements, comp) {
         extract(expr.consequent)
         extract(expr.alt)
       } else if (expr instanceof ast_definitions) {
-        const len = expr.defs.length
-        let i = len - 200
+        const length = expr.defs.length
+        let i = length - 200
         if (i < 0) i = 0
-        for (; i < len; i++) extract(expr.defs[i])
+        for (; i < length; i++) extract(expr.defs[i])
       } else if (expr instanceof ast_do_loop) {
         extract(expr.condition)
         if (!(expr.body instanceof ast_block)) extract(expr.body)
@@ -7603,7 +7701,7 @@ function tighten_body (statements, comp) {
         if (!(expr.body instanceof ast_block)) extract(expr.body)
         if (expr.alt && !(expr.alt instanceof ast_block)) extract(expr.alt)
       } else if (expr instanceof ast_sequence) {
-        expr.expressions.forEach(extract)
+        expr.exprs.forEach(extract)
       } else if (expr instanceof ast_statement) {
         extract(expr.body)
       } else if (expr instanceof ast_switch) {
@@ -7623,7 +7721,8 @@ function tighten_body (statements, comp) {
     function find_stop (root, level, write_only) {
       const parent = scanner.parent(level)
       if (parent instanceof ast_assign) {
-        if (write_only && !parent.logical && !(parent.left instanceof ast_prop_access || lvalues.has(parent.left.name))) {
+        if (write_only && !parent.logical && !(parent.left instanceof ast_prop_access
+          || lvalues.has(parent.left.name))) {
           return find_stop(parent, level + 1, write_only)
         }
         return root
@@ -7672,7 +7771,8 @@ function tighten_body (statements, comp) {
         const referenced = defined.references.length - defined.replaced
         if (!referenced) return
         const declared = defined.orig.length - defined.eliminated
-        if (declared > 1 && !(expr.name instanceof ast_symbol_funarg) || (referenced > 1 ? mangleable(expr) : !comp.exposed(defined))) {
+        if (declared > 1 && !(expr.name instanceof ast_symbol_funarg)
+          || (referenced > 1 ? mangleable(expr) : !comp.exposed(defined))) {
           return make_node(ast_symbol_ref, expr.name, expr.name)
         }
       } else {
@@ -7730,9 +7830,9 @@ function tighten_body (statements, comp) {
         }
       }, function (root) {
         if (root instanceof ast_sequence)
-          switch (root.expressions.length) {
+          switch (root.exprs.length) {
             case 0: return null
-            case 1: return root.expressions[0]
+            case 1: return root.exprs[0]
           }
       }))
     }
@@ -7768,7 +7868,7 @@ function tighten_body (statements, comp) {
       const defined = sym.defined()
       if (defined.orig.length == 1 && defined.orig[0] instanceof ast_symbol_defun) return false
       if (defined.scope.get_defun_scope() !== defun_scope) return true
-      return defined.references.some((ref) => ref.scope.get_defun_scope() !== defun_scope)
+      return defined.references.some(ref => ref.scope.get_defun_scope() !== defun_scope)
     }
 
     function side_effects_external (root, lhs) {
@@ -7911,8 +8011,7 @@ function tighten_body (statements, comp) {
     }
 
     function has_multiple_if_returns (statements) {
-      let n = 0, i = statements.length, stat
-      for (; --i >= 0;) {
+      for (let n = 0, i = statements.length, stat; --i >= 0;) {
         stat = statements[i]
         if (stat instanceof ast_if && stat.body instanceof ast_return) if (++n > 1) return true
       }
@@ -7925,8 +8024,7 @@ function tighten_body (statements, comp) {
 
     function can_merge_flow (ab) {
       if (!ab) return false
-      let j = i + 1, len = statements.length, stat
-      for (; j < len; j++) {
+      for (let j = i + 1, length = statements.length, stat; j < length; j++) {
         stat = statements[j]
         if (stat instanceof ast_const || stat instanceof ast_let) return false
       }
@@ -7957,8 +8055,7 @@ function tighten_body (statements, comp) {
     }
 
     function next_index (i) {
-      let j = i + 1, len = statements.length, stat
-      for (; j < len; j++) {
+      for (let j = i + 1, length = statements.length, stat; j < length; j++) {
         stat = statements[j]
         if (!(stat instanceof ast_var && declarations_only(stat))) break
       }
@@ -7977,8 +8074,8 @@ function tighten_body (statements, comp) {
 
   function eliminate_dead_code (statements, comp) {
     const self = comp.self()
-    let i = 0, n = 0, len = statements.length, stat, lct, has_quit
-    for (; i < len; i++) {
+    let i = 0, n = 0, length = statements.length, stat, lct, has_quit
+    for (; i < length; i++) {
       stat = statements[i]
       if (stat instanceof ast_loop_control) {
         lct = comp.loopcontrol(stat)
@@ -7997,24 +8094,24 @@ function tighten_body (statements, comp) {
       }
     }
     statements.length = n
-    changed = n != len
+    changed = n != length
     if (has_quit) has_quit.forEach(function (stat) { trim_code(comp, stat, statements) })
   }
 
   function declarations_only (root) {
-    return root.defs.every((var_def) => !var_def.value)
+    return root.defs.every(var_def => !var_def.value)
   }
 
   function sequencesize (statements, comp) {
     if (statements.length < 2) return
-    let seq = [], n = 0, body, stat, i, len
+    let seq = [], n = 0, body, stat, i, length
     function push_seq () {
       if (!seq.length) return
       body = make_sequence(seq[0], seq)
       statements[n++] = make_node(ast_statement, body, {body})
       seq = []
     }
-    for (i = 0, len = statements.length; i < len; i++) {
+    for (i = 0, length = statements.length; i < length; i++) {
       stat = statements[i]
       if (stat instanceof ast_statement) {
         if (seq.length >= comp.sequences_limit) push_seq()
@@ -8031,13 +8128,13 @@ function tighten_body (statements, comp) {
     }
     push_seq()
     statements.length = n
-    if (n != len) changed = true
+    if (n != length) changed = true
   }
 
   function to_simple_statement (block, decls) {
     if (!(block instanceof ast_block_statement)) return block
-    let i = 0, len = block.body.length, line, stat
-    for (; i < len; i++) {
+    let i = 0, length = block.body.length, line, stat
+    for (; i < length; i++) {
       line = block.body[i]
       if (line instanceof ast_var && declarations_only(line)) {
         decls.push(line)
@@ -8094,13 +8191,14 @@ function tighten_body (statements, comp) {
         const body = to_simple_statement(stat.body, decls)
         const alt = to_simple_statement(stat.alt, decls)
         if (body !== false && alt !== false && decls.length > 0) {
-          const len = decls.length
-          decls.push(make_node(ast_if, stat, {condition: stat.condition, body: body || make_node(ast_empty_statement, stat.body), alt}))
+          const length = decls.length
+          decls.push(make_node(ast_if, stat, {condition: stat.condition,
+            body: body || make_node(ast_empty_statement, stat.body), alt}))
           decls.unshift(n, 1)
           const empty = []
           empty.splice.apply(statements, decls)
-          i += len
-          n += len + 1
+          i += length
+          n += length + 1
           prev = null
           changed = true
           continue
@@ -8112,7 +8210,7 @@ function tighten_body (statements, comp) {
     statements.length = n
   }
 
-  function join_object_assignments(defn, body) {
+  function join_object_assigns(defn, body) {
     if (!(defn instanceof ast_definitions)) return
     const defined = defn.defs[defn.defs.length - 1]
     if (!(defined.value instanceof ast_object)) return
@@ -8120,7 +8218,7 @@ function tighten_body (statements, comp) {
     if (body instanceof ast_assign && !body.logical) {
       exprs = [body]
     } else if (body instanceof ast_sequence) {
-      exprs = body.expressions.slice()
+      exprs = body.exprs.slice()
     }
     if (!exprs) return
     let trimmed = false
@@ -8132,7 +8230,7 @@ function tighten_body (statements, comp) {
       const sym = root.left.expr
       if (!(sym instanceof ast_symbol_ref)) break
       if (defined.name.name != sym.name) break
-      if (!root.right.is_constant_expression(nearest_scope)) break
+      if (!root.right.constant_expression(nearest_scope)) break
       let prop = root.left.property
       if (prop instanceof tree) prop = prop.evaluate(comp)
       if (prop instanceof tree) break
@@ -8143,7 +8241,7 @@ function tighten_body (statements, comp) {
       if (!p) {
         defined.value.properties.push(make_node(ast_key_value, root, {key: prop, value: root.right}))
       } else {
-        p.value = new ast_sequence({start: p.start, expressions: [p.value.copy(), root.right.copy()], end: p.end, file: ''})
+        p.value = new ast_sequence({start: p.start, exprs: [p.value.copy(), root.right.copy()], end: p.end, file: ''})
       }
       exprs.shift()
       trimmed = true
@@ -8152,8 +8250,8 @@ function tighten_body (statements, comp) {
   }
 
   function join_consecutive_vars (statements) {
-    let i = 0, j = -1, len = statements.length, stat, prev, defs, exprs
-    for (; i < len; i++) {
+    let i = 0, j = -1, length = statements.length, stat, prev, defs, exprs
+    for (; i < length; i++) {
       stat = statements[i]
       prev = statements[j]
       if (stat instanceof ast_definitions) {
@@ -8168,9 +8266,9 @@ function tighten_body (statements, comp) {
           defs = stat
         }
       } else if (stat instanceof ast_exit) {
-        stat.value = extract_object_assignments(stat.value)
+        stat.value = extract_object_assigns(stat.value)
       } else if (stat instanceof ast_for) {
-        exprs = join_object_assignments(prev, stat.init)
+        exprs = join_object_assigns(prev, stat.init)
         if (exprs) {
           changed = true
           stat.init = exprs.length ? make_sequence(stat.init, exprs) : null
@@ -8189,11 +8287,11 @@ function tighten_body (statements, comp) {
           statements[++j] = stat
         }
       } else if (stat instanceof ast_for_in) {
-        stat.object = extract_object_assignments(stat.object)
+        stat.object = extract_object_assigns(stat.object)
       } else if (stat instanceof ast_if) {
-        stat.condition = extract_object_assignments(stat.condition)
+        stat.condition = extract_object_assigns(stat.condition)
       } else if (stat instanceof ast_statement) {
-        exprs = join_object_assignments(prev, stat.body)
+        exprs = join_object_assigns(prev, stat.body)
         if (exprs) {
           changed = true
           if (!exprs.length) continue
@@ -8201,17 +8299,17 @@ function tighten_body (statements, comp) {
         }
         statements[++j] = stat
       } else if (stat instanceof ast_switch) {
-        stat.expr = extract_object_assignments(stat.expr)
+        stat.expr = extract_object_assigns(stat.expr)
       } else if (stat instanceof ast_with) {
-        stat.expr = extract_object_assignments(stat.expr)
+        stat.expr = extract_object_assigns(stat.expr)
       } else {
         statements[++j] = stat
       }
     }
     statements.length = j + 1
-    function extract_object_assignments (value) {
+    function extract_object_assigns (value) {
       statements[++j] = stat
-      exprs = join_object_assignments(prev, value)
+      exprs = join_object_assigns(prev, value)
       if (exprs) {
         changed = true
         if (exprs.length) {
@@ -8234,7 +8332,7 @@ function def_reduce_vars (root, func) {
 def_reduce_vars(tree, func)
 
 function reset_def (comp, defined) {
-  defined.assignments = 0
+  defined.assigns = 0
   defined.chained = false
   defined.direct_access = false
   defined.escaped = 0
@@ -8251,7 +8349,7 @@ function reset_def (comp, defined) {
 }
 
 function reset_variables (trees, comp, root) {
-  root.variables.forEach(function (defined) {
+  root.vars.forEach(function (defined) {
     reset_def(comp, defined)
     if (defined.fixed === null) {
       trees.defs_to_safe_ids.set(defined.id, trees.safe)
@@ -8264,7 +8362,7 @@ function reset_variables (trees, comp, root) {
 }
 
 function reset_block_variables (comp, root) {
-  if (root.blocks) root.blocks.variables.forEach((defined) => reset_def(comp, defined))
+  if (root.blocks) root.blocks.vars.forEach(defined => reset_def(comp, defined))
 }
 
 function push (trees) {
@@ -8303,9 +8401,9 @@ function safe_to_assign (trees, defined, scope, value) {
   if (!owns(trees.safe, defined.id)) return false
   if (!safe_to_read(trees, defined)) return false
   if (defined.fixed === false) return false
-  if (defined.fixed != null && (!value || defined.references.length > defined.assignments)) return false
+  if (defined.fixed != null && (!value || defined.references.length > defined.assigns)) return false
   if (defined.fixed instanceof ast_defun) return value instanceof tree && defined.fixed.parents === scope
-  return defined.orig.every((sym) => {
+  return defined.orig.every(sym => {
     return !(sym instanceof ast_symbol_const || sym instanceof ast_symbol_defun || sym instanceof ast_symbol_lambda)
   })
 }
@@ -8332,7 +8430,7 @@ function mark_escaped (trees, defined, scope, root, value, level = 0, depth = 1)
     || parent instanceof ast_exit && root === parent.value && root.scope !== defined.scope
     || parent instanceof ast_var_def && root === parent.value
     || parent instanceof ast_yield && root === parent.value && root.scope !== defined.scope) {
-    if (depth > 1 && !(value && value.is_constant_expression(scope))) depth = 1
+    if (depth > 1 && !(value && value.constant_expression(scope))) depth = 1
     if (!defined.escaped || defined.escaped > depth) defined.escaped = depth
     return
   } else if (parent instanceof ast_array || parent instanceof ast_await
@@ -8389,7 +8487,7 @@ def_reduce_vars(ast_assign, function (trees, ascend, comp) {
   if (!(sym instanceof ast_symbol_ref)) return finish_walk()
   const defined = sym.defined()
   const safe = safe_to_assign(trees, defined, sym.scope, root.right)
-  defined.assignments++
+  defined.assigns++
   if (!safe) return finish_walk()
   const fixed = defined.fixed
   if (!fixed && root.operator != '=' && !root.logical) return finish_walk()
@@ -8498,8 +8596,9 @@ function mark_lambda (trees, ascend, comp) {
   push(trees)
   reset_variables(trees, comp, this)
   let iife
-  if (!this.name && !this.uses_args && !this.pinned() && (iife = trees.parent()) instanceof ast_call && iife.expr === this
-    && !iife.args.some(arg => arg instanceof ast_spread) && this.argnames.every(arg_name => arg_name instanceof ast_symbol)) {
+  if (!this.name && !this.uses_args && !this.pinned() && (iife = trees.parent()) instanceof ast_call
+    && iife.expr === this && !iife.args.some(arg => arg instanceof ast_spread)
+    && this.argnames.every(arg_name => arg_name instanceof ast_symbol)) {
     this.argnames.forEach((arg, i) => {
       if (!arg.defined) return
       const defined = arg.defined()
@@ -8535,8 +8634,10 @@ function handle_defined_after_hoist (parent) {
       defined => defined !== defun && defined.encl.indexOf(fname_def) !== -1
     )
     for (const defined of defun.encl) {
-      if (defined.fixed === false || defined === fname_def || defined.scope.get_defun_scope() !== parent) continue
-      if (defined.assignments === 0 && defined.orig.length === 1 && defined.orig[0] instanceof ast_symbol_defun) continue
+      if (defined.fixed === false || defined === fname_def || defined.scope.get_defun_scope() !== parent
+        || (defined.assigns === 0 && defined.orig.length === 1 && defined.orig[0] instanceof ast_symbol_defun)) {
+        continue
+      }
       if (found_self_ref_in_other_defuns) {
         defined.fixed = false
         continue
@@ -8549,9 +8650,7 @@ function handle_defined_after_hoist (parent) {
   }
 
   if (potential_conflicts.length) {
-    const found_symbols = []
-    const found_symbol_writes = new Set()
-    const defun_ranges = new Map()
+    const found_symbols = [], found_symbol_writes = new Set(), defun_ranges = new Map()
     let trees
     parent.observe((trees = new observes((root, ascend) => {
       if (root instanceof ast_defun && defuns_of_interest.has(root)) {
@@ -8687,8 +8786,8 @@ def_reduce_vars(ast_symbol_ref, function (trees, ascend, comp) {
     if (fixed_value instanceof ast_lambda && is_recursive_ref(trees, defined)) {
       defined.recursive_refs++
     } else if (fixed_value && !comp.exposed(defined) && ref_once(trees, comp, defined)) {
-      defined.single_use = fixed_value instanceof ast_lambda && !fixed_value.pinned() || fixed_value instanceof ast_class
-        || defined.scope === this.scope && fixed_value.is_constant_expression()
+      defined.single_use = fixed_value instanceof ast_lambda && !fixed_value.pinned()
+        || fixed_value instanceof ast_class || defined.scope === this.scope && fixed_value.constant_expression()
     } else {
       defined.single_use = false
     }
@@ -8725,12 +8824,12 @@ def_reduce_vars(ast_try, function (trees, ascend, comp) {
 
 def_reduce_vars(ast_unary, function (trees) {
   const root = this
-  if (root.operator !== '++' && root.operator !== '--') return
+  if (root.operator != '++' && root.operator != '--') return
   const expr = root.expr
   if (!(expr instanceof ast_symbol_ref)) return
   const defined = expr.defined()
   const safe = safe_to_assign(trees, defined, expr.scope, true)
-  defined.assignments++
+  defined.assigns++
   if (!safe) return
   const fixed = defined.fixed
   if (!fixed) return
@@ -8755,7 +8854,7 @@ def_reduce_vars(ast_var_def, function (trees, ascend) {
   const defined = root.name.defined()
   if (root.value) {
     if (safe_to_assign(trees, defined, root.name.scope, root.value)) {
-      defined.fixed = function () { return root.value}
+      defined.fixed = function () { return root.value }
       trees.loop_ids.set(defined.id, trees.in_loop)
       mark(trees, defined, false)
       ascend()
@@ -8793,8 +8892,6 @@ tree.prototype.evaluate = function (comp) {
   return val
 }
 
-const unary_prefix = make_set('! ~ - + void')
-
 tree.prototype.is_constant = function () {
   if (this instanceof ast_literal) {
     return !(this instanceof ast_reg_exp)
@@ -8807,41 +8904,39 @@ tree.prototype._eval = return_this
 ast_class.prototype._eval = return_this
 ast_lambda.prototype._eval = return_this
 ast_state.prototype._eval = return_false
-ast_literal.prototype._eval = function () {
-  return this.getValue()
-}
+ast_literal.prototype._eval = function () { return this.get_value() }
 
 const supports_bigint = typeof BigInt == 'function'
 
 ast_big_int.prototype._eval = function () {
   return supports_bigint ? BigInt(this.value) : this
 }
-
 ast_reg_exp.prototype._eval = function (comp) {
   let evaluated = comp.evaluated_regexps.get(this.value)
   if (evaluated === undefined && regexp_is_safe(this.value.source)) {
     try {
       const { source, flags } = this.value
       evaluated = new RegExp(source, flags)
-    } catch (e) {
+    } catch {
       evaluated = null
     }
     comp.evaluated_regexps.set(this.value, evaluated)
   }
   return evaluated || this
 }
-
 ast_template_string.prototype._eval = function () {
   if (this.segments.length !== 1) return this
   return this.segments[0].value
 }
-
 ast_function.prototype._eval = function (comp) { return this }
 
 def_eval(ast_array, function (comp, depth) { return this })
 def_eval(ast_object, function (comp, depth) { return this })
 
 const non_converting_unary = make_set('! typeof void')
+const non_converting_binary = make_set('&& || ?? === !==')
+const identity_comparison = make_set('== != === !==')
+
 def_eval(ast_unary_prefix, function (comp, depth) {
   let expr = this.expr
   if (comp.options['typeofs'] && this.operator == 'typeof' && (expr instanceof ast_lambda
@@ -8864,8 +8959,6 @@ def_eval(ast_unary_prefix, function (comp, depth) {
   return this
 })
 
-const non_converting_binary = make_set('&& || ?? === !==')
-const identity_comparison = make_set('== != === !==')
 const has_identity = value => typeof value == 'object' || typeof value == 'function' || typeof value == 'symbol'
 
 def_eval(ast_binary, function (comp, depth) {
@@ -8879,9 +8972,7 @@ def_eval(ast_binary, function (comp, depth) {
     return this
   }
   if ((typeof left == 'bigint') !== (typeof right == 'bigint') || typeof left == 'bigint' && (this.operator == '>>>'
-    || this.operator == '/' && Number(right) === 0)) {
-    return this
-  }
+    || this.operator == '/' && Number(right) === 0)) return this
   let result
   switch (this.operator) {
     case '&&': result = left && right; break
@@ -8922,6 +9013,7 @@ def_eval(ast_conditional, function (comp, depth) {
 })
 
 const reentrant_ref_eval = new Set()
+
 def_eval(ast_symbol_ref, function (comp, depth) {
   if (reentrant_ref_eval.has(this)) return this
   const fixed = this.fixed_value()
@@ -8936,7 +9028,6 @@ def_eval(ast_symbol_ref, function (comp, depth) {
   }
   return value
 })
-
 def_eval(ast_prop_access, function (comp, depth) {
   let obj = this.expr._eval(comp, depth + 1)
   if (obj === nullish || (this.optional && obj == null)) return nullish
@@ -8947,51 +9038,40 @@ def_eval(ast_prop_access, function (comp, depth) {
   }
   return this
 })
-
 def_eval(ast_chain, function (comp, depth) {
   const evaluated = this.expr._eval(comp, depth)
   return evaluated === nullish ? undefined : evaluated === this.expr ? this : evaluated
 })
-
 def_eval(ast_call, function (comp, depth) {
   const expr = this.expr
   const callee = expr._eval(comp, depth)
   if (callee === nullish || (this.optional && callee == null)) return nullish
   return this
 })
-
 def_eval(ast_new, return_this)
 
-const safe_globals = new Set([ 'Number', 'String', 'Array', 'Object', 'Function', 'Promise' ])
-
-const is_undeclared_ref = (root) => (root instanceof ast_symbol_ref && root.defined().undeclared)
+const safe_globals = new Set(['Number', 'String', 'Array', 'Object', 'Function', 'Promise'])
 const bitwise_binop = make_set('<<< >> << & | ^ ~')
 const lazy_op = make_set('&& || ??')
 const unary_side_effects = make_set('delete ++ --')
 const unary_bool = make_set('! delete')
 const binary_bool = make_set('in instanceof == != === !== < <= >= >')
 
+const is_undeclared_ref = root => (root instanceof ast_symbol_ref && root.defined().undeclared)
+
 function def_is_boolean (root, func) {
   root.prototype.is_boolean = func
 }
 
 def_is_boolean(tree, return_false)
-def_is_boolean(ast_unary_prefix, function () {
-  return unary_bool.has(this.operator)
-})
+def_is_boolean(ast_unary_prefix, function () { return unary_bool.has(this.operator) })
 def_is_boolean(ast_binary, function () {
   return binary_bool.has(this.operator) || lazy_op.has(this.operator)
     && this.left.is_boolean() && this.right.is_boolean()
 })
-def_is_boolean(ast_conditional, function () {
-  return this.consequent.is_boolean() && this.alt.is_boolean()
-})
-def_is_boolean(ast_assign, function () {
-  return this.operator == '=' && this.right.is_boolean()
-})
-def_is_boolean(ast_sequence, function () {
-  return this.tail_node().is_boolean()
-})
+def_is_boolean(ast_conditional, function () { return this.consequent.is_boolean() && this.alt.is_boolean() })
+def_is_boolean(ast_assign, function () { return this.operator == '=' && this.right.is_boolean() })
+def_is_boolean(ast_sequence, function () { return this.tail_node().is_boolean() })
 def_is_boolean(ast_true, return_true)
 def_is_boolean(ast_false, return_true)
 
@@ -9001,39 +9081,34 @@ function def_is_number (root, func) {
 
 def_is_number(tree, return_false)
 def_is_number(ast_number, return_true)
+
 const unary = make_set('+ - ~ ++ --')
-def_is_number(ast_unary, function () {
-  return unary.has(this.operator) && !(this.expr instanceof ast_big_int)
-})
 const numeric_ops = make_set('- * / % & | ^ << >> >>>')
+
+def_is_number(ast_unary, function () { return unary.has(this.operator) && !(this.expr instanceof ast_big_int)})
 def_is_number(ast_binary, function (comp) {
   return numeric_ops.has(this.operator) || this.operator == '+'
     && this.left.is_number(comp)
     && this.right.is_number(comp)
 })
 def_is_number(ast_assign, function (comp) {
-  return numeric_ops.has(this.operator.slice(0, -1))
-    || this.operator == '=' && this.right.is_number(comp)
+  return numeric_ops.has(this.operator.slice(0, -1)) || this.operator == '=' && this.right.is_number(comp)
 })
-def_is_number(ast_sequence, function (comp) {
-  return this.tail_node().is_number(comp)
-})
-def_is_number(ast_conditional, function (comp) {
-  return this.consequent.is_number(comp) && this.alt.is_number(comp)
-});
+def_is_number(ast_sequence, function (comp) { return this.tail_node().is_number(comp) })
+def_is_number(ast_conditional, function (comp) { return this.consequent.is_number(comp) && this.alt.is_number(comp)})
 
-function def_is_32_bit_integer (root, func) {
-  root.prototype.is_32_bit_integer = func
+function def_is_int32 (root, func) {
+  root.prototype.is_int32 = func
 }
 
-def_is_32_bit_integer(tree, return_false)
-def_is_32_bit_integer(ast_number, function () {
+def_is_int32(tree, return_false)
+def_is_int32(ast_number, function () {
   return this.value === (this.value | 0)
 })
-def_is_32_bit_integer(ast_unary_prefix, function () {
-  return this.operator == '~' ? this.expr.is_number() : this.operator == '+' ? this.expr.is_32_bit_integer() : false
+def_is_int32(ast_unary_prefix, function () {
+  return this.operator == '~' ? this.expr.is_number() : this.operator == '+' ? this.expr.is_int32() : false
 })
-def_is_32_bit_integer(ast_binary, function () {
+def_is_int32(ast_binary, function () {
   return bitwise_binop.has(this.operator)
 })
 
@@ -9093,63 +9168,46 @@ def_has_side_effects(ast_empty_statement, return_false)
 def_has_side_effects(ast_literal, return_false)
 def_has_side_effects(ast_this, return_false)
 
-function any(list, comp) {
+function any (list, comp) {
   for (let i = list.length; --i >= 0;) {
     if (list[i].has_side_effects(comp)) return true
   }
   return false
 }
 
-def_has_side_effects(ast_block, function (comp) {
-  return any(this.body, comp)
-})
+def_has_side_effects(ast_block, function (comp) { return any(this.body, comp) })
 def_has_side_effects(ast_call, function (comp) {
   if (!this.is_callee_pure(comp) && (!this.expr.is_call_pure(comp) || this.expr.has_side_effects(comp))) return true
   return any(this.args, comp)
 })
-def_has_side_effects(ast_switch, function (comp) {
-  return this.expr.has_side_effects(comp) || any(this.body, comp)
-})
-def_has_side_effects(ast_case, function (comp) {
-  return this.expr.has_side_effects(comp) || any(this.body, comp)
-})
+def_has_side_effects(ast_switch, function (comp) { return this.expr.has_side_effects(comp) || any(this.body, comp) })
+def_has_side_effects(ast_case, function (comp) { return this.expr.has_side_effects(comp) || any(this.body, comp) })
 def_has_side_effects(ast_try, function (comp) {
-  return this.body.has_side_effects(comp)
-    || this.bcatch && this.bcatch.has_side_effects(comp)
+  return this.body.has_side_effects(comp) || this.bcatch && this.bcatch.has_side_effects(comp)
     || this.bfinally && this.bfinally.has_side_effects(comp)
 })
 def_has_side_effects(ast_if, function (comp) {
-  return this.condition.has_side_effects(comp)
-    || this.body && this.body.has_side_effects(comp)
+  return this.condition.has_side_effects(comp) || this.body && this.body.has_side_effects(comp)
     || this.alt && this.alt.has_side_effects(comp)
 })
-def_has_side_effects(ast_labeled_statement, function (comp) {
-  return this.body.has_side_effects(comp)
-})
-def_has_side_effects(ast_statement, function (comp) {
-  return this.body.has_side_effects(comp)
-})
+def_has_side_effects(ast_labeled_statement, function (comp) { return this.body.has_side_effects(comp) })
+def_has_side_effects(ast_statement, function (comp) { return this.body.has_side_effects(comp) })
 def_has_side_effects(ast_lambda, return_false)
 def_has_side_effects(ast_class, function (comp) {
   if (this.extends && this.extends.has_side_effects(comp)) return true
   return any(this.properties, comp)
 })
-def_has_side_effects(ast_class_static, function (comp) {
-  return any(this.body, comp)
-})
+def_has_side_effects(ast_class_static, function (comp) { return any(this.body, comp) })
 def_has_side_effects(ast_binary, function (comp) {
-  return this.left.has_side_effects(comp)
-    || this.right.has_side_effects(comp)
+  return this.left.has_side_effects(comp) || this.right.has_side_effects(comp)
 })
 def_has_side_effects(ast_assign, return_true)
 def_has_side_effects(ast_conditional, function (comp) {
-  return this.condition.has_side_effects(comp)
-    || this.consequent.has_side_effects(comp)
+  return this.condition.has_side_effects(comp) || this.consequent.has_side_effects(comp)
     || this.alt.has_side_effects(comp)
 })
 def_has_side_effects(ast_unary, function (comp) {
-  return unary_side_effects.has(this.operator)
-    || this.expr.has_side_effects(comp)
+  return unary_side_effects.has(this.operator) || this.expr.has_side_effects(comp)
 })
 def_has_side_effects(ast_symbol_ref, function (comp) {
   return !this.is_declared(comp) && !safe_globals.has(this.name)
@@ -9160,14 +9218,12 @@ def_has_side_effects(ast_object, function (comp) {
   return any(this.properties, comp)
 })
 def_has_side_effects(ast_object_property, function (comp) {
-  return (this.computed_key() && this.key.has_side_effects(comp)
-    || this.value && this.value.has_side_effects(comp)
-  )
+  return this.computed_key() && this.key.has_side_effects(comp) || this.value
+    && this.value.has_side_effects(comp)
 })
 def_has_side_effects(ast_class_property, function (comp) {
-  return (this.computed_key() && this.key.has_side_effects(comp)
-    || this.static && this.value && this.value.has_side_effects(comp)
-  )
+  return this.computed_key() && this.key.has_side_effects(comp) || this.static && this.value
+    && this.value.has_side_effects(comp)
 })
 def_has_side_effects(ast_concise_method, function (comp) {
   return this.computed_key() && this.key.has_side_effects(comp)
@@ -9178,9 +9234,7 @@ def_has_side_effects(ast_object_getter, function (comp) {
 def_has_side_effects(ast_object_setter, function (comp) {
   return this.computed_key() && this.key.has_side_effects(comp)
 })
-def_has_side_effects(ast_array, function (comp) {
-  return any(this.elements, comp)
-})
+def_has_side_effects(ast_array, function (comp) { return any(this.elements, comp) })
 def_has_side_effects(ast_dot, function (comp) {
   if (is_nullish(this, comp)) return this.expr.has_side_effects(comp)
   if (!this.optional && this.expr.may_throw_on_access(comp)) return true
@@ -9194,7 +9248,7 @@ def_has_side_effects(ast_sub, function (comp) {
   return property || this.expr.has_side_effects(comp)
 })
 def_has_side_effects(ast_chain, function (comp) { return this.expr.has_side_effects(comp) })
-def_has_side_effects(ast_sequence, function (comp) { return any(this.expressions, comp) })
+def_has_side_effects(ast_sequence, function (comp) { return any(this.exprs, comp) })
 def_has_side_effects(ast_definitions, function (comp) { return any(this.defs, comp) })
 def_has_side_effects(ast_var_def, function () { return this.value })
 def_has_side_effects(ast_template_segment, return_false)
@@ -9259,7 +9313,7 @@ def_may_throw(ast_concise_method, function (comp) { return this.computed_key() &
 def_may_throw(ast_object_getter, function (comp) { return this.computed_key() && this.key.may_throw(comp) })
 def_may_throw(ast_object_setter, function (comp) { return this.computed_key() && this.key.may_throw(comp) })
 def_may_throw(ast_return, function (comp) { return this.value && this.value.may_throw(comp) })
-def_may_throw(ast_sequence, function (comp) { return any_throw(this.expressions, comp) })
+def_may_throw(ast_sequence, function (comp) { return any_throw(this.exprs, comp) })
 def_may_throw(ast_statement, function (comp) { return this.body.may_throw(comp) })
 def_may_throw(ast_dot, function (comp) {
   if (is_nullish(this, comp)) return false
@@ -9267,14 +9321,16 @@ def_may_throw(ast_dot, function (comp) {
 })
 def_may_throw(ast_sub, function (comp) {
   if (is_nullish(this, comp)) return false
-  return !this.optional && this.expr.may_throw_on_access(comp) || this.expr.may_throw(comp) || this.property.may_throw(comp)
+  return !this.optional && this.expr.may_throw_on_access(comp) || this.expr.may_throw(comp)
+    || this.property.may_throw(comp)
 })
 def_may_throw(ast_chain, function (comp) { return this.expr.may_throw(comp) })
 def_may_throw(ast_switch, function (comp) { return this.expr.may_throw(comp) || any_throw(this.body, comp) })
 def_may_throw(ast_symbol_ref, function (comp) { return !this.is_declared(comp) && !safe_globals.has(this.name) })
 def_may_throw(ast_symbol_class_property, return_false)
 def_may_throw(ast_try, function (comp) {
-  return this.bcatch ? this.bcatch.may_throw(comp) : this.body.may_throw(comp) || this.bfinally && this.bfinally.may_throw(comp)
+  return this.bcatch ? this.bcatch.may_throw(comp) : this.body.may_throw(comp) || this.bfinally
+    && this.bfinally.may_throw(comp)
 })
 def_may_throw(ast_unary, function (comp) {
   if (this.operator == 'typeof' && this.expr instanceof ast_symbol_ref) return false
@@ -9286,7 +9342,7 @@ def_may_throw(ast_var_def, function (comp) {
 })
 
 function def_is_constant (root, func) {
-  root.prototype.is_constant_expression = func
+  root.prototype.constant_expression = func
 }
 
 function all_refs_local (scope) {
@@ -9299,12 +9355,12 @@ function all_refs_local (scope) {
       }
       const defined = root.defined()
       const node_name = defined.file + '/' + defined.name
-      if (member(defined, this.encl) && !this.variables.has(node_name)) {
+      if (member(defined, this.encl) && !this.vars.has(node_name)) {
         if (scope) {
           const node_name = root.file + '/' + root.name
           const scope_def = scope.find_variable(node_name, {})
           if (defined.undeclared ? !scope_def : scope_def === defined) {
-            result = true 
+            result = true
             return true
           }
         }
@@ -9324,24 +9380,26 @@ function all_refs_local (scope) {
 def_is_constant(tree, return_false)
 def_is_constant(ast_literal, return_true)
 def_is_constant(ast_class, function (scope) {
-  if (this.extends && !this.extends.is_constant_expression(scope)) return false
+  if (this.extends && !this.extends.constant_expression(scope)) return false
   for (const prop of this.properties) {
-    if (prop.computed_key() && !prop.key.is_constant_expression(scope)) return false
-    if (prop.static && prop.value && !prop.value.is_constant_expression(scope)) return false
+    if (prop.computed_key() && !prop.key.constant_expression(scope)) return false
+    if (prop.static && prop.value && !prop.value.constant_expression(scope)) return false
     if (prop instanceof ast_class_static) return false
   }
   return all_refs_local.call(this, scope)
 })
 def_is_constant(ast_lambda, all_refs_local)
-def_is_constant(ast_unary, function () { return this.expr.is_constant_expression() })
-def_is_constant(ast_binary, function () { return this.left.is_constant_expression() && this.right.is_constant_expression() })
-def_is_constant(ast_array, function () { return this.elements.every((l) => l.is_constant_expression()) })
-def_is_constant(ast_object, function () {  return this.properties.every((l) => l.is_constant_expression()) })
+def_is_constant(ast_unary, function () { return this.expr.constant_expression() })
+def_is_constant(ast_binary, function () { return this.left.constant_expression() && this.right.constant_expression() })
+def_is_constant(ast_array, function () { return this.elements.every(l => l.constant_expression()) })
+def_is_constant(ast_object, function () { return this.properties.every(l => l.constant_expression()) })
 def_is_constant(ast_object_property, function () {
- return !!(!(this.key instanceof tree) && this.value && this.value.is_constant_expression())
+ return !!(!(this.key instanceof tree) && this.value && this.value.constant_expression())
 })
 
-function def_may_throw_on_access (root, func) { root.prototype._dot_throw = func }
+function def_may_throw_on_access (root, func) {
+  root.prototype._dot_throw = func
+}
 
 tree.prototype.may_throw_on_access = function (comp) {
   return !comp.options['pure_getters'] || this._dot_throw(comp)
@@ -9404,16 +9462,16 @@ function is_lhs (root, parent) {
 }
 
 function def_negate (root, func) {
-  root.prototype.negate = function (comp, first_in_statement) {
-    return func.call(this, comp, first_in_statement)
+  root.prototype.negate = function (comp, first) {
+    return func.call(this, comp, first)
   }
 }
 
 function basic_negation (expr) { return make_node(ast_unary_prefix, expr, {operator: '!', expr}) }
 
-function best (orig, alt, first_in_statement) {
+function best (orig, alt, first) {
   const negated = basic_negation(orig)
-  if (first_in_statement) {
+  if (first) {
     const stat = make_node(ast_statement, alt, {body: alt})
     return best_of_expression(negated, stat) === stat ? alt : negated
   }
@@ -9430,33 +9488,33 @@ def_negate(ast_unary_prefix, function () {
   return basic_negation(this)
 })
 def_negate(ast_sequence, function (comp) {
-  const expressions = this.expressions.slice()
-  expressions.push(expressions.pop().negate(comp))
-  return make_sequence(this, expressions)
+  const exprs = this.exprs.slice()
+  exprs.push(exprs.pop().negate(comp))
+  return make_sequence(this, exprs)
 })
-def_negate(ast_conditional, function (comp, first_in_statement) {
+def_negate(ast_conditional, function (comp, first) {
   const self = this.copy()
   self.consequent = self.consequent.negate(comp)
   self.alt = self.alt.negate(comp)
-  return best(this, self, first_in_statement)
+  return best(this, self, first)
 })
-def_negate(ast_binary, function (comp, first_in_statement) {
+def_negate(ast_binary, function (comp, first) {
   const self = this.copy(), op = this.operator
   switch (op) {
-    case '==' : self.operator = '!='; return self
-    case '!=' : self.operator = '=='; return self
+    case '==': self.operator = '!='; return self
+    case '!=': self.operator = '=='; return self
     case '===': self.operator = '!=='; return self
     case '!==': self.operator = '==='; return self
     case '&&':
       self.operator = '||'
-      self.left = self.left.negate(comp, first_in_statement)
+      self.left = self.left.negate(comp, first)
       self.right = self.right.negate(comp)
-      return best(this, self, first_in_statement)
+      return best(this, self, first)
     case '||':
       self.operator = '&&'
-      self.left = self.left.negate(comp, first_in_statement)
+      self.left = self.left.negate(comp, first)
       self.right = self.right.negate(comp)
-      return best(this, self, first_in_statement)
+      return best(this, self, first)
   }
   return basic_negation(this)
 })
@@ -9472,10 +9530,11 @@ def_bitwise_negate(ast_number, function () {
   return make_node(ast_number, this, {value: neg})
 })
 def_bitwise_negate(ast_unary_prefix, function (in_32_bit_context) {
-  return (this.operator == '~' && (in_32_bit_context || this.expr.is_32_bit_integer())) ? this.expr : bitwise_negation(this)
+  return (this.operator == '~' && (in_32_bit_context || this.expr.is_int32())) ? this.expr : bitwise_negation(this)
 })
 
 tree.prototype.is_call_pure = return_false
+
 ast_dot.prototype.is_call_pure = return_null
 
 ast_call.prototype.is_callee_pure = function (comp) {
@@ -9484,7 +9543,11 @@ ast_call.prototype.is_callee_pure = function (comp) {
 }
 
 function aborts (thing) {
-  try { return thing && thing.aborts() } catch (e) { return false }
+  try {
+    return thing && thing.aborts()
+  } catch {
+    return false
+  }
 }
 
 function def_aborts (root, func) {
@@ -9492,7 +9555,9 @@ function def_aborts (root, func) {
 }
 
 def_aborts(ast_statement, return_null)
+
 def_aborts(ast_jump, return_this)
+
 def_aborts(ast_import, return_null)
 
 function block_aborts () {
@@ -9503,14 +9568,18 @@ function block_aborts () {
 }
 
 def_aborts(ast_block_statement, block_aborts)
+
 def_aborts(ast_switch_branch, block_aborts)
+
 def_aborts(ast_def_class, function () {
   for (const prop of this.properties) {
     if (prop instanceof ast_class_static && prop.aborts()) return prop
   }
   return null
 })
+
 def_aborts(ast_class_static, block_aborts)
+
 def_aborts(ast_if, function () {
   return this.alt && aborts(this.body) && aborts(this.alt) && this
 })
@@ -9542,7 +9611,10 @@ function is_modified (comp, trees, root, value, level, immutable) {
   }
 }
 
-function def_find_defs (root, func) { root.prototype._find_defs = func }
+function def_find_defs (root, func) {
+  root.prototype._find_defs = func
+}
+
 function to_node (value, orig) {
   if (value instanceof tree) {
     if (!(value instanceof ast_literal)) value = value.copy(true)
@@ -9554,7 +9626,7 @@ function to_node (value, orig) {
   if (value && typeof value == 'object') {
     const props = []
     for (let key in value) {
-      props.push(make_node(ast_key_value, orig, {key: key, value: to_node(value[key], orig)}))
+      props.push(make_node(ast_key_value, orig, {key, value: to_node(value[key], orig)}))
     }
     return make_node(ast_object, orig, {properties: props})
   }
@@ -9562,15 +9634,19 @@ function to_node (value, orig) {
 }
 
 def_find_defs(tree, func)
+
 def_find_defs(ast_chain, function (comp, suffix) {
   return this.expr._find_defs(comp, suffix)
 })
+
 def_find_defs(ast_dot, function (comp, suffix) {
   return this.expr._find_defs(comp, '.' + this.property + suffix)
 })
+
 def_find_defs(ast_declaration, function () {
   if (!this.global()) return
 })
+
 def_find_defs(ast_symbol_ref, function (comp, suffix) {
   if (!this.global()) return
   const defines = comp.options['global_defs']
@@ -9628,7 +9704,7 @@ function within_array_or_object_literal (comp) {
 function scope_encloses_variables_in_this_scope (scope, pulled_scope, imports) {
   for (const encl of pulled_scope.encl) {
     const node_name = encl.file + '/' + encl.name
-    if (pulled_scope.variables.has(node_name)) continue
+    if (pulled_scope.vars.has(node_name)) continue
     const looked_up = scope.find_variable(node_name, imports)
     if (looked_up) {
       if (looked_up === encl) continue
@@ -9638,7 +9714,7 @@ function scope_encloses_variables_in_this_scope (scope, pulled_scope, imports) {
   return false
 }
 
-function is_const_symbol_short_than_init_value (defined, fixed_value) {
+function shorter_const (defined, fixed_value) {
   if (defined.orig.length === 1 && fixed_value) {
     const init_value_length = fixed_value.size()
     const identifer_length = defined.name.length
@@ -9653,8 +9729,7 @@ function inline_into_symbolref (self, comp) {
   const defined = self.defined()
   const nearest_scope = comp.find_scope()
   let fixed = self.fixed_value()
-  if (comp.top_retain && defined.global &&  comp.top_retain(defined) &&
-    is_const_symbol_short_than_init_value(defined, fixed)) {
+  if (comp.top_retain && defined.global && comp.top_retain(defined) && shorter_const(defined, fixed)) {
     defined.fixed = false
     defined.single_use = false
     return self
@@ -9673,7 +9748,7 @@ function inline_into_symbolref (self, comp) {
     } else if (is_recursive_ref(comp, defined)) {
       single_use = false
     } else if (defined.scope !== self.scope || defined.orig[0] instanceof ast_symbol_funarg) {
-      single_use = fixed.is_constant_expression(self.scope)
+      single_use = fixed.constant_expression(self.scope)
     }
   }
   if (single_use && (fixed instanceof ast_lambda || fixed instanceof ast_class)) {
@@ -9693,7 +9768,7 @@ function inline_into_symbolref (self, comp) {
     if (defined.recursive_refs > 0 && fixed.name instanceof ast_symbol_defun) {
       const defun_def = fixed.name.defined()
       const node_name = fixed.name.file + '/' + fixed.name.name
-      let lambda_def = fixed.variables.get(node_name)
+      let lambda_def = fixed.vars.get(node_name)
       let name = lambda_def && lambda_def.orig[0]
       if (!(name instanceof ast_symbol_lambda)) {
         name = make_node(ast_symbol_lambda, fixed.name, fixed.name)
@@ -9717,9 +9792,8 @@ function inline_into_symbolref (self, comp) {
   if (fixed) {
     let replace
     if (fixed instanceof ast_this) {
-      if (!(defined.orig[0] instanceof ast_symbol_funarg) && defined.references.every((ref) => defined.scope === ref.scope)) {
-        replace = fixed
-      }
+      if (!(defined.orig[0] instanceof ast_symbol_funarg)
+        && defined.references.every(ref => defined.scope === ref.scope)) replace = fixed
     } else {
       let ev = fixed.evaluate(comp)
       if (ev !== fixed) replace = make_node_from_constant(ev, fixed)
@@ -9729,7 +9803,7 @@ function inline_into_symbolref (self, comp) {
       const replace_size = replace.size(comp)
       let overhead = 0
       if (comp.options['unused'] && !comp.exposed(defined)) {
-        overhead = (name_length + 2 + fixed.size(comp)) / (defined.references.length - defined.assignments)
+        overhead = (name_length + 2 + fixed.size(comp)) / (defined.references.length - defined.assigns)
       }
       if (replace_size <= name_length + overhead) return replace
     }
@@ -9739,7 +9813,7 @@ function inline_into_symbolref (self, comp) {
 
 function inline_into_call (self, comp) {
   if (comp.in_computed_key()) return self
-  const expr = self.expr, simple_args = self.args.every((arg) => !(arg instanceof ast_spread))
+  const expr = self.expr, simple_args = self.args.every(arg => !(arg instanceof ast_spread))
   let fn = expr
   if (comp.options['reduce_vars'] && fn instanceof ast_symbol_ref && !has_annotation(self, _noinline)) {
     const fixed = fn.fixed_value()
@@ -9751,7 +9825,7 @@ function inline_into_call (self, comp) {
   const can_inline = is_regular_func && comp.options['inline'] && !self.is_callee_pure(comp)
   if (can_inline && stat instanceof ast_return) {
     let returned = stat.value
-    if (!returned || returned.is_constant_expression()) {
+    if (!returned || returned.constant_expression()) {
       returned = returned ? returned.copy(true) : make_node(ast_undefined, self)
       return make_sequence(self, self.args.concat(returned)).optimize(comp)
     }
@@ -9770,12 +9844,13 @@ function inline_into_call (self, comp) {
   if (can_inline) {
     level = -1
     let defined, returned_value, nearest_scope
-    if (simple_args && !fn.uses_args && !(comp.parent() instanceof ast_class) && !(fn.name && fn instanceof ast_function)
-      && (returned_value = can_flatten_body(stat)) && (expr === fn || has_annotation(self, _inline) || comp.options['unused']
-        && (defined = expr.defined()).references.length == 1 && !is_recursive_ref(comp, defined) && fn.is_constant_expression(expr.scope))
-      && !has_annotation(self, _pure | _noinline) && !fn.this() && can_inject_symbols() && (nearest_scope = comp.find_scope())
-      && !scope_encloses_variables_in_this_scope(nearest_scope, fn, comp.imports)
-      && !(function in_default_assign () {
+    if (simple_args && !fn.uses_args && !(comp.parent() instanceof ast_class) && !(fn.name
+      && fn instanceof ast_function) && (returned_value = can_flatten_body(stat)) && (expr === fn
+      || has_annotation(self, _inline) || comp.options['unused'] && (defined = expr.defined()).references.length == 1
+      && !is_recursive_ref(comp, defined) && fn.constant_expression(expr.scope))
+      && !has_annotation(self, _pure | _noinline) && !fn.this() && can_inject_symbols()
+      && (nearest_scope = comp.find_scope())
+      && !scope_encloses_variables_in_this_scope(nearest_scope, fn, comp.imports) && !(function in_default_assign () {
           let p, i = 0
           while ((p = comp.parent(i++))) {
             if (p instanceof ast_default_assign) return true
@@ -9802,7 +9877,9 @@ function inline_into_call (self, comp) {
     const args = self.args.concat(make_node(ast_undefined, self))
     return make_sequence(self, args).optimize(comp)
   }
-  if (comp.options['negate_iife'] && comp.parent() instanceof ast_statement && is_iife_call(self)) return self.negate(comp, true)
+  if (comp.options['negate_iife'] && comp.parent() instanceof ast_statement && is_iife_call(self)) {
+    return self.negate(comp, true)
+  }
   let ev = self.evaluate(comp)
   if (ev !== self) {
     ev = make_node_from_constant(ev, self).optimize(comp)
@@ -9823,13 +9900,13 @@ function inline_into_call (self, comp) {
 
   function can_flatten_body (stat) {
     const body = fn.body
-    const len = body.length
-    if (comp.options['inline'] < 3) return len == 1 && return_value(stat)
+    const length = body.length
+    if (comp.options['inline'] < 3) return length == 1 && return_value(stat)
     let line
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i < length; i++) {
       line = body[i]
       if (line instanceof ast_var) {
-        if (stat && !line.defs.every((var_def) => !var_def.value)) return false
+        if (stat && !line.defs.every(var_def => !var_def.value)) return false
       } else if (stat) {
         return false
       } else if (!(line instanceof ast_empty_statement)) {
@@ -9841,7 +9918,7 @@ function inline_into_call (self, comp) {
 
   function can_inject_args (block, safe) {
     let arg
-    for (let i = 0, len = fn.argnames.length; i < len; i++) {
+    for (let i = 0, length = fn.argnames.length; i < length; i++) {
       arg = fn.argnames[i]
       if (arg instanceof ast_default_assign) {
         if (has_flag(arg.left, unused_flag)) continue
@@ -9853,16 +9930,18 @@ function inline_into_call (self, comp) {
         return false
       }
       if (has_flag(arg, unused_flag)) continue
-      if (!safe || block.has(arg.name) || identifier_atom.has(arg.name) || scope.conflicting_def(arg.name, arg.file)) return false
+      if (!safe || block.has(arg.name) || identifier_atom.has(arg.name) || scope.conflicting_def(arg.name, arg.file)) {
+        return false
+      }
       if (in_loop) in_loop.push(arg.defined())
     }
     return true
   }
 
   function can_inject_vars (block, safe) {
-    const len = fn.body.length
+    const length = fn.body.length
     let i, j, stat, name
-    for (i = 0; i < len; i++) {
+    for (i = 0; i < length; i++) {
       stat = fn.body[i]
       if (!(stat instanceof ast_var)) continue
       if (!safe) return false
@@ -9880,7 +9959,7 @@ function inline_into_call (self, comp) {
     const block = new Set()
     do {
       scope = comp.parent(++level)
-      if (scope.is_block_scope() && scope.blocks) scope.blocks.variables.forEach(function (variable) { block.add(variable.name) })
+      if (scope.is_block_scope() && scope.blocks) scope.blocks.vars.forEach((variable) => block.add(variable.name))
       if (scope instanceof ast_catch) {
         if (scope.argname) block.add(scope.argname.name)
       } else if (scope instanceof ast_iteration_statement) {
@@ -9896,58 +9975,56 @@ function inline_into_call (self, comp) {
     return !in_loop || in_loop.length == 0 || !is_reachable(fn, in_loop)
   }
 
-  function append_var (decls, expressions, name, value) {
+  function append_var (decls, exprs, name, value) {
     const defined = name.defined()
     const node_name = name.file + '/' + name.name
-    const already_appended = scope.variables.has(node_name)
+    const already_appended = scope.vars.has(node_name)
     if (!already_appended) {
-      scope.variables.set(node_name, defined)
+      scope.vars.set(node_name, defined)
       scope.encl.push(defined)
       decls.push(make_node(ast_var_def, name, {name: name, value: null}))
     }
     const sym = make_node(ast_symbol_ref, name, name)
     defined.references.push(sym)
-    if (value) expressions.push(make_node(ast_assign, self, {operator: '=', logical: false, left: sym, right: value.copy()}))
+    if (value) exprs.push(make_node(ast_assign, self, {operator: '=', logical: false, left: sym, right: value.copy()}))
   }
 
-  function flatten_args (decls, expressions) {
-    let len = fn.argnames.length, i
-    for (i = self.args.length; --i >= len;) {
-      expressions.push(self.args[i])
+  function flatten_args (decls, exprs) {
+    let length = fn.argnames.length, i, name, value, symbol
+    for (i = self.args.length; --i >= length;) {
+      exprs.push(self.args[i])
     }
-    let name, value, symbol
-    for (i = len; --i >= 0;) {
+    for (i = length; --i >= 0;) {
       name = fn.argnames[i]
       value = self.args[i]
       if (has_flag(name, unused_flag) || !name.name || scope.conflicting_def(name.name, name.file)) {
-        if (value) expressions.push(value)
+        if (value) exprs.push(value)
       } else {
         symbol = make_node(ast_symbol_var, name, name)
         name.defined().orig.push(symbol)
         if (!value && in_loop) value = make_node(ast_undefined, self)
-        append_var(decls, expressions, symbol, value)
+        append_var(decls, exprs, symbol, value)
       }
     }
     decls.reverse()
-    expressions.reverse()
+    exprs.reverse()
   }
 
-  function flatten_vars (decls, expressions) {
-    const pos = expressions.length
-    let i = 0, lines = fn.body.length, stat, j, defs, var_def, name, defined, sym
-    for (; i < lines; i++) {
+  function flatten_vars (decls, exprs) {
+    const pos = exprs.length
+    for (let i = 0, lines = fn.body.length, stat, j, defs, var_def, name, defined, sym; i < lines; i++) {
      stat = fn.body[i]
       if (!(stat instanceof ast_var)) continue
       for (j = 0, defs = stat.defs.length; j < defs; j++) {
         var_def = stat.defs[j]
         name = var_def.name
-        append_var(decls, expressions, name, var_def.value)
-        if (in_loop && fn.argnames.every((argname) => argname.name != name.name)) {
+        append_var(decls, exprs, name, var_def.value)
+        if (in_loop && fn.argnames.every(argname => argname.name != name.name)) {
           const node_name = name.file + '/' + name.name
-          defined = fn.variables.get(node_name)
+          defined = fn.vars.get(node_name)
           sym = make_node(ast_symbol_ref, name, name)
           defined.references.push(sym)
-          expressions.splice(pos++, 0, make_node(ast_assign, var_def, {operator: '=', logical: false,
+          exprs.splice(pos++, 0, make_node(ast_assign, var_def, {operator: '=', logical: false,
             left: sym, right: make_node(ast_undefined, name)}))
         }
       }
@@ -9956,27 +10033,27 @@ function inline_into_call (self, comp) {
 
   function flatten_fn (returned_value) {
     const decls = []
-    const expressions = []
-    flatten_args(decls, expressions)
-    flatten_vars(decls, expressions)
-    expressions.push(returned_value)
+    const exprs = []
+    flatten_args(decls, exprs)
+    flatten_vars(decls, exprs)
+    exprs.push(returned_value)
     if (decls.length) {
       const i = scope.body.indexOf(comp.parent(level - 1)) + 1
       scope.body.splice(i, 0, make_node(ast_var, fn, {defs: decls}))
     }
-    return expressions.map(expr => expr.copy(true))
+    return exprs.map(expr => expr.copy(true))
   }
 }
 
 function merge_sequence (array, root) {
-  root instanceof ast_sequence ? array.push(...root.expressions) : array.push(root)
+  root instanceof ast_sequence ? array.push(...root.exprs) : array.push(root)
   return array
 }
 
-function make_sequence (orig, expressions) {
-  if (expressions.length == 1) return expressions[0]
-  if (expressions.length == 0) throw new Error('trying to create a sequence with length zero!')
-  return make_node(ast_sequence, orig, {expressions: expressions.reduce(merge_sequence, [])})
+function make_sequence (orig, exprs) {
+  if (exprs.length == 1) return exprs[0]
+  if (exprs.length == 0) throw new Error('sequence length zero')
+  return make_node(ast_sequence, orig, {exprs: exprs.reduce(merge_sequence, [])})
 }
 
 function make_node_from_constant (val, orig) {
@@ -9985,20 +10062,20 @@ function make_node_from_constant (val, orig) {
       return make_node(ast_string, orig, {value: val})
     case 'number':
       if (isNaN(val)) return make_node(ast_nan, orig)
-      if (isFinite(val)) {
-        return 1 / val < 0 ? make_node(ast_unary_prefix, orig, {operator: '-', expr: make_node(ast_number, orig, {value: -val})})
-          : make_node(ast_number, orig, {value: val})
-      }
-      return val < 0 ? make_node(ast_unary_prefix, orig, {operator: '-', expr: make_node(ast_infinity, orig)}) : make_node(ast_infinity, orig)
+      if (isFinite(val)) return 1 / val < 0 ? make_node(ast_unary_prefix, orig, {operator: '-', expr:
+        make_node(ast_number, orig, {value: -val})}) : make_node(ast_number, orig, {value: val})
+      return val < 0 ? make_node(ast_unary_prefix, orig, {operator: '-', expr: make_node(ast_infinity, orig)})
+        : make_node(ast_infinity, orig)
     case 'bigint':
-      return make_node(ast_big_int, orig, {value: val.toString() })
+      return make_node(ast_big_int, orig, {value: val.toString()})
     case 'boolean':
       return make_node(val ? ast_true : ast_false, orig)
     case 'undefined':
       return make_node(ast_undefined, orig)
     default:
       if (val === null) return make_node(ast_null, orig, {value: null})
-      if (val instanceof RegExp) return make_node(ast_reg_exp, orig, {value: {source: source_regexp(val.source), flags: val.flags}})
+      if (val instanceof RegExp) return make_node(ast_reg_exp, orig, {value: {source: source_regexp(val.source),
+        flags: val.flags}})
       throw new Error('type ' + {type: typeof val})
   }
 }
@@ -10013,11 +10090,11 @@ function best_of_statement (ast1, ast2) {
 }
 
 function best_of (comp, ast1, ast2) {
-  return first_in_statement(comp) ? best_of_statement(ast1, ast2) : best_of_expression(ast1, ast2)
+  return first(comp) ? best_of_statement(ast1, ast2) : best_of_expression(ast1, ast2)
 }
 
 function get_simple_key (key) {
-  if (key instanceof ast_literal) return key.getValue()
+  if (key instanceof ast_literal) return key.get_value()
   if (key instanceof ast_unary_prefix && key.operator == 'void' && key.expr instanceof ast_literal) return
   return key
 }
@@ -10033,8 +10110,7 @@ function read_property (obj, key) {
   } else if (obj instanceof ast_object) {
     key = '' + key
     const props = obj.properties
-    let prop
-    for (let i = props.length; --i >= 0;) {
+    for (let i = props.length, prop; --i >= 0;) {
       prop = props[i]
       if (!(prop instanceof ast_key_value)) return
       if (!value && prop.key === key) value = prop.value
@@ -10056,10 +10132,10 @@ function has_break_or_continue (loop, parent) {
 }
 
 function maintain_bind (parent, orig, val) {
-  if (parent instanceof ast_unary_prefix && parent.operator == 'delete' || parent instanceof ast_call && parent.expr === orig
-      && (val instanceof ast_chain || val instanceof ast_prop_access || val instanceof ast_symbol_ref && val.name == 'eval')) {
-    const zero = make_node(ast_number, orig, {value: 0})
-    return make_sequence(orig, [ zero, val ])
+  if (parent instanceof ast_unary_prefix && parent.operator == 'delete' || parent instanceof ast_call
+    && parent.expr === orig && (val instanceof ast_chain || val instanceof ast_prop_access
+    || val instanceof ast_symbol_ref && val.name == 'eval')) {
+    return make_sequence(orig, [make_node(ast_number, orig, {value: 0}), val])
   } else {
     return val
   }
@@ -10084,9 +10160,7 @@ function is_empty (thing) {
 const identifier_atom = make_set('Infinity NaN undefined')
 
 function is_identifier_atom (root) {
-  return root instanceof ast_infinity
-    || root instanceof ast_nan
-    || root instanceof ast_undefined
+  return root instanceof ast_infinity || root instanceof ast_nan || root instanceof ast_undefined
 }
 
 function ref_of (ref, type) {
@@ -10106,7 +10180,7 @@ function as_statement_array (thing) {
   if (thing === null) return []
   if (thing instanceof ast_block_statement) return thing.body
   if (thing instanceof ast_empty_statement) return []
-  if (thing instanceof ast_state) return [ thing ]
+  if (thing instanceof ast_state) return [thing]
   throw new Error('cannot convert to statement array')
 }
 
@@ -10136,25 +10210,25 @@ function is_recursive_ref (comp, defined) {
 }
 
 function retain_top_func (fn, comp) {
-  return comp.top_retain && fn instanceof ast_defun && has_flag(fn, topped_flag)
-    && fn.name && comp.top_retain(fn.name.defined())
+  return comp.top_retain && fn instanceof ast_defun && has_flag(fn, topped_flag) && fn.name
+    && comp.top_retain(fn.name.defined())
 }
 
-class Compressor extends observes {
-  constructor (options, { false_by_default = false, mangle_options = false}) {
+class reduces extends observes {
+  constructor (options, {false_by_default = false, mangle_options = false}) {
     super()
     this.imports = mangle_options.imports
     if (options.defaults !== undefined && !options.defaults) false_by_default = true
     const not_false = !false_by_default
     this.options = defaults(options, {'arguments': false, 'arrows': not_false, 'booleans': not_false,
       'collapse_vars': not_false, 'comparisons': not_false, 'computed_props': not_false, 'conditionals': not_false,
-      'dead_code': not_false, 'defaults': true, 'directives': not_false, 'drop_console': false, 'drop_debugger': not_false,
-      'evaluate': not_false, 'expr': false, 'global_defs': false, 'hoist_props': not_false, 'if_return': not_false,
-      'inline': not_false, 'join_vars': not_false, 'keep_fargs': true, 'keep_infinity': false, 'lhs_constants': not_false,
-      'loops': not_false, 'module': false, 'negate_iife': not_false, 'passes': 1, 'properties': not_false,
-      'pure_getters': not_false && 'strict', 'pure_funcs': null, 'reduce_funcs': not_false, 'reduce_vars': not_false,
-      'sequences': not_false, 'side_effects': not_false, 'switches': not_false, 'top_retain': null,
-      'toplevel': !!(options && options['top_retain']), 'typeofs': not_false, 'unused': not_false,
+      'dead_code': not_false, 'defaults': true, 'directives': not_false, 'drop_console': false,
+      'drop_debugger': not_false, 'evaluate': not_false, 'expr': false, 'global_defs': false, 'hoist_props': not_false,
+      'if_return': not_false, 'inline': not_false, 'join_vars': not_false, 'keep_fargs': true, 'keep_infinity': false,
+      'lhs_constants': not_false, 'loops': not_false, 'module': false, 'negate_iife': not_false, 'passes': 1,
+      'properties': not_false, 'pure_getters': not_false && 'strict', 'pure_funcs': null, 'reduce_funcs': not_false,
+      'reduce_vars': not_false, 'sequences': not_false, 'side_effects': not_false, 'switches': not_false,
+      'top_retain': null, 'toplevel': !!(options && options['top_retain']), 'typeofs': not_false, 'unused': not_false,
     })
     const global_defs = this.options['global_defs']
     if (typeof global_defs == 'object') {
@@ -10182,7 +10256,8 @@ class Compressor extends observes {
     }
     if (this.options['module']) this.options['toplevel'] = true
     const toplevel = this.options['toplevel']
-    this.toplevel = typeof toplevel == 'string' ? {funcs: /funcs/.test(toplevel), vars: /vars/.test(toplevel)} : {funcs: toplevel, vars: toplevel}
+    this.toplevel = typeof toplevel == 'string' ? {funcs: /funcs/.test(toplevel), vars: /vars/.test(toplevel)}
+      : {funcs: toplevel, vars: toplevel}
     const sequences = this.options['sequences']
     this.sequences_limit = sequences == 1 ? 800 : sequences | 0
     this.evaluated_regexps = new Map()
@@ -10200,7 +10275,7 @@ class Compressor extends observes {
   exposed (defined) {
     if (defined.export) return true
     if (defined.global) {
-      for (let i = 0, len = defined.orig.length; i < len; i++) {
+      for (let i = 0, length = defined.orig.length; i < length; i++) {
         if (!this.toplevel[defined.orig[i] instanceof ast_symbol_defun ? 'funcs' : 'vars']) return true
       }
     }
@@ -10208,14 +10283,11 @@ class Compressor extends observes {
   }
 
   in_boolean_context () {
-    if (!this.options['booleans']) return false
-    let self = this.self()
-    for (let i = 0, p; p = this.parent(i); i++) {
+    for (let i = 0, p, self = this.self(); p = this.parent(i); i++) {
       if (p instanceof ast_statement || p instanceof ast_conditional && p.condition === self
         || p instanceof ast_do_loop && p.condition === self || p instanceof ast_for && p.condition === self
-        || p instanceof ast_if && p.condition === self || p instanceof ast_unary_prefix && p.operator == '!' && p.expr === self) {
-        return true
-      }
+        || p instanceof ast_if && p.condition === self || p instanceof ast_unary_prefix && p.operator == '!'
+        && p.expr === self) return true
       if (p instanceof ast_binary && (p.operator == '&&' || p.operator == '||' || p.operator == '??')
         || p instanceof ast_conditional || p.tail_node() === self) {
         self = p
@@ -10226,11 +10298,10 @@ class Compressor extends observes {
   }
 
   in_32_bit_context () {
-    let self = this.self()
-    for (let i = 0, p; p = this.parent(i); i++) {
+    for (let i = 0, p, self = this.self(); p = this.parent(i); i++) {
       if (p instanceof ast_binary && bitwise_binop.has(p.operator)) return true
       if (p instanceof ast_unary_prefix) return p.operator == '~'
-      if (p instanceof ast_binary && ( p.operator == '&&' || p.operator == '||' || p.operator == '??')
+      if (p instanceof ast_binary && (p.operator == '&&' || p.operator == '||' || p.operator == '??')
         || p instanceof ast_conditional && p.condition !== self || p.tail_node() === self) {
         self = p
       } else {
@@ -10251,7 +10322,7 @@ class Compressor extends observes {
     return this._toplevel
   }
 
-  compress (toplevel) {
+  reduce (toplevel) {
     toplevel = toplevel.resolve_defines(this)
     this._toplevel = toplevel
     if (this.options['expr']) this._toplevel.process_expression(true)
@@ -10323,7 +10394,7 @@ def_optimize(tree, function (self) { return self })
 ast_toplevel.prototype.drop_console = function (options) {
   const is_array = Array.isArray(options)
   return this.transform(new transforms(function (self) {
-    if (self.type !== 'ast_call') return
+    if (self.type != 'ast_call') return
     const expr = self.expr
     if (!(expr instanceof ast_prop_access)) return
     if (is_array && options.indexOf(expr.property) === -1) return
@@ -10423,7 +10494,9 @@ def_optimize(ast_directive, function (self, comp) {
 })
 
 def_optimize(ast_labeled_statement, function (self, comp) {
-  if (self.body instanceof ast_break && comp.loopcontrol(self.body) === self.body) return make_node(ast_empty_statement, self)
+  if (self.body instanceof ast_break && comp.loopcontrol(self.body) === self.body) {
+    return make_node(ast_empty_statement, self)
+  }
   return self.label.references.length == 0 ? self.body : self
 })
 
@@ -10440,7 +10513,9 @@ def_optimize(ast_block_statement, function (self, comp) {
   tighten_body(self.body, comp)
   switch (self.body.length) {
     case 1:
-      if (comp.parent() instanceof ast_if && can_be_extracted(self.body[0]) || evictable(self.body[0])) return self.body[0]
+      if (comp.parent() instanceof ast_if && can_be_extracted(self.body[0]) || evictable(self.body[0])) {
+        return self.body[0]
+      }
       break
     case 0: return make_node(ast_empty_statement, self)
   }
@@ -10463,22 +10538,22 @@ ast_scope.prototype.hoist_properties = function (comp) {
     if (root instanceof ast_var_def) {
       const sym = root.name
       let defined, value
-      if (sym.scope === self && (defined = sym.defined()).escaped != 1 && !defined.assignments
+      if (sym.scope === self && (defined = sym.defined()).escaped != 1 && !defined.assigns
         && !defined.direct_access && !defined.single_use && !comp.exposed(defined) && !top_retain(defined)
         && (value = sym.fixed_value()) === root.value && value instanceof ast_object
         && !value.properties.some(prop => prop instanceof ast_spread || prop.computed_key())) {
         ascend(root, this)
         const defs = new Map()
-        const assignments = []
+        const assigns = []
         value.properties.forEach(({key, value}) => {
           const scope = hoister.find_scope()
           const symbol = self.create_symbol(sym.constructor, {source: sym, scope, conflict_scopes: new Set([scope,
-            ...sym.defined().references.map(ref => ref.scope)]), tentative_name: sym.name + '_' + key})
+            ...sym.defined().references.map(ref => ref.scope)]), name: sym.name + '_' + key})
           defs.set(String(key), symbol.defined())
-          assignments.push(make_node(ast_var_def, root, { name: symbol, value}))
+          assigns.push(make_node(ast_var_def, root, {name: symbol, value}))
         })
         defs_by_id.set(defined.id, defs)
-        return _splice(assignments)
+        return _splice(assigns)
       }
     } else if (root instanceof ast_prop_access && root.expr instanceof ast_symbol_ref) {
       const defs = defs_by_id.get(root.expr.defined().id)
@@ -10540,18 +10615,12 @@ function if_break_in_loop (self, comp) {
   }
   if (first instanceof ast_if) {
     if (is_break(first.body)) {
-      if (self.condition) {
-        self.condition = make_node(ast_binary, self.condition, {left: self.condition, operator: '&&', right: first.condition.negate(comp)})
-      } else {
-        self.condition = first.condition.negate(comp)
-      }
+      self.condition = self.condition ? make_node(ast_binary, self.condition, {left: self.condition, operator: '&&',
+        right: first.condition.negate(comp)}) : first.condition.negate(comp)
       drop_it(first.alt)
     } else if (is_break(first.alt)) {
-      if (self.condition) {
-        self.condition = make_node(ast_binary, self.condition, {left: self.condition, operator: '&&', right: first.condition})
-      } else {
-        self.condition = first.condition
-      }
+      self.condition = self.condition ? make_node(ast_binary, self.condition, {left: self.condition, operator: '&&',
+        right: first.condition}) : first.condition
       drop_it(first.body)
     }
   }
@@ -10647,57 +10716,29 @@ def_optimize(ast_if, function (self, comp) {
     return make_node(ast_statement, self.condition, {body: self.condition.copy()}).optimize(comp)
   }
   if (self.body instanceof ast_statement && self.alt instanceof ast_statement) {
-    return make_node(ast_statement, self, {
-      body: make_node(ast_conditional, self, {
-        condition: self.condition,
-        consequent: self.body.body,
-        alt: self.alt.body
-      })
-    }).optimize(comp)
+    return make_node(ast_statement, self, {body: make_node(ast_conditional, self, {condition: self.condition,
+      consequent: self.body.body, alt: self.alt.body})}).optimize(comp)
   }
   if (is_empty(self.alt) && self.body instanceof ast_statement) {
-    if (condition_length == negated_length && !negated_is_best && self.condition instanceof ast_binary && self.condition.operator == '||') {
-      negated_is_best = true
-    }
-    if (negated_is_best) return make_node(ast_statement, self, {
-      body: make_node(ast_binary, self, {
-        operator: '||',
-        left: negated,
-        right: self.body.body
-      })
-    }).optimize(comp)
-    return make_node(ast_statement, self, {
-      body: make_node(ast_binary, self, {
-        operator: '&&',
-        left: self.condition,
-        right: self.body.body
-      })
-    }).optimize(comp)
+    if (condition_length == negated_length && !negated_is_best && self.condition instanceof ast_binary
+      && self.condition.operator == '||') negated_is_best = true
+    if (negated_is_best) return make_node(ast_statement, self, {body: make_node(ast_binary, self, {operator: '||',
+      left: negated, right: self.body.body})}).optimize(comp)
+    return make_node(ast_statement, self, {body: make_node(ast_binary, self, {operator: '&&', left: self.condition,
+      right: self.body.body})}).optimize(comp)
   }
   if (self.body instanceof ast_empty_statement && self.alt instanceof ast_statement) {
-    return make_node(ast_statement, self, {
-      body: make_node(ast_binary, self, {
-        operator: '||',
-        left: self.condition,
-        right: self.alt.body
-      })
-    }).optimize(comp)
+    return make_node(ast_statement, self, {body: make_node(ast_binary, self, {operator: '||', left: self.condition,
+      right: self.alt.body})}).optimize(comp)
   }
   if (self.body instanceof ast_exit && self.alt instanceof ast_exit && self.body.type == self.alt.type) {
-    return make_node(self.body.constructor, self, {
-      value: make_node(ast_conditional, self, {
-        condition: self.condition,
-        consequent: self.body.value || make_node(ast_undefined, self.body),
-        alt: self.alt.value || make_node(ast_undefined, self.alt)
-      }).transform(comp)
-    }).optimize(comp)
+    return make_node(self.body.constructor, self, {value: make_node(ast_conditional, self, {condition: self.condition,
+      consequent: self.body.value || make_node(ast_undefined, self.body),
+      alt: self.alt.value || make_node(ast_undefined, self.alt)}).transform(comp)}).optimize(comp)
   }
   if (self.body instanceof ast_if && !self.body.alt && !self.alt) {
-    self = make_node(ast_if, self, {
-      condition: make_node(ast_binary, self.condition, {operator: '&&', left: self.condition, right: self.body.condition}),
-      body: self.body.body,
-      alt: null
-    })
+    self = make_node(ast_if, self, {condition: make_node(ast_binary, self.condition, {operator: '&&', left: self.condition,
+      right: self.body.condition}), body: self.body.body, alt: null})
   }
   if (aborts(self.body)) {
     if (self.alt) {
@@ -10727,8 +10768,8 @@ def_optimize(ast_switch, function (self, comp) {
   if (!comp.options['dead_code']) return self
   if (value instanceof tree) value = self.expr.tail_node().evaluate(comp)
   const decl = [], body = []
-  let default_branch, exact_match, i, len, expr, default_index
-  for (i = 0, len = self.body.length; i < len && !exact_match; i++) {
+  let default_branch, exact_match, i, length, expr, default_index
+  for (i = 0, length = self.body.length; i < length && !exact_match; i++) {
     branch = self.body[i]
     if (branch instanceof ast_default) {
       !default_branch ? default_branch = branch : eliminate_branch(branch, body[body.length - 1])
@@ -10751,7 +10792,7 @@ def_optimize(ast_switch, function (self, comp) {
     }
     body.push(branch)
   }
-  while (i < len) eliminate_branch(self.body[i++], body[body.length - 1])
+  while (i < length) eliminate_branch(self.body[i++], body[body.length - 1])
   self.body = body
   let default_or_exact = default_branch || exact_match
   default_branch = null
@@ -10789,7 +10830,8 @@ def_optimize(ast_switch, function (self, comp) {
     for (let j = i + 1; j < body.length; i++, j++) {
       let next = body[j]
       if (next.body.length === 0) continue
-      if (branches_equivalent(next, branch, false) || (j === body.length - 1 && branches_equivalent(next, branch, true))) {
+      if (branches_equivalent(next, branch, false) || (j === body.length - 1
+        && branches_equivalent(next, branch, true))) {
         branch.body = []
         branch = next
         continue
@@ -10819,6 +10861,7 @@ def_optimize(ast_switch, function (self, comp) {
       }
     }
   }
+
   default_or: if (default_or_exact) {
     let default_index = body.indexOf(default_or_exact)
     let default_body_index = default_index
@@ -10849,6 +10892,7 @@ def_optimize(ast_switch, function (self, comp) {
       body.splice(before, default_index - before)
     }
   }
+
   default_or: if (default_or_exact) {
     let i = body.findIndex(branch => !is_inert_body(branch))
     let case_body
@@ -10861,9 +10905,8 @@ def_optimize(ast_switch, function (self, comp) {
       break default_or
     }
     if (!body.find(branch => branch !== default_or_exact && branch.expr.has_side_effects(comp))) {
-      return make_node(ast_block_statement, self, {
-        body: decl.concat(statement(self.expr), default_or_exact.expr ? statement(default_or_exact.expr) : [], case_body || [])
-      }).optimize(comp)
+      return make_node(ast_block_statement, self, {body: decl.concat(statement(self.expr),
+        default_or_exact.expr ? statement(default_or_exact.expr) : [], case_body || [])}).optimize(comp)
     }
     const default_index = body.indexOf(default_or_exact)
     body.splice(default_index, 1)
@@ -10871,14 +10914,13 @@ def_optimize(ast_switch, function (self, comp) {
     if (case_body) return make_node(ast_block_statement, self, {body: decl.concat(self, case_body)}).optimize(comp)
   }
   if (body.length > 0) body[0].body = decl.concat(body[0].body)
-  if (body.length == 0) return make_node(ast_block_statement, self, {body: decl.concat(statement(self.expr))}).optimize(comp)
+  if (body.length == 0) return make_node(ast_block_statement, self,
+    {body: decl.concat(statement(self.expr))}).optimize(comp)
   if (body.length == 1 && !has_nested_break(self)) {
     let branch = body[0]
-    return make_node(ast_if, self, {
-      condition: make_node(ast_binary, self, {operator: '===', left: self.expr, right: branch.expr}),
-      body: make_node(ast_block_statement, branch, {body: branch.body}),
-      alt: null
-    }).optimize(comp)
+    return make_node(ast_if, self, {condition: make_node(ast_binary, self, {operator: '===', left: self.expr,
+      right: branch.expr}), body: make_node(ast_block_statement, branch, {body: branch.body}),
+      alt: null}).optimize(comp)
   }
   if (body.length === 2 && default_or_exact && !has_nested_break(self)) {
     let branch = body[0] === default_or_exact ? body[1] : body[0]
@@ -10886,12 +10928,8 @@ def_optimize(ast_switch, function (self, comp) {
     if (aborts(body[0])) {
       let first = body[0]
       if (is_break(first.body[first.body.length - 1], comp)) first.body.pop()
-      return make_node(ast_if, self, {
-        condition: make_node(ast_binary, self, {
-          operator: '===',
-          left: self.expr,
-          right: branch.expr,
-        }),
+      return make_node(ast_if, self, {condition: make_node(ast_binary, self, {operator: '===', left: self.expr,
+        right: branch.expr}),
         body: make_node(ast_block_statement, branch, {body: branch.body}),
         alt: make_node(ast_block_statement, default_or_exact, {
           body: [].concat(exact_exp || [], default_or_exact.body)
@@ -10911,15 +10949,8 @@ def_optimize(ast_switch, function (self, comp) {
     }
     return make_node(ast_block_statement, self, {
       body: [
-        make_node(ast_if, self, {
-          condition: make_node(ast_binary, self, {
-            operator: operator,
-            left: self.expr,
-            right: branch.expr,
-          }),
-          body: consequent,
-          alt: null
-        })
+        make_node(ast_if, self, {condition: make_node(ast_binary, self, {operator: operator, left: self.expr,
+          right: branch.expr}), body: consequent, alt: null})
       ].concat(always)
     }).optimize(comp)
   }
@@ -10928,6 +10959,7 @@ def_optimize(ast_switch, function (self, comp) {
   function eliminate_branch (branch, prev) {
     prev && !aborts(prev) ? prev.body = prev.body.concat(branch.body) : trim_code(comp, branch, decl)
   }
+
   function branches_equivalent (branch, prev, insert_break) {
     let branch_body = branch.body
     let prev_body = prev.body
@@ -10937,11 +10969,11 @@ def_optimize(ast_switch, function (self, comp) {
     let prev_block = make_node(ast_block_statement, prev, {body: prev_body})
     return branch_block.equivalent_to(prev_block)
   }
+
   function statement (expr) {
-    return make_node(ast_statement, expr, {
-      body: expr
-    })
+    return make_node(ast_statement, expr, {body: expr})
   }
+
   function has_nested_break (root) {
     let has_break = false
     let trees = new observes(root => {
@@ -10956,12 +10988,13 @@ def_optimize(ast_switch, function (self, comp) {
     root.observe(trees)
     return has_break
   }
+
   function is_break (root, stack) {
     return root instanceof ast_break && stack.loopcontrol(root) === self
   }
+
   function is_inert_body (branch) {
-    return !aborts(branch) && !make_node(ast_block_statement, branch, {
-      body: branch.body}).has_side_effects(comp)
+    return !aborts(branch) && !make_node(ast_block_statement, branch, {body: branch.body}).has_side_effects(comp)
   }
 })
 
@@ -10976,21 +11009,21 @@ def_optimize(ast_try, function (self, comp) {
   return self
 })
 
-ast_definitions.prototype.to_assignments = function (comp) {
-  const reduce_vars = comp.options['reduce_vars'], assignments = []
+ast_definitions.prototype.to_assigns = function (comp) {
+  const reduce_vars = comp.options['reduce_vars'], assigns = []
   let name
   for (const defined of this.defs) {
     if (defined.value) {
       name = make_node(ast_symbol_ref, defined.name, defined.name)
-      assignments.push(make_node(ast_assign, defined, {operator: '=', logical: false, left: name, right: defined.value}))
+      assigns.push(make_node(ast_assign, defined, {operator: '=', logical: false, left: name, right: defined.value}))
       if (reduce_vars) name.defined().fixed = false
     }
     const thedef = defined.name.defined()
     thedef.eliminated++
     thedef.replaced--
   }
-  if (assignments.length == 0) return
-  return make_sequence(this, assignments)
+  if (assigns.length == 0) return
+  return make_sequence(this, assigns)
 }
 
 def_optimize(ast_definitions, function (self) {
@@ -11011,19 +11044,19 @@ def_optimize(ast_call, function (self, comp) {
   const expr = self.expr
   let fn = expr
   inline_array_like_spread(self.args)
-  const simple_args = self.args.every((arg) => !(arg instanceof ast_spread))
+  const simple_args = self.args.every(arg => !(arg instanceof ast_spread))
   if (comp.options['reduce_vars'] && fn instanceof ast_symbol_ref) fn = fn.fixed_value()
   const is_func = fn instanceof ast_lambda
   if (is_func && fn.pinned()) return self
   if (comp.options['unused'] && simple_args && is_func && !fn.uses_args) {
     let pos = 0, last = 0, root, trim
-    for (let i = 0, len = self.args.length; i < len; i++) {
+    for (let i = 0, length = self.args.length; i < length; i++) {
       if (fn.argnames[i] instanceof ast_spread) {
-        if (has_flag(fn.argnames[i].expr, unused_flag)) while (i < len) {
+        if (has_flag(fn.argnames[i].expr, unused_flag)) while (i < length) {
           root = self.args[i++].drop(comp)
           if (root) self.args[pos++] = root
         } else {
-          while (i < len) self.args[pos++] = self.args[i++]
+          while (i < length) self.args[pos++] = self.args[i++]
         }
         last = pos
         break
@@ -11055,44 +11088,42 @@ tree.prototype.contains_optional = function () {
   }
 }
 
-def_optimize(ast_new, function (self, comp) {
-  return self
-})
+def_optimize(ast_new, function (self, comp) { return self })
 
 def_optimize(ast_sequence, function (self, comp) {
   if (!comp.options['side_effects']) return self
-  const expressions = []
+  const exprs = []
   filter_for_side_effects()
-  let end = expressions.length - 1
+  let end = exprs.length - 1
   trim_right_for_undefined()
   if (end == 0) {
-    self = maintain_bind(comp.parent(), comp.self(), expressions[0])
+    self = maintain_bind(comp.parent(), comp.self(), exprs[0])
     if (!(self instanceof ast_sequence)) self = self.optimize(comp)
     return self
   }
-  self.expressions = expressions
+  self.exprs = exprs
   return self
 
   function filter_for_side_effects () {
-    const last = self.expressions.length - 1
-    let first = first_in_statement(comp)
-    self.expressions.forEach(function (expr, index) {
-      if (index < last) expr = expr.drop(comp, first)
+    const last = self.exprs.length - 1
+    let first_expr = first(comp)
+    self.exprs.forEach(function (expr, index) {
+      if (index < last) expr = expr.drop(comp, first_expr)
       if (expr) {
-        merge_sequence(expressions, expr)
-        first = false
+        merge_sequence(exprs, expr)
+        first_expr = false
       }
     })
   }
 
   function trim_right_for_undefined () {
-    while (end > 0 && is_undefined(expressions[end], comp)) end--
-    if (end < expressions.length - 1) {
-      expressions[end] = make_node(ast_unary_prefix, self, {
+    while (end > 0 && is_undefined(exprs[end], comp)) end--
+    if (end < exprs.length - 1) {
+      exprs[end] = make_node(ast_unary_prefix, self, {
         operator: 'void',
-        expr: expressions[end]
+        expr: exprs[end]
       })
-      expressions.length = end + 1
+      exprs.length = end + 1
     }
   }
 })
@@ -11100,11 +11131,11 @@ def_optimize(ast_sequence, function (self, comp) {
 ast_unary.prototype.lift_sequences = function (comp) {
   if (comp.options['sequences']) {
     if (this.expr instanceof ast_sequence) {
-      const x = this.expr.expressions.slice()
+      const exprs = this.expr.exprs.slice()
       const expr = this.copy()
-      expr.expr = x.pop()
-      x.push(expr)
-      return make_sequence(this, x).optimize(comp)
+      expr.expr = exprs.pop()
+      exprs.push(expr)
+      return make_sequence(this, exprs).optimize(comp)
     }
   }
   return this
@@ -11135,10 +11166,11 @@ def_optimize(ast_unary_prefix, function (self, comp) {
     switch (self.operator) {
       case '!':
         if (expr instanceof ast_unary_prefix && expr.operator == '!') return expr.expr
-        if (expr instanceof ast_binary) self = best_of(comp, self, expr.negate(comp, first_in_statement(comp)))
+        if (expr instanceof ast_binary) self = best_of(comp, self, expr.negate(comp, first(comp)))
         break
       case 'typeof':
-        return (expr instanceof ast_symbol_ref ? make_node(ast_true, self) : make_sequence(self, [expr, make_node(ast_true, self)])).optimize(comp)
+        return (expr instanceof ast_symbol_ref ? make_node(ast_true, self)
+          : make_sequence(self, [expr, make_node(ast_true, self)])).optimize(comp)
     }
   }
   if (self.operator == '-' && expr instanceof ast_infinity) expr = expr.transform(comp)
@@ -11153,7 +11185,7 @@ def_optimize(ast_unary_prefix, function (self, comp) {
 
   if ('evaluate') {
     if (self.operator == '~' && self.expr instanceof ast_unary_prefix && self.expr.operator == '~'
-      && (comp.in_32_bit_context() || self.expr.expr.is_32_bit_integer())) {
+      && (comp.in_32_bit_context() || self.expr.expr.is_int32())) {
       return self.expr.expr
     }
     if (self.operator == '~' && expr instanceof ast_binary && expr.operator == '^') {
@@ -11166,7 +11198,8 @@ def_optimize(ast_unary_prefix, function (self, comp) {
     }
   }
 
-  if (self.operator != '-' || !(expr instanceof ast_number || expr instanceof ast_infinity || expr instanceof ast_big_int)) {
+  if (self.operator != '-' || !(expr instanceof ast_number || expr instanceof ast_infinity
+    || expr instanceof ast_big_int)) {
     let ev = self.evaluate(comp)
     if (ev !== self) {
       ev = make_node_from_constant(ev, self).optimize(comp)
@@ -11179,31 +11212,31 @@ def_optimize(ast_unary_prefix, function (self, comp) {
 ast_binary.prototype.lift_sequences = function (comp) {
   if (comp.options['sequences']) {
     if (this.left instanceof ast_sequence) {
-      const x = this.left.expressions.slice()
+      const exprs = this.left.exprs.slice()
       const expr = this.copy()
-      expr.left = x.pop()
-      x.push(expr)
-      return make_sequence(this, x).optimize(comp)
+      expr.left = exprs.pop()
+      exprs.push(expr)
+      return make_sequence(this, exprs).optimize(comp)
     }
     if (this.right instanceof ast_sequence && !this.left.has_side_effects(comp)) {
       const assign = this.operator == '=' && this.left instanceof ast_symbol_ref
-      let x = this.right.expressions, i, expr
-      const last = x.length - 1
+      let exprs = this.right.exprs, expr, i
+      const last = exprs.length - 1
       for (i = 0; i < last; i++) {
-        if (!assign && x[i].has_side_effects(comp)) break
+        if (!assign && exprs[i].has_side_effects(comp)) break
       }
       if (i == last) {
-        x = x.slice()
+        exprs = exprs.slice()
         expr = this.copy()
-        expr.right = x.pop()
-        x.push(expr)
-        return make_sequence(this, x).optimize(comp)
+        expr.right = exprs.pop()
+        exprs.push(expr)
+        return make_sequence(this, exprs).optimize(comp)
       } else if (i > 0) {
         expr = this.copy()
-        expr.right = make_sequence(this.right, x.slice(i))
-        x = x.slice(0, i)
-        x.push(expr)
-        return make_sequence(this, x).optimize(comp)
+        expr.right = make_sequence(this.right, exprs.slice(i))
+        exprs = exprs.slice(0, i)
+        exprs.push(expr)
+        return make_sequence(this, exprs).optimize(comp)
       }
     }
   }
@@ -11213,13 +11246,16 @@ ast_binary.prototype.lift_sequences = function (comp) {
 const commutative_operators = make_set('== === != !== * & | ^')
 
 function is_object (root) {
-  return root instanceof ast_array || root instanceof ast_lambda || root instanceof ast_object || root instanceof ast_class
+  return root instanceof ast_array || root instanceof ast_lambda || root instanceof ast_object
+    || root instanceof ast_class
 }
 
 def_optimize(ast_binary, function (self, comp) {
   function reversible () {
-    return self.left.is_constant() || self.right.is_constant() || !self.left.has_side_effects(comp) && !self.right.has_side_effects(comp)
+    return self.left.is_constant() || self.right.is_constant() || !self.left.has_side_effects(comp)
+      && !self.right.has_side_effects(comp)
   }
+
   function reverse (op) {
     if (reversible()) {
       if (op) self.operator = op
@@ -11228,6 +11264,7 @@ def_optimize(ast_binary, function (self, comp) {
       self.right = tmp
     }
   }
+
   if (comp.options['lhs_constants'] && commutative_operators.has(self.operator)) {
     if (self.right.is_constant() && !self.left.is_constant()) {
       if (!(self.left instanceof ast_binary && precedence[self.left.operator] >= precedence[self.operator])) reverse()
@@ -11239,8 +11276,9 @@ def_optimize(ast_binary, function (self, comp) {
     case '===':
     case '!==':
       strict_comparison = true
-      if ((self.left.is_string(comp) && self.right.is_string(comp)) || (self.left.is_number(comp) && self.right.is_number(comp))
-        || (self.left.is_boolean() && self.right.is_boolean()) || self.left.equivalent_to(self.right)) {
+      if ((self.left.is_string(comp) && self.right.is_string(comp)) || (self.left.is_number(comp)
+        && self.right.is_number(comp)) || (self.left.is_boolean() && self.right.is_boolean())
+        || self.left.equivalent_to(self.right)) {
         self.operator = self.operator.substr(0, 2)
       }
     case '==':
@@ -11268,18 +11306,22 @@ def_optimize(ast_binary, function (self, comp) {
       } else if (self.left instanceof ast_symbol_ref && self.right instanceof ast_symbol_ref
         && self.left.defined() === self.right.defined() && is_object(self.left.fixed_value())) {
         return make_node(self.operator[0] == '=' ? ast_true : ast_false, self)
-      } else if (self.left.is_32_bit_integer() && self.right.is_32_bit_integer()) {
+      } else if (self.left.is_int32() && self.right.is_int32()) {
         const not = root => make_node(ast_unary_prefix, root, {operator: '!', expr: root})
         const booleanify = (root, truthy) => truthy ? comp.in_boolean_context() ? root : not(not(root)) : not(root)
-        if (self.left instanceof ast_number && self.left.value === 0) return booleanify(self.right, self.operator[0] == '!')
-        if (self.right instanceof ast_number && self.right.value === 0) return booleanify(self.left, self.operator[0] == '!')
-        let and_op, x, mask
-        if ((and_op = self.left instanceof ast_binary ? self.left : self.right instanceof ast_binary ? self.right : null)
-          && (mask = and_op === self.left ? self.right : self.left) && and_op.operator == '&' && mask instanceof ast_number && mask.is_32_bit_integer()
-          && (x = and_op.left.equivalent_to(mask) ? and_op.right : and_op.right.equivalent_to(mask) ? and_op.left : null)) {
+        if (self.left instanceof ast_number && self.left.value === 0) {
+          return booleanify(self.right, self.operator[0] == '!')
+        }
+        if (self.right instanceof ast_number && self.right.value === 0) {
+          return booleanify(self.left, self.operator[0] == '!')
+        }
+        let and_op, expr, mask
+        if ((and_op = self.left instanceof ast_binary ? self.left : self.right instanceof ast_binary ? self.right
+          : null) && (mask = and_op === self.left ? self.right : self.left) && and_op.operator == '&'
+          && mask instanceof ast_number && mask.is_int32() && (expr = and_op.left.equivalent_to(mask) ? and_op.right
+          : and_op.right.equivalent_to(mask) ? and_op.left : null)) {
           let optimized = booleanify(make_node(ast_binary, self, {operator: '&', left: mask,
-            right: make_node(ast_unary_prefix, self, {operator: '~', expr: x})
-          }), self.operator[0] == '!')
+            right: make_node(ast_unary_prefix, self, {operator: '~', expr: expr})}), self.operator[0] == '!')
           return best_of(comp, optimized, self)
         }
       }
@@ -11288,9 +11330,9 @@ def_optimize(ast_binary, function (self, comp) {
     case '||':
       let lhs = self.left
       if (lhs.operator == self.operator) lhs = lhs.right
-      if (lhs instanceof ast_binary && lhs.operator == (self.operator == '&&' ? '!==' : '===') && self.right instanceof ast_binary
-        && lhs.operator == self.right.operator && (is_undefined(lhs.left, comp) && self.right.left instanceof ast_null
-          || lhs.left instanceof ast_null && is_undefined(self.right.left, comp))
+      if (lhs instanceof ast_binary && lhs.operator == (self.operator == '&&' ? '!==' : '===')
+        && self.right instanceof ast_binary && lhs.operator == self.right.operator && (is_undefined(lhs.left, comp)
+        && self.right.left instanceof ast_null || lhs.left instanceof ast_null && is_undefined(self.right.left, comp))
         && !lhs.right.has_side_effects(comp) && lhs.right.equivalent_to(self.right.right)) {
         let right = make_node(ast_binary, self, {operator: lhs.operator.slice(0, -1), left: make_node(ast_null, self), right: lhs.right})
         if (lhs !== self.left) right = make_node(ast_binary, self, {operator: self.operator, left: self.left.left, right})
@@ -11299,283 +11341,256 @@ def_optimize(ast_binary, function (self, comp) {
       break
     }
     if (self.operator == '+' && comp.in_boolean_context()) {
-      let ll = self.left.evaluate(comp)
-      let rr = self.right.evaluate(comp)
-      if (ll && typeof ll == 'string') return make_sequence(self, [self.right, make_node(ast_true, self)]).optimize(comp)
-      if (rr && typeof rr == 'string') return make_sequence(self, [self.left, make_node(ast_true, self)]).optimize(comp)
+      let l = self.left.evaluate(comp)
+      let r = self.right.evaluate(comp)
+      if (l && typeof l == 'string') return make_sequence(self, [self.right, make_node(ast_true, self)]).optimize(comp)
+      if (r && typeof r == 'string') return make_sequence(self, [self.left, make_node(ast_true, self)]).optimize(comp)
     }
     if (comp.options['comparisons'] && self.is_boolean()) {
       if (!(comp.parent() instanceof ast_binary) || comp.parent() instanceof ast_assign) {
-        const negated = make_node(ast_unary_prefix, self, {operator: '!', expr: self.negate(comp, first_in_statement(comp))})
+        const negated = make_node(ast_unary_prefix, self, {operator: '!', expr: self.negate(comp, first(comp))})
         self = best_of(comp, self, negated)
       }
     }
     if (self.operator == '+') {
-      if (self.right instanceof ast_string && self.right.getValue() == '' && self.left.is_string(comp)) return self.left
-      if (self.left instanceof ast_string && self.left.getValue() == '' && self.right.is_string(comp)) return self.right
+      if (self.right instanceof ast_string && self.right.get_value() == '' && self.left.is_string(comp)) {
+        return self.left
+      }
+      if (self.left instanceof ast_string && self.left.get_value() == '' && self.right.is_string(comp)) {
+        return self.right
+      }
       if (self.left instanceof ast_binary && self.left.operator == '+' && self.left.left instanceof ast_string
-        && self.left.left.getValue() == '' && self.right.is_string(comp)) {
+        && self.left.left.get_value() == '' && self.right.is_string(comp)) {
         self.left = self.left.right
         return self
       }
   }
-  if ('evaluate') {
-    let ll, rr
-    switch (self.operator) {
-      case '&&':
-        ll = has_flag(self.left, true_flag) ? true : has_flag(self.left, false_flag) ? false : self.left.evaluate(comp)
-        if (!ll) {
-          return maintain_bind(comp.parent(), comp.self(), self.left).optimize(comp)
-        } else if (!(ll instanceof tree)) {
-          return make_sequence(self, [ self.left, self.right ]).optimize(comp)
-        }
-        rr = self.right.evaluate(comp)
-        if (!rr) {
-          if (comp.in_boolean_context()) {
-            return make_sequence(self, [self.left, make_node(ast_false, self)]).optimize(comp)
-          } else {
-            set_flag(self, false_flag)
-          }
-        } else if (!(rr instanceof tree)) {
-          const parent = comp.parent()
-          if (parent.operator == '&&' && parent.left === comp.self() || comp.in_boolean_context()) {
-            return self.left.optimize(comp)
-          }
-        }
-        if (self.left.operator == '||') {
-          const lr = self.left.right.evaluate(comp)
-          if (!lr) return make_node(ast_conditional, self, {
-            condition: self.left.left,
-            consequent: self.right,
-            alt: self.left.right
-          }).optimize(comp)
-        }
-        break
-      case '||':
-        ll = has_flag(self.left, true_flag) ? true : has_flag(self.left, false_flag) ? false : self.left.evaluate(comp)
-        if (!ll) {
-          return make_sequence(self, [ self.left, self.right ]).optimize(comp)
-        } else if (!(ll instanceof tree)) {
-          return maintain_bind(comp.parent(), comp.self(), self.left).optimize(comp)
-        }
-        rr = self.right.evaluate(comp)
-        if (!rr) {
-          const parent = comp.parent()
-          if (parent.operator == '||' && parent.left === comp.self() || comp.in_boolean_context()) {
-            return self.left.optimize(comp)
-          }
-        } else if (!(rr instanceof tree)) {
-          if (comp.in_boolean_context()) {
-            return make_sequence(self, [self.left, make_node(ast_true, self)]).optimize(comp)
-          } else {
-            set_flag(self, true_flag)
-          }
-        }
-        if (self.left.operator == '&&') {
-          const lr = self.left.right.evaluate(comp)
-          if (lr && !(lr instanceof tree)) {
-            return make_node(ast_conditional, self, {condition: self.left.left, consequent: self.left.right, alt: self.right}).optimize(comp)
-          }
-        }
-        break
-      case '??':
-        if (is_nullish(self.left, comp)) return self.right
-        ll = self.left.evaluate(comp)
-        if (!(ll instanceof tree)) return ll == null ? self.right : self.left
+  let ll, rr
+  switch (self.operator) {
+    case '&&':
+      ll = has_flag(self.left, true_flag) ? true : has_flag(self.left, false_flag) ? false : self.left.evaluate(comp)
+      if (!ll) {
+        return maintain_bind(comp.parent(), comp.self(), self.left).optimize(comp)
+      } else if (!(ll instanceof tree)) {
+        return make_sequence(self, [self.left, self.right]).optimize(comp)
+      }
+      rr = self.right.evaluate(comp)
+      if (!rr) {
         if (comp.in_boolean_context()) {
-          rr = self.right.evaluate(comp)
-          if (!(rr instanceof tree) && !rr) return self.left
+          return make_sequence(self, [self.left, make_node(ast_false, self)]).optimize(comp)
+        } else {
+          set_flag(self, false_flag)
         }
-    }
-    let associative = true
-    switch (self.operator) {
-      case '+':
-        if (self.right instanceof ast_literal && self.left instanceof ast_binary && self.left.operator == '+' && self.left.is_string(comp)) {
-          const binary = make_node(ast_binary, self, {operator: '+', left: self.left.right, right: self.right})
-          const r = binary.optimize(comp)
-          if (binary !== r) self = make_node(ast_binary, self, {operator: '+', left: self.left.left, right: r})
+      } else if (!(rr instanceof tree)) {
+        const parent = comp.parent()
+        if (parent.operator == '&&' && parent.left === comp.self() || comp.in_boolean_context()) {
+          return self.left.optimize(comp)
         }
-        if (self.left instanceof ast_binary && self.left.operator == '+' && self.left.is_string(comp) && self.right instanceof ast_binary
-          && self.right.operator == '+' && self.right.is_string(comp)) {
-          const binary = make_node(ast_binary, self, {operator: '+', left: self.left.right, right: self.right.left})
-          const m = binary.optimize(comp)
-          if (binary !== m) {
-            self = make_node(ast_binary, self, {
-              operator: '+',
-              left: make_node(ast_binary, self.left, {operator: '+', left: self.left.left, right: m}),
-              right: self.right.right
-            })
-          }
+      }
+      if (self.left.operator == '||') {
+        const lr = self.left.right.evaluate(comp)
+        if (!lr) return make_node(ast_conditional, self, {
+          condition: self.left.left,
+          consequent: self.right,
+          alt: self.left.right
+        }).optimize(comp)
+      }
+      break
+    case '||':
+      ll = has_flag(self.left, true_flag) ? true : has_flag(self.left, false_flag) ? false : self.left.evaluate(comp)
+      if (!ll) {
+        return make_sequence(self, [self.left, self.right]).optimize(comp)
+      } else if (!(ll instanceof tree)) {
+        return maintain_bind(comp.parent(), comp.self(), self.left).optimize(comp)
+      }
+      rr = self.right.evaluate(comp)
+      if (!rr) {
+        const parent = comp.parent()
+        if (parent.operator == '||' && parent.left === comp.self() || comp.in_boolean_context()) {
+          return self.left.optimize(comp)
         }
-        if (self.right instanceof ast_unary_prefix && self.right.operator == '-' && self.left.is_number(comp)) {
-          self = make_node(ast_binary, self, {operator: '-', left: self.left, right: self.right.expr})
-          break
+      } else if (!(rr instanceof tree)) {
+        if (comp.in_boolean_context()) {
+          return make_sequence(self, [self.left, make_node(ast_true, self)]).optimize(comp)
+        } else {
+          set_flag(self, true_flag)
         }
-        if (self.left instanceof ast_unary_prefix && self.left.operator == '-' && reversible() && self.right.is_number(comp)) {
-          self = make_node(ast_binary, self, {operator: '-', left: self.right, right: self.left.expr})
-          break
+      }
+      if (self.left.operator == '&&') {
+        const lr = self.left.right.evaluate(comp)
+        if (lr && !(lr instanceof tree)) {
+          return make_node(ast_conditional, self, {condition: self.left.left, consequent: self.left.right,
+            alt: self.right}).optimize(comp)
         }
-        if (self.left instanceof ast_template_string) {
-          const l = self.left, r = self.right.evaluate(comp)
-          if (r != self.right) {
-            l.segments[l.segments.length - 1].value += String(r)
-            return l
-          }
+      }
+      break
+    case '??':
+      if (is_nullish(self.left, comp)) return self.right
+      ll = self.left.evaluate(comp)
+      if (!(ll instanceof tree)) return ll == null ? self.right : self.left
+      if (comp.in_boolean_context()) {
+        rr = self.right.evaluate(comp)
+        if (!(rr instanceof tree) && !rr) return self.left
+      }
+  }
+  let associative = true
+  switch (self.operator) {
+    case '+':
+      if (self.right instanceof ast_literal && self.left instanceof ast_binary && self.left.operator == '+'
+        && self.left.is_string(comp)) {
+        const binary = make_node(ast_binary, self, {operator: '+', left: self.left.right, right: self.right})
+        const r = binary.optimize(comp)
+        if (binary !== r) self = make_node(ast_binary, self, {operator: '+', left: self.left.left, right: r})
+      }
+      if (self.left instanceof ast_binary && self.left.operator == '+' && self.left.is_string(comp)
+        && self.right instanceof ast_binary && self.right.operator == '+' && self.right.is_string(comp)) {
+        const binary = make_node(ast_binary, self, {operator: '+', left: self.left.right, right: self.right.left})
+        const lr = binary.optimize(comp)
+        if (binary !== lr) {
+          self = make_node(ast_binary, self, {operator: '+', left: make_node(ast_binary, self.left,
+            {operator: '+', left: self.left.left, right: lr}), right: self.right.right})
         }
-        if (self.right instanceof ast_template_string) {
-          const r = self.right, l = self.left.evaluate(comp)
-          if (l != self.left) {
-            r.segments[0].value = String(l) + r.segments[0].value
-            return r
-          }
-        }
-        if (self.left instanceof ast_template_string && self.right instanceof ast_template_string) {
-          const l = self.left, r = self.right
-          const segments = l.segments
-          segments[segments.length - 1].value += r.segments[0].value
-          for (let i = 1; i < r.segments.length; i++) {
-            segments.push(r.segments[i])
-          }
+      }
+      if (self.right instanceof ast_unary_prefix && self.right.operator == '-' && self.left.is_number(comp)) {
+        self = make_node(ast_binary, self, {operator: '-', left: self.left, right: self.right.expr})
+        break
+      }
+      if (self.left instanceof ast_unary_prefix && self.left.operator == '-' && reversible()
+        && self.right.is_number(comp)) {
+        self = make_node(ast_binary, self, {operator: '-', left: self.right, right: self.left.expr})
+        break
+      }
+      if (self.left instanceof ast_template_string) {
+        const l = self.left, r = self.right.evaluate(comp)
+        if (r != self.right) {
+          l.segments[l.segments.length - 1].value += String(r)
           return l
         }
-      case '*':
-        associative = false
-      case '&':
-      case '|':
-      case '^':
-        if (self.left.is_number(comp) && self.right.is_number(comp) && reversible() && !(self.left instanceof ast_binary
-          && self.left.operator != self.operator  && precedence[self.left.operator] >= precedence[self.operator])) {
-          const reversed = make_node(ast_binary, self, {operator: self.operator, left: self.right, right: self.left})
-          if (self.right instanceof ast_literal && !(self.left instanceof ast_literal)) {
-            self = best_of(comp, reversed, self)
-          } else {
-            self = best_of(comp, self, reversed)
+      }
+      if (self.right instanceof ast_template_string) {
+        const r = self.right, l = self.left.evaluate(comp)
+        if (l != self.left) {
+          r.segments[0].value = String(l) + r.segments[0].value
+          return r
+        }
+      }
+      if (self.left instanceof ast_template_string && self.right instanceof ast_template_string) {
+        const l = self.left, r = self.right
+        const segments = l.segments
+        segments[segments.length - 1].value += r.segments[0].value
+        for (let i = 1; i < r.segments.length; i++) {
+          segments.push(r.segments[i])
+        }
+        return l
+      }
+    case '*':
+      associative = false
+    case '&':
+    case '|':
+    case '^':
+      if (self.left.is_number(comp) && self.right.is_number(comp) && reversible()
+        && !(self.left instanceof ast_binary && self.left.operator != self.operator
+        && precedence[self.left.operator] >= precedence[self.operator])) {
+        const reversed = make_node(ast_binary, self, {operator: self.operator, left: self.right, right: self.left})
+        if (self.right instanceof ast_literal && !(self.left instanceof ast_literal)) {
+          self = best_of(comp, reversed, self)
+        } else {
+          self = best_of(comp, self, reversed)
+        }
+      }
+      if (associative && self.is_number(comp)) {
+        if (self.right instanceof ast_binary && self.right.operator == self.operator) {
+          self = make_node(ast_binary, self, {operator: self.operator,
+            left: make_node(ast_binary, self.left, {operator: self.operator, left: self.left, right: self.right.left,
+              start: self.left.start, end: self.right.left.end, file: self.file}), right: self.right.right})
+        }
+        if (self.right instanceof ast_literal && self.left instanceof ast_binary
+          && self.left.operator == self.operator) {
+          if (self.left.left instanceof ast_literal) {
+            self = make_node(ast_binary, self, {operator: self.operator, left: make_node(ast_binary, self.left,
+              {operator: self.operator, left: self.left.left, right: self.right, start: self.left.left.start,
+              end: self.right.end, file: self.file}), right: self.left.right})
+          } else if (self.left.right instanceof ast_literal) {
+            self = make_node(ast_binary, self, {operator: self.operator, left: make_node(ast_binary, self.left, {
+              operator: self.operator, left: self.left.right, right: self.right, start: self.left.right.start,
+              end: self.right.end, file: self.file}), right: self.left.left})
           }
         }
-        if (associative && self.is_number(comp)) {
-          if (self.right instanceof ast_binary && self.right.operator == self.operator) {
-            self = make_node(ast_binary, self, {operator: self.operator,
-              left: make_node(ast_binary, self.left, {operator: self.operator, left: self.left, right: self.right.left,
-                start: self.left.start, end: self.right.left.end, file: self.file}), right: self.right.right})
-          }
-          if (self.right instanceof ast_literal && self.left instanceof ast_binary && self.left.operator == self.operator) {
-            if (self.left.left instanceof ast_literal) {
-              self = make_node(ast_binary, self, {operator: self.operator,
-                left: make_node(ast_binary, self.left, {operator: self.operator, left: self.left.left, right: self.right,
-                  start: self.left.left.start, end: self.right.end, file: self.file}), right: self.left.right})
-            } else if (self.left.right instanceof ast_literal) {
-              self = make_node(ast_binary, self, {
-                operator: self.operator,
-                left: make_node(ast_binary, self.left, {
-                  operator: self.operator,
-                  left: self.left.right,
-                  right: self.right,
-                  start: self.left.right.start,
-                  end: self.right.end,
-                  file: self.file,
-                }),
-                right: self.left.left
-              })
-            }
-          }
-          if (self.left instanceof ast_binary && self.left.operator == self.operator && self.left.right instanceof ast_literal
-            && self.right instanceof ast_binary && self.right.operator == self.operator && self.right.left instanceof ast_literal) {
-            self = make_node(ast_binary, self, {operator: self.operator,
-              left: make_node(ast_binary, self.left, {operator: self.operator,
-                left: make_node(ast_binary, self.left.left, {
-                  operator: self.operator,
-                  left: self.left.right,
-                  right: self.right.left,
-                  start: self.left.right.start,
-                  end: self.right.left.end,
-                  file: self.file,
-                }),
-                right: self.left.left
-              }),
-              right: self.right.right
-            })
-          }
+        if (self.left instanceof ast_binary && self.left.operator == self.operator
+          && self.left.right instanceof ast_literal && self.right instanceof ast_binary
+          && self.right.operator == self.operator && self.right.left instanceof ast_literal) {
+          self = make_node(ast_binary, self, {operator: self.operator, left: make_node(ast_binary, self.left,
+            {operator: self.operator, left: make_node(ast_binary, self.left.left, {operator: self.operator,
+            left: self.left.right, right: self.right.left, start: self.left.right.start, end: self.right.left.end,
+            file: self.file}), right: self.left.left}), right: self.right.right})
         }
+      }
+  }
+  if (bitwise_binop.has(self.operator)) {
+    let y, z, x_node, y_node, z_node = self.left
+    const right = self.right
+    if (self.operator == '&' && right instanceof ast_binary && right.operator == '|'
+      && typeof (z = self.left.evaluate(comp)) == 'number') {
+      if (typeof (y = right.right.evaluate(comp)) == 'number') {
+        x_node = right.left
+        y_node = right.right
+      } else if (typeof (y = right.left.evaluate(comp)) == 'number') {
+        x_node = right.right
+        y_node = right.left
+      }
+      if (x_node && y_node) {
+        if ((y & z) === 0) {
+          self = make_node(ast_binary, self, {operator: self.operator, left: z_node, right: x_node})
+        } else {
+          const reordered_ops = make_node(ast_binary, self, {operator: '|', left: make_node(ast_binary, self,
+            {operator: '&', left: x_node, right: z_node}), right: make_node_from_constant(y & z, y_node)})
+          self = best_of(comp, self, reordered_ops)
+        }
+      }
     }
-    if (bitwise_binop.has(self.operator)) {
-      let y, z, x_node, y_node, z_node = self.left
-      const right = self.right
-      if (self.operator == '&' && right instanceof ast_binary && right.operator == '|'
-        && typeof (z = self.left.evaluate(comp)) == 'number') {
-        if (typeof (y = right.right.evaluate(comp)) == 'number') {
-          x_node = right.left
-          y_node = right.right
-        } else if (typeof (y = right.left.evaluate(comp)) == 'number') {
-          x_node = right.right
-          y_node = right.left
-        }
-        if (x_node && y_node) {
-          if ((y & z) === 0) {
-            self = make_node(ast_binary, self, {
-              operator: self.operator,
-              left: z_node,
-              right: x_node
-            })
-          } else {
-            const reordered_ops = make_node(ast_binary, self, {
-              operator: '|',
-              left: make_node(ast_binary, self, {
-                operator: '&',
-                left: x_node,
-                right: z_node
-              }),
-              right: make_node_from_constant(y & z, y_node),
-            })
-
-            self = best_of(comp, self, reordered_ops)
-          }
-        }
+    const same_operands = self.left.equivalent_to(right) && !self.left.has_side_effects(comp)
+    if (same_operands) {
+      if (self.operator == '^') return make_node(ast_number, self, {value: 0})
+      if (self.operator == '|' || self.operator == '&') {
+        self.left = make_node(ast_number, self, {value: 0})
+        self.operator = '|'
       }
-      const same_operands = self.left.equivalent_to(right) && !self.left.has_side_effects(comp)
-      if (same_operands) {
-        if (self.operator == '^') return make_node(ast_number, self, {value: 0})
-        if (self.operator == '|' || self.operator == '&') {
-          self.left = make_node(ast_number, self, {value: 0})
-          self.operator = '|'
+    }
+    if ((self.operator == '<<' || self.operator == '>>') && right instanceof ast_number && right.value === 0) {
+      self.operator = '|'
+    }
+    const zero_side = self.right instanceof ast_number && self.right.value === 0 ? self.right
+      : self.left instanceof ast_number && self.left.value === 0 ? self.left : null
+    const non_zero_side = zero_side && (zero_side === self.right ? self.left : self.right)
+    if (zero_side && (self.operator == '|' || self.operator == '^')
+      && (non_zero_side.is_int32() || comp.in_32_bit_context())) return non_zero_side
+    if (zero_side && self.operator == '&' && !non_zero_side.has_side_effects(comp)) return zero_side
+    const is_full_mask = root => root instanceof ast_number && root.value === -1 || root instanceof ast_unary_prefix
+      && (root.operator == '-' && root.expr instanceof ast_number && root.expr.value === 1 || root.operator == '~'
+        && root.expr instanceof ast_number && root.expr.value === 0)
+    const full_mask = is_full_mask(self.right) ? self.right : is_full_mask(self.left) ? self.left : null
+    const non_full_mask = full_mask && (full_mask === self.right ? self.left : self.right)
+    switch (self.operator) {
+      case '|':
+        if (full_mask && !non_full_mask.has_side_effects(comp)) return full_mask
+        break
+      case '&':
+        if (full_mask && (non_full_mask.is_int32() || comp.in_32_bit_context())) return non_full_mask
+        break
+      case '^':
+        if (full_mask) return non_full_mask.bitwise_negate(comp.in_32_bit_context())
+        if (self.left instanceof ast_unary_prefix && self.left.operator == '~'
+          && self.right instanceof ast_unary_prefix && self.right.operator == '~') {
+          self = make_node(ast_binary, self, {operator: '^', left: self.left.expr, right: self.right.expr})
         }
-      }
-      if ((self.operator == '<<' || self.operator == '>>') && right instanceof ast_number && right.value === 0) self.operator = '|'
-      const zero_side = self.right instanceof ast_number && self.right.value === 0 ? self.right
-        : self.left instanceof ast_number && self.left.value === 0 ? self.left : null
-      const non_zero_side = zero_side && (zero_side === self.right ? self.left : self.right)
-      if (zero_side && (self.operator == '|' || self.operator == '^')
-        && (non_zero_side.is_32_bit_integer() || comp.in_32_bit_context())) return non_zero_side
-      if (zero_side && self.operator == '&' && !non_zero_side.has_side_effects(comp)) return zero_side
-      const is_full_mask = (root) => root instanceof ast_number && root.value === -1 || root instanceof ast_unary_prefix
-        && (root.operator == '-' && root.expr instanceof ast_number && root.expr.value === 1 || root.operator == '~'
-          && root.expr instanceof ast_number && root.expr.value === 0)
-      const full_mask = is_full_mask(self.right) ? self.right : is_full_mask(self.left) ? self.left : null
-      const non_full_mask = full_mask && (full_mask === self.right ? self.left : self.right)
-      switch (self.operator) {
-        case '|':
-          if (full_mask && !non_full_mask.has_side_effects(comp)) return full_mask
-          break
-        case '&':
-          if (full_mask && (non_full_mask.is_32_bit_integer() || comp.in_32_bit_context())) return non_full_mask
-          break
-        case '^':
-          if (full_mask) return non_full_mask.bitwise_negate(comp.in_32_bit_context())
-          if (self.left instanceof ast_unary_prefix && self.left.operator == '~'
-            && self.right instanceof ast_unary_prefix && self.right.operator == '~') {
-            self = make_node(ast_binary, self, {operator: '^', left: self.left.expr, right: self.right.expr})
-          }
-          break
-      }
+        break
     }
   }
   if (self.right instanceof ast_binary && self.right.operator == self.operator && (lazy_op.has(self.operator)
     || (self.operator == '+' && (self.right.left.is_string(comp)
     || (self.left.is_string(comp) && self.right.right.is_string(comp)))))) {
-    self.left = make_node(ast_binary, self.left, {
-      operator: self.operator,
-      left: self.left.transform(comp),
-      right: self.right.left.transform(comp)
-    })
+    self.left = make_node(ast_binary, self.left, {operator: self.operator, left: self.left.transform(comp),
+      right: self.right.left.transform(comp)})
     self.right = self.right.right.transform(comp)
     return self.transform(comp)
   }
@@ -11605,30 +11620,22 @@ function is_atomic(lhs, self) { return lhs instanceof ast_symbol_ref || lhs.type
 def_optimize(ast_undefined, function (self, comp) {
   const lhs = comp.is_lhs()
   if (lhs && is_atomic(lhs, self)) return self
-  return make_node(ast_unary_prefix, self, {operator: 'void',
-    expr: make_node(ast_number, self, {value: 0})
-  })
+  return make_node(ast_unary_prefix, self, {operator: 'void', expr: make_node(ast_number, self, {value: 0})})
 })
 
 def_optimize(ast_infinity, function (self, comp) {
   const lhs = comp.is_lhs()
   if (lhs && is_atomic(lhs, self)) return self
-  if (comp.options['keep_infinity'] && !(lhs && !is_atomic(lhs, self)) && !find_variable(comp, 'Infinity')) {
-    return self
-  }
-  return make_node(ast_binary, self, {operator: '/',
-    left: make_node(ast_number, self, {value: 1}),
-    right: make_node(ast_number, self, {value: 0})
-  })
+  if (comp.options['keep_infinity'] && !(lhs && !is_atomic(lhs, self)) && !find_variable(comp, 'Infinity')) return self
+  return make_node(ast_binary, self, {operator: '/', left: make_node(ast_number, self, {value: 1}),
+    right: make_node(ast_number, self, {value: 0})})
 })
 
 def_optimize(ast_nan, function (self, comp) {
   const lhs = comp.is_lhs()
   if (lhs && !is_atomic(lhs, self) || find_variable(comp, 'NaN')) {
-    return make_node(ast_binary, self, {operator: '/',
-      left: make_node(ast_number, self, {value: 0}),
-      right: make_node(ast_number, self, {value: 0})
-    })
+    return make_node(ast_binary, self, {operator: '/', left: make_node(ast_number, self, {value: 0}),
+      right: make_node(ast_number, self, {value: 0})})
   }
   return self
 })
@@ -11639,7 +11646,7 @@ const assign_ops_commutative = make_set('* | ^ &')
 def_optimize(ast_assign, function (self, comp) {
   if (self.logical) return self.lift_sequences(comp)
   let defined
-  if (self.operator == '=' && self.left instanceof ast_symbol_ref && self.left.name !== 'arguments'
+  if (self.operator == '=' && self.left instanceof ast_symbol_ref && self.left.name != 'arguments'
     && !(defined = self.left.defined()).undeclared && self.right.equivalent_to(self.left)) {
     return self.right
   }
@@ -11651,7 +11658,7 @@ def_optimize(ast_assign, function (self, comp) {
       parent = comp.parent(level++)
       if (parent instanceof ast_exit) {
         if (in_try(level, parent)) break
-        if (is_reachable(defined.scope, [ defined ])) break
+        if (is_reachable(defined.scope, [defined])) break
         if (self.operator == '=') return self.right
         defined.fixed = false
         return make_node(ast_binary, self, {
@@ -11660,11 +11667,13 @@ def_optimize(ast_assign, function (self, comp) {
           right: self.right
         }).optimize(comp)
       }
-    } while (parent instanceof ast_binary && parent.right === root || parent instanceof ast_sequence && parent.tail_node() === root)
+    } while (parent instanceof ast_binary && parent.right === root || parent instanceof ast_sequence
+      && parent.tail_node() === root)
   }
   self = self.lift_sequences(comp)
   if (self.operator == '=' && self.left instanceof ast_symbol_ref && self.right instanceof ast_binary) {
-    if (self.right.left instanceof ast_symbol_ref && self.right.left.name == self.left.name && assign_ops.has(self.right.operator)) {
+    if (self.right.left instanceof ast_symbol_ref && self.right.left.name == self.left.name
+      && assign_ops.has(self.right.operator)) {
       self.operator = self.right.operator + '='
       self.right = self.right.right
     } else if (self.right.right instanceof ast_symbol_ref && self.right.right.name == self.left.name
@@ -11676,7 +11685,7 @@ def_optimize(ast_assign, function (self, comp) {
   return self
 
   function in_try (level, root) {
-    function may_assignment_throw () {
+    function may_assign_throw () {
       const right = self.right
       self.right = make_node(ast_null, right)
       const may_throw = root.may_throw(comp)
@@ -11685,10 +11694,10 @@ def_optimize(ast_assign, function (self, comp) {
     }
     const stop_at = self.left.defined().scope.get_defun_scope()
     let parent
-    while ((parent = comp.parent(level++)) !== stop_at) {
+    while (parent = comp.parent(level++) !== stop_at) {
       if (parent instanceof ast_try) {
         if (parent.bfinally) return true
-        if (parent.bcatch && may_assignment_throw()) return true
+        if (parent.bcatch && may_assign_throw()) return true
       }
     }
   }
@@ -11712,17 +11721,16 @@ function is_nullish_check (check, check_subject, comp) {
   if (check_subject.may_throw(comp)) return false
   let nullish_side
   if (check instanceof ast_binary && check.operator == '=='
-    && ((nullish_side = is_nullish(check.left, comp) && check.left)  || (nullish_side = is_nullish(check.right, comp) && check.right))
-    && (nullish_side === check.left ? check.right : check.left).equivalent_to(check_subject)) {
-    return true
-  }
+    && ((nullish_side = is_nullish(check.left, comp) && check.left)
+    || (nullish_side = is_nullish(check.right, comp) && check.right))
+    && (nullish_side === check.left ? check.right : check.left).equivalent_to(check_subject)) return true
   if (check instanceof ast_binary && check.operator == '||') {
     let null_cmp
     let undefined_cmp
+
     function find_comparison (cmp) {
       if (!(cmp instanceof ast_binary && (cmp.operator == '===' || cmp.operator == '=='))) return false
-      let found = 0
-      let defined_side
+      let found = 0, defined_side
       if (cmp.left instanceof ast_null) {
         found++
         null_cmp = cmp
@@ -11757,98 +11765,91 @@ function is_nullish_check (check, check_subject, comp) {
 def_optimize(ast_conditional, function (self, comp) {
   if (!comp.options['conditionals']) return self
   if (self.condition instanceof ast_sequence) {
-    const expressions = self.condition.expressions.slice()
-    self.condition = expressions.pop()
-    expressions.push(self)
-    return make_sequence(self, expressions)
+    const exprs = self.condition.exprs.slice()
+    self.condition = exprs.pop()
+    exprs.push(self)
+    return make_sequence(self, exprs)
   }
   const cond = self.condition.evaluate(comp)
   if (cond !== self.condition) return maintain_bind(comp.parent(), comp.self(), cond ? self.consequent : self.alt)
-  const negated = cond.negate(comp, first_in_statement(comp))
+  const negated = cond.negate(comp, first(comp))
   if (best_of(comp, cond, negated) === negated) {
     self = make_node(ast_conditional, self, {condition: negated, consequent: self.alt, alt: self.consequent})
   }
   const condition = self.condition, consequent = self.consequent, alt = self.alt
-  if (condition instanceof ast_symbol_ref && consequent instanceof ast_symbol_ref && condition.defined() === consequent.defined()) {
+  if (condition instanceof ast_symbol_ref && consequent instanceof ast_symbol_ref
+    && condition.defined() === consequent.defined()) {
     return make_node(ast_binary, self, {operator: '||', left: condition, right: alt})
   }
   if (consequent instanceof ast_assign && alt instanceof ast_assign && consequent.operator === alt.operator
     && consequent.logical === alt.logical && consequent.left.equivalent_to(alt.left)
-    && (!self.condition.has_side_effects(comp) || consequent.operator == '=' && !consequent.left.has_side_effects(comp))) {
-    return make_node(ast_assign, self, {
-      operator: consequent.operator,
-      left: consequent.left,
-      logical: consequent.logical,
-      right: make_node(ast_conditional, self, {condition: self.condition, consequent: consequent.right, alt: alt.right})
-    })
+    && (!self.condition.has_side_effects(comp) || consequent.operator == '='
+    && !consequent.left.has_side_effects(comp))) {
+    return make_node(ast_assign, self, {operator: consequent.operator, left: consequent.left,
+      logical: consequent.logical, right: make_node(ast_conditional, self, {condition: self.condition,
+      consequent: consequent.right, alt: alt.right})})
   }
-  let arg_index
+  let index
   if (consequent instanceof ast_call && alt.type === consequent.type && consequent.args.length > 0
     && consequent.args.length == alt.args.length && consequent.expr.equivalent_to(alt.expr)
-    && !self.condition.has_side_effects(comp) && !consequent.expr.has_side_effects(comp) && typeof (arg_index = single_arg_diff()) == 'number') {
+    && !self.condition.has_side_effects(comp) && !consequent.expr.has_side_effects(comp)
+    && typeof (index = single_arg_diff()) == 'number') {
     const root = consequent.copy()
-    root.args[arg_index] = make_node(ast_conditional, self, {condition: self.condition, consequent: consequent.args[arg_index], alt: alt.args[arg_index] })
+    root.args[index] = make_node(ast_conditional, self, {condition: self.condition, consequent: consequent.args[index],
+      alt: alt.args[index]})
     return root
   }
   if (alt instanceof ast_conditional && consequent.equivalent_to(alt.consequent)) {
-    return make_node(ast_conditional, self, {
-      condition: make_node(ast_binary, self, {operator: '||', left: condition, right: alt.condition}),
-      consequent: consequent,
-      alt: alt.alt
-    }).optimize(comp)
+    return make_node(ast_conditional, self, {condition: make_node(ast_binary, self,
+      {operator: '||', left: condition, right: alt.condition}), consequent: consequent, alt: alt.alt}).optimize(comp)
   }
   if (is_nullish_check(condition, alt, comp)) {
     return make_node(ast_binary, self, {operator: '??', left: alt, right: consequent}).optimize(comp)
   }
-  if (alt instanceof ast_sequence && consequent.equivalent_to(alt.expressions[alt.expressions.length - 1])) {
-    return make_sequence(self, [
-      make_node(ast_binary, self, {operator: '||', left: condition, right: make_sequence(self, alt.expressions.slice(0, -1)) }),
-      consequent
-    ]).optimize(comp)
+  if (alt instanceof ast_sequence && consequent.equivalent_to(alt.exprs[alt.exprs.length - 1])) {
+    return make_sequence(self, [make_node(ast_binary, self, {operator: '||', left: condition,
+      right: make_sequence(self, alt.exprs.slice(0, -1))}), consequent]).optimize(comp)
   }
   if (alt instanceof ast_binary && alt.operator == '&&' && consequent.equivalent_to(alt.right)) {
     return make_node(ast_binary, self, {operator: '&&',
       left: make_node(ast_binary, self, {operator: '||', left: condition, right: alt.left}),
-      right: consequent
-    }).optimize(comp)
+      right: consequent}).optimize(comp)
   }
   if (consequent instanceof ast_conditional && consequent.alt.equivalent_to(alt)) {
     return make_node(ast_conditional, self, {
       condition: make_node(ast_binary, self, {left: self.condition, operator: '&&', right: consequent.condition}),
-      consequent: consequent.consequent,
-      alt: alt
-    })
+      consequent: consequent.consequent, alt: alt})
   }
   if (consequent.equivalent_to(alt)) {
-    return make_sequence(self, [ self.condition, consequent ]).optimize(comp)
+    return make_sequence(self, [self.condition, consequent]).optimize(comp)
   }
   if (consequent instanceof ast_binary && consequent.operator == '||' && consequent.right.equivalent_to(alt)) {
     return make_node(ast_binary, self, {operator: '||',
       left: make_node(ast_binary, self, {operator: '&&', left: self.condition, right: consequent.left  }),
-      right: alt
-    }).optimize(comp)
+      right: alt}).optimize(comp)
   }
 
   const in_bool = comp.in_boolean_context()
 
   function is_true (root) {
-    return root instanceof ast_true || in_bool && root instanceof ast_literal && root.getValue()
-      || (root instanceof ast_unary_prefix && root.operator == '!' && root.expr instanceof ast_literal && !root.expr.getValue())
+    return root instanceof ast_true || in_bool && root instanceof ast_literal && root.get_value()
+      || (root instanceof ast_unary_prefix && root.operator == '!' && root.expr instanceof ast_literal
+      && !root.expr.get_value())
   }
 
   function is_false (root) {
-    return root instanceof ast_false || in_bool && root instanceof ast_literal && !root.getValue()
-      || (root instanceof ast_unary_prefix && root.operator == '!' && root.expr instanceof ast_literal && root.expr.getValue())
+    return root instanceof ast_false || in_bool && root instanceof ast_literal && !root.get_value()
+      || (root instanceof ast_unary_prefix && root.operator == '!' && root.expr instanceof ast_literal
+      && root.expr.get_value())
   }
 
   function single_arg_diff () {
     const args1 = consequent.args, args2 = alt.args
-    let i = 0, len = args1.length, j
-    for (; i < len; i++) {
+    for (let i = 0, length = args1.length, j; i < length; i++) {
       if (args1[i] instanceof ast_spread) return
       if (!args1[i].equivalent_to(args2[i])) {
         if (args2[i] instanceof ast_spread) return
-        for (j = i + 1; j < len; j++) {
+        for (j = i + 1; j < length; j++) {
           if (args1[j] instanceof ast_spread) return
           if (!args1[j].equivalent_to(args2[j])) return
         }
@@ -11859,7 +11860,7 @@ def_optimize(ast_conditional, function (self, comp) {
 
   function booleanize (root) {
     if (root.is_boolean()) return root
-    return make_node(ast_unary_prefix, root, {operator: '!', expr: root.negate(comp) })
+    return make_node(ast_unary_prefix, root, {operator: '!', expr: root.negate(comp)})
   }
 
   if (is_true(self.consequent)) {
@@ -11868,20 +11869,20 @@ def_optimize(ast_conditional, function (self, comp) {
   }
   if (is_false(self.consequent)) {
     if (is_true(self.alt)) return booleanize(self.condition.negate(comp))
-    return make_node(ast_binary, self, {operator: '&&', left: booleanize(self.condition.negate(comp)), right: self.alt})
+    return make_node(ast_binary, self, {operator: '&&', left: booleanize(self.condition.negate(comp)),
+      right: self.alt})
   }
-  if (is_true(self.alt)) {
-    return make_node(ast_binary, self, {operator: '||', left: booleanize(self.condition.negate(comp)), right: self.consequent})
-  }
-  if (is_false(self.alt)) {
-    return make_node(ast_binary, self, {operator: '&&', left: booleanize(self.condition), right: self.consequent})
-  }
+  if (is_true(self.alt)) return make_node(ast_binary, self, {operator: '||',
+    left: booleanize(self.condition.negate(comp)), right: self.consequent})
+  if (is_false(self.alt)) return make_node(ast_binary, self, {operator: '&&',
+    left: booleanize(self.condition), right: self.consequent})
+
   return self
 })
 
 function optimize_template (self) {
-  let i, len, raw, reducable, index
-  for (i = 0, len = self.segments.length; i < len; i++) {
+  let i, length, raw, reducable, index
+  for (i = 0, length = self.segments.length; i < length; i++) {
     if (self.segments[i] instanceof ast_template_segment) {
       raw = self.segments[i].raw
       reducable = true
@@ -11984,8 +11985,8 @@ ast_prop_access.prototype.flatten_object = function (key, comp) {
     for (let i = props.length; --i >= 0;) {
       prop = props[i]
       if ('' + (prop instanceof ast_concise_method ? prop.key.name : prop.key) == key) {
-        const all_props_flattenable = props.every((p) => (p instanceof ast_key_value || p instanceof ast_concise_method && !p.gen) && !p.computed_key())
-        if (!all_props_flattenable) return
+        if (!props.every(p => (p instanceof ast_key_value || p instanceof ast_concise_method && !p.gen)
+          && !p.computed_key())) return
         if (!safe_to_flatten(prop.value, comp)) return
         return make_node(ast_sub, this, {
           expr: make_node(ast_array, expr, {
@@ -11993,7 +11994,7 @@ ast_prop_access.prototype.flatten_object = function (key, comp) {
               v = prop.value
               if (v instanceof ast_accessor) v = make_node(ast_function, v, v)
               k = prop.key
-              if (k instanceof tree && !(k instanceof ast_symbol_method)) return make_sequence(prop, [ k, v ])
+              if (k instanceof tree && !(k instanceof ast_symbol_method)) return make_sequence(prop, [k, v])
               return v
             })
           }),
@@ -12006,7 +12007,7 @@ ast_prop_access.prototype.flatten_object = function (key, comp) {
 
 def_optimize(ast_sub, function (self, comp) {
   const expr = self.expr
-  let prop = self.property, key, value, property, i
+  let prop = self.property, key, value, property, i, fn
   if (comp.options['properties']) {
     key = prop.evaluate(comp)
     if (key !== prop) {
@@ -12021,30 +12022,31 @@ def_optimize(ast_sub, function (self, comp) {
       prop = self.property = best_of_expression(prop, make_node_from_constant(key, prop).transform(comp))
       property = '' + key
       if (is_basic_identifier_string(property) && property.length <= prop.size() + 1) {
-        return make_node(ast_dot, self, {expr, optional: self.optional, property: property, quote: prop.quote}).optimize(comp)
+        return make_node(ast_dot, self, {expr, optional: self.optional, property: property,
+          quote: prop.quote}).optimize(comp)
       }
     }
   }
-  let fn
+
   opt_arguments: if (comp.options['arguments'] && expr instanceof ast_symbol_ref
     && expr.name == 'arguments' && expr.defined().orig.length == 1
     && (fn = expr.scope) instanceof ast_lambda && fn.uses_args
     && !(fn instanceof ast_arrow) && prop instanceof ast_number) {
-    const index = prop.getValue(), params = new Set(), argnames = fn.argnames
-    let param
-    for (let n = 0; n < argnames.length; n++) {
-      if (!(argnames[n] instanceof ast_symbol_funarg)) break opt_arguments
-      param = argnames[n].name
+    const index = prop.get_value(), params = new Set(), argnames = fn.argnames
+    let arg, param
+    for (arg = 0; arg < argnames.length; arg++) {
+      if (!(argnames[arg] instanceof ast_symbol_funarg)) break opt_arguments
+      param = argnames[arg].name
       if (params.has(param)) break opt_arguments
       params.add(param)
     }
     let argname = fn.argnames[index]
     if (argname) {
       const defined = argname.defined()
-      if (!comp.options['reduce_vars'] || defined.assignments || defined.orig.length > 1) argname = null
+      if (!comp.options['reduce_vars'] || defined.assigns || defined.orig.length > 1) argname = null
     } else if (!argname && !comp.options['keep_fargs'] && index < fn.argnames.length + 5) {
       while (index >= fn.argnames.length) {
-        argname = fn.create_symbol(ast_symbol_funarg, {source: fn, scope: fn, tentative_name: 'arg_' + fn.argnames.length})
+        argname = fn.create_symbol(ast_symbol_funarg, {source: fn, scope: fn, name: 'arg_' + fn.argnames.length})
         fn.argnames.push(argname)
       }
     }
@@ -12063,29 +12065,31 @@ def_optimize(ast_sub, function (self, comp) {
       prop = self.property = sub.property
     }
   }
-  if (comp.options['properties'] && comp.options['side_effects'] && prop instanceof ast_number && expr instanceof ast_array) {
+  if (comp.options['properties'] && comp.options['side_effects'] && prop instanceof ast_number
+    && expr instanceof ast_array) {
     const elements = expr.elements
-    let index = prop.getValue(), result = elements[index]
+    let index = prop.get_value(), result = elements[index]
+
     safe_flatten: if (safe_to_flatten(result, comp)) {
       const values = []
-      let safe_flatten = true
+      let flatten = true
       for (i = elements.length; --i > index;) {
         value = elements[i].drop(comp)
         if (value) {
           values.unshift(value)
-          if (safe_flatten && value.has_side_effects(comp)) safe_flatten = false
+          if (flatten && value.has_side_effects(comp)) flatten = false
         }
       }
       if (result instanceof ast_spread) break safe_flatten
       result = result instanceof ast_hole ? make_node(ast_undefined, result) : result
-      if (!safe_flatten) values.unshift(result)
+      if (!flatten) values.unshift(result)
       while (--i >= 0) {
         value = elements[i]
         if (value instanceof ast_spread) break safe_flatten
         value = value.drop(comp)
         value ? values.unshift(value) : index--
       }
-      if (safe_flatten) {
+      if (flatten) {
         values.push(result)
         return make_sequence(self, values).optimize(comp)
       } else {
@@ -12130,13 +12134,13 @@ def_optimize(ast_dot, function (self, comp) {
 })
 
 function literals_in_boolean_context (self, comp) {
-  if (comp.in_boolean_context()) return best_of(comp, self, make_sequence(self, [ self, make_node(ast_true, self) ]).optimize(comp))
+  if (comp.in_boolean_context()) return best_of(comp, self, make_sequence(self, [self, make_node(ast_true,
+    self)]).optimize(comp))
   return self
 }
 
 function inline_array_like_spread (elements) {
-  let i, el, expr
-  for (i = 0; i < elements.length; i++) {
+  for (let i = 0, length = elements.length, el, expr; i < length; i++) {
     el = elements[i]
     if (el instanceof ast_spread) {
       expr = el.expr
@@ -12156,15 +12160,14 @@ def_optimize(ast_array, function (self, comp) {
 })
 
 function inline_object_prop_spread (props) {
-  let i, prop
-  for (i = 0; i < props.length; i++) {
+  for (let i = 0, length = props.length, prop; i < length; i++) {
     prop = props[i]
     if (prop instanceof ast_spread) {
       const expr = prop.expr
       if (expr instanceof ast_object && expr.properties.every(prop => prop instanceof ast_key_value)) {
         props.splice(i, 1, ...expr.properties)
         i--
-      } else if (( expr instanceof ast_literal || expr.is_constant()) && !(expr instanceof ast_string)) {
+      } else if ((expr instanceof ast_literal || expr.is_constant()) && !(expr instanceof ast_string)) {
         props.splice(i, 1)
         i--
       }
@@ -12211,16 +12214,16 @@ def_optimize(ast_class_static, function (self, comp) {
 def_optimize(ast_destructure, function (self, comp) {
   function is_destructure_export_decl (comp) {
     const ancestors = [/^VarDef$/, /^(Const|Let|Var)$/, /^Export$/]
-    let parent
-    for (let a = 0, p = 0, len = ancestors.length; a < len; p++) {
+    for (let a = 0, length = ancestors.length, p = 0, parent; a < length; p++) {
       parent = comp.parent(p)
       if (!parent) return false
-      if (a === 0 && parent.type == 'ast_destructure') continue
+      if (a == 0 && parent.type == 'ast_destructure') continue
       if (!ancestors[a].test(parent.type)) return false
       a++
     }
     return true
   }
+
   function should_retain (comp, defined) {
     if (defined.references.length) return true
     if (!defined.global) return false
@@ -12234,12 +12237,10 @@ def_optimize(ast_destructure, function (self, comp) {
     && Array.isArray(self.names) && !is_destructure_export_decl(comp)
     && !(self.names[self.names.length - 1] instanceof ast_spread)) {
     const keep = []
-    let elem
-    for (let i = 0; i < self.names.length; i++) {
+    for (let i = 0, length = self.names.length, elem; i < length; i++) {
       elem = self.names[i]
       if (!(elem instanceof ast_key_value && typeof elem.key == 'string'
-        && elem.value instanceof ast_declaration
-        && !should_retain(comp, elem.value.defined()))) {
+        && elem.value instanceof ast_declaration && !should_retain(comp, elem.value.defined()))) {
         keep.push(elem)
       }
     }
@@ -12252,7 +12253,6 @@ def_optimize(ast_yield, function (self, comp) {
   if (self.expr && !self.star && is_undefined(self.expr, comp)) self.expr = null
   return self
 })
-
 function lift_key (self, comp) {
   if (!comp.options['computed_props']) return self
   if (!(self.key instanceof ast_literal)) return self
@@ -12276,8 +12276,9 @@ function lift_key (self, comp) {
 
 def_optimize(ast_concise_method, function (self, comp) {
   lift_key(self, comp)
-  if (comp.options['arrows'] && comp.parent() instanceof ast_object && !self.gen && !self.value.uses_args && !self.value.pinned()
-    && self.value.body.length == 1 && self.value.body[0] instanceof ast_return && self.value.body[0].value && !self.value.this()) {
+  if (comp.options['arrows'] && comp.parent() instanceof ast_object && !self.gen && !self.value.uses_args
+    && !self.value.pinned() && self.value.body.length == 1 && self.value.body[0] instanceof ast_return
+    && self.value.body[0].value && !self.value.this()) {
     const arrow = make_node(ast_arrow, self.value, self.value)
     arrow.sync = self.sync
     arrow.gen = self.gen
@@ -12295,14 +12296,14 @@ def_optimize(ast_key_value, function (self, comp) {
 def_optimize(ast_object_property, lift_key)
 
 function build (input, output, options={}) {
-  options = defaults(options, {'compress': {}, 'format': {}, 'mangle': {}, 'module': false, 'parse': {}, 'toplevel': true})
+  options = defaults(options, {'format': {}, 'mangle': {}, 'module': false, 'reduce': {}, 'parse': {}, 'toplevel': true})
   if (output.slice(-3) == '.js') output_js()
   options.parse.module = options.module
-  options.compress.module = options.module
-  options.compress.toplevel = options.toplevel
+  options.reduce.module = options.module
+  options.reduce.toplevel = options.toplevel
   options.mangle.module = options.module
   options.mangle.toplevel = options.toplevel
-  options.mangle = defaults(options.mangle, {'eval': false, 'module': false, 'reserved': [] })
+  options.mangle = defaults(options.mangle, {'eval': false, 'module': false, 'reserved': []})
   options.parse.toplevel = new ast_toplevel()
   let imported = [], imports = [input], file, text
   while (imports.length) {
@@ -12310,8 +12311,11 @@ function build (input, output, options={}) {
     if (member(file, imported)) {
       imports.shift(1)
     } else {
-      text = ''
-      try { text = fs.readFileSync(file, 'utf-8') } catch (e) { text = '' }
+      try {
+        text = fs.readFileSync(file, 'utf-8')
+      } catch {
+        text = ''
+      }
       options.parse.toplevel.file = file
       options.parse.toplevel.imports = imports
       options.parse.toplevel.imported = imported
@@ -12324,19 +12328,15 @@ function build (input, output, options={}) {
   let toplevel = options.parse.toplevel
   options.mangle.imports = toplevel.imports
   toplevel = toplevel.wrap_enclose()
-  toplevel = new Compressor(options.compress, {mangle_options: options.mangle}).compress(toplevel)
+  toplevel = new reduces(options.reduce, {mangle_options: options.mangle}).reduce(toplevel)
   toplevel.figure_out_scope(options.mangle)
   toplevel.compute_char_frequency(options.mangle)
   toplevel.mangle_names(options.mangle)
   toplevel = mangle_props(toplevel, options.mangle)
+  const stream = output_stream(options.format)
+  toplevel.print(stream)
   const result = {}
-  let formats, stream
-  if (!('code' in options) || options.format.code) {
-    formats = options.format
-    stream = output_stream(formats)
-    toplevel.print(stream)
-    result.code = stream.get()
-  }
+  result.code = stream.get()
   if (output && result.code) fs.writeFileSync(output, result.code)
   console.log('bundled', result)
 }
