@@ -53,8 +53,8 @@ tree.prototype.transform = function (trees, trim) {
 }
 
 function tray (array, trees) {
-  let a, t = []
-  for (let i = 0; i < array.length; i++) {
+  let a, i, t = []
+  for (i = 0; i < array.length; i++) {
     a = array[i].transform(trees, true)
     a instanceof tree ? t.push(a) : a.v && t.push(...a.v)
   }
@@ -502,7 +502,7 @@ function copy_block_scope (deep) {
 }
 
 function traverse (self, observer) {
-  for (let i = 0, l = self.body.length; i < l; i++) {
+  for (let i = 0, length = self.body.length; i < length; i++) {
     self.body[i].observe(observer)
   }
 }
@@ -821,7 +821,8 @@ ast_lambda.prototype.equals = function (other) {
 ast_lambda.prototype.args_as_names = function () {
   const out = []
   for (let i = 0, length = this.argnames.length; i < length; i++) {
-    this.argnames[i] instanceof ast_destructure ? out.push(...this.argnames[i].all_symbols()) : out.push(this.argnames[i])
+    this.argnames[i] instanceof ast_destructure ? out.push(...this.argnames[i].all_symbols())
+      : out.push(this.argnames[i])
   }
   return out
 }
@@ -1268,7 +1269,7 @@ ast_name_mapping.prototype.ascend = function (self, trees) {
 class ast_import extends tree {
   constructor (props) {
     super()
-    this.func('ast_import', ['import_name', 'import_names', 'module','assert_clause', 'start', 'end', 'file'], props)
+    this.func('ast_import', ['import_name', 'import_names', 'module', 'assert_clause', 'start', 'end', 'file'], props)
   }
 }
 ast_import.prototype.equals = function (other) {
@@ -1560,7 +1561,7 @@ ast_concise_method.prototype.computed_key = function () {
 class ast_private_method extends ast_concise_method {
   constructor (props) {
     super()
-    this.func('ast_concise_method', ['quote', 'static', 'gen', 'sync', 'key', 'value', 'start', 'end', 'file'], props)
+    this.func('ast_private_method', ['quote', 'static', 'gen', 'sync', 'key', 'value', 'start', 'end', 'file'], props)
   }
 }
 
@@ -1951,15 +1952,15 @@ ast_with.prototype._size = () => 6
 ast_toplevel.prototype._size = function () { return len1(this.body) }
 ast_spread.prototype._size = () => 3
 ast_debugger.prototype._size = () => 8
-ast_accessor.prototype._size = function () { 4 + lambda_size(this) + len1(this.argnames) + len1(this.body) }
-ast_function.prototype._size = function (info) { return 12 + (!!first(info) * 2) + lambda_size(this)
+ast_accessor.prototype._size = function () { return 4 + lambda_size(this) + len1(this.argnames) + len1(this.body) }
+ast_function.prototype._size = function (info) { return 12 + !!first_in_statement(info) * 2 + lambda_size(this)
   + len1(this.argnames) + len1(this.body) }
 ast_arrow.prototype._size = function () {
   let args_and_arrow = 2 + len1(this.argnames)
   if (!(this.argnames.length === 1 && this.argnames[0] instanceof ast_symbol)) args_and_arrow += 2
   return lambda_size(this) + args_and_arrow + (this.is_braceless() ? 0 : len1(this.body) + 2)
 }
-ast_defun.prototype._size = function () { 13 + lambda_size(this) + len1(this.argnames) + len1(this.body) }
+ast_defun.prototype._size = function () { return 13 + lambda_size(this) + len1(this.argnames) + len1(this.body) }
 ast_destructure.prototype._size = () => 2
 ast_template_string.prototype._size = function () { return 2 + (Math.floor(this.segments.length / 2) * 3) }
 ast_template_segment.prototype._size = function () { return this.value.length }
@@ -2016,7 +2017,7 @@ ast_binary.prototype._size = function (info) {
 }
 ast_conditional.prototype._size = () => 3
 ast_array.prototype._size = function () { return 2 + len1(this.elements) }
-ast_object.prototype._size = function (info) { return 2 + len1(this.properties) + first(info) ? 2 : 0 }
+ast_object.prototype._size = function (info) { return 2 + len1(this.properties) + first_in_statement(info) ? 2 : 0 }
 ast_key_value.prototype._size = function () { return key_size(this.key) + 1 }
 ast_private_getter.prototype._size = function () { return static_size(this.static) + key_size(this.key)
   + lambda_size(this) + 4 }
@@ -2112,11 +2113,11 @@ class symbol_def {
     const cache = options.cache && options.cache.props
     if (this.global && cache && cache.has(this.name)) {
       this.mangled_name = cache.get(this.name)
-    } else if (!this.mangled_name && !this.unmangleable(options)) {
-      const redef = redefined_catch_def(this)
-      this.mangled_name = redef ? redef.mangled_name || redef.name : this.scope.next_mangled(options, this)
-      if (this.global && cache) cache.set(this.name, this.mangled_name)
     } else {
+      if (!this.mangled_name && !this.unmangleable(options)) {
+        const redef = redefined_catch_def(this)
+        this.mangled_name = redef ? redef.mangled_name || redef.name : this.scope.next_mangled(options, this)
+      }
       if (this.global && cache) cache.set(this.name, this.mangled_name)
     }
   }
@@ -2140,7 +2141,7 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = null, tople
         scope = save_scope
         root.expr.observe(trees)
         scope = the_block_scope
-        for (let i = 0; i < root.body.length; i++) {
+        for (let i = 0, length = root.body.length; i < length; i++) {
           root.body[i].observe(trees)
         }
       } else {
@@ -2176,7 +2177,7 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = null, tople
       return true
     }
     if (root instanceof ast_with) {
-      for (let s = scope; ; s = s.parents) s.withs = true
+      for (let s = scope; s; s = s.parents) s.withs = true
       return
     }
     if (root instanceof ast_symbol) root.scope = scope
@@ -2223,7 +2224,7 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = null, tople
   function mark_export (defined, level) {
     if (destructure) {
       let i = 0
-      do { level++ } while (trees.parent(i++) != destructure)
+      do { level++ } while (trees.parent(i++) !== destructure)
     }
     const root = trees.parent(level)
     if (defined.export = root instanceof ast_export ? dont_mangle : 0) {
@@ -2306,7 +2307,7 @@ ast_scope.prototype.conflicting_def_shallow = function (name, file) {
 ast_scope.prototype.add_child_scope = function (scope) {
   if (scope.parents === this) return
   scope.parents = this
-  if ((scope instanceof ast_arrow) && !this.uses_args) {
+  if (scope instanceof ast_arrow && !this.uses_args) {
     this.uses_args = observe(scope, root => {
       if (root instanceof ast_symbol_ref && root.scope instanceof ast_lambda && root.name == 'arguments') {
         return walk_abort
@@ -2323,8 +2324,7 @@ ast_scope.prototype.add_child_scope = function (scope) {
     ancestry.reverse()
     return ancestry
   })()
-  const new_scope_enclosed_set = new Set(scope.encl)
-  const to_enclose = []
+  const new_scope_enclosed_set = new Set(scope.encl), to_enclose = []
   for (const scope_topdown of scope_ancestry) {
     to_enclose.forEach(expr => push_uniq(scope_topdown.encl, expr))
     for (const defined of scope_topdown.vars.values()) {
@@ -2659,7 +2659,6 @@ function walk_parent (root, cb, initial_stack) {
   return false
 }
 
-
 class observes {
   constructor (callback) {
     this.callback = callback
@@ -2771,9 +2770,8 @@ function mangle_props (ast, options) {
   }))
 }
 
-function first (stack) {
-  let root = stack.parent(-1)
-  for (let i = 0, p; p = stack.parent(i); i++) {
+function first_in_statement (stack) {
+  for (let i = 0, p, root = stack.parent(-1); p = stack.parent(i); i++) {
     if (p instanceof ast_state && p.body === root) return true
     if ((p instanceof ast_sequence && p.exprs[0] === root) ||
       (p.type == 'ast_call' && p.expr === root) ||
@@ -2796,7 +2794,6 @@ const _inline = 2
 const _noinline = 4
 const _key = 8
 const _mangleprop = 16
-
 const keywords_atom = make_set('false null true')
 const keywords = make_set('break case catch class const continue debugger default delete do else export extends'
   + ' finally for function if in instanceof let new return switch throw try typeof var void while with')
@@ -2823,7 +2820,6 @@ const newline_chars = make_set(chars('\n\r\u2028\u2029'))
 const punc_after_expression = make_set(chars(']),:'))
 const punc_before_expression = make_set(chars('[{(,;:'))
 const punc_chars = make_set(chars('[]{}(),;:'))
-
 const unicode = {
   ustart: /[$A-Z_a-z\xAA\xB5\xBA\xC0-\xD6\xD8-\xF6\xF8-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u02EC\u02EE\u0370-\u0374\u0376\u0377\u037A-\u037D\u037F\u0386\u0388-\u038A\u038C\u038E-\u03A1\u03A3-\u03F5\u03F7-\u0481\u048A-\u052F\u0531-\u0556\u0559\u0561-\u0587\u05D0-\u05EA\u05F0-\u05F2\u0620-\u064A\u066E\u066F\u0671-\u06D3\u06D5\u06E5\u06E6\u06EE\u06EF\u06FA-\u06FC\u06FF\u0710\u0712-\u072F\u074D-\u07A5\u07B1\u07CA-\u07EA\u07F4\u07F5\u07FA\u0800-\u0815\u081A\u0824\u0828\u0840-\u0858\u08A0-\u08B4\u0904-\u0939\u093D\u0950\u0958-\u0961\u0971-\u0980\u0985-\u098C\u098F\u0990\u0993-\u09A8\u09AA-\u09B0\u09B2\u09B6-\u09B9\u09BD\u09CE\u09DC\u09DD\u09DF-\u09E1\u09F0\u09F1\u0A05-\u0A0A\u0A0F\u0A10\u0A13-\u0A28\u0A2A-\u0A30\u0A32\u0A33\u0A35\u0A36\u0A38\u0A39\u0A59-\u0A5C\u0A5E\u0A72-\u0A74\u0A85-\u0A8D\u0A8F-\u0A91\u0A93-\u0AA8\u0AAA-\u0AB0\u0AB2\u0AB3\u0AB5-\u0AB9\u0ABD\u0AD0\u0AE0\u0AE1\u0AF9\u0B05-\u0B0C\u0B0F\u0B10\u0B13-\u0B28\u0B2A-\u0B30\u0B32\u0B33\u0B35-\u0B39\u0B3D\u0B5C\u0B5D\u0B5F-\u0B61\u0B71\u0B83\u0B85-\u0B8A\u0B8E-\u0B90\u0B92-\u0B95\u0B99\u0B9A\u0B9C\u0B9E\u0B9F\u0BA3\u0BA4\u0BA8-\u0BAA\u0BAE-\u0BB9\u0BD0\u0C05-\u0C0C\u0C0E-\u0C10\u0C12-\u0C28\u0C2A-\u0C39\u0C3D\u0C58-\u0C5A\u0C60\u0C61\u0C85-\u0C8C\u0C8E-\u0C90\u0C92-\u0CA8\u0CAA-\u0CB3\u0CB5-\u0CB9\u0CBD\u0CDE\u0CE0\u0CE1\u0CF1\u0CF2\u0D05-\u0D0C\u0D0E-\u0D10\u0D12-\u0D3A\u0D3D\u0D4E\u0D5F-\u0D61\u0D7A-\u0D7F\u0D85-\u0D96\u0D9A-\u0DB1\u0DB3-\u0DBB\u0DBD\u0DC0-\u0DC6\u0E01-\u0E30\u0E32\u0E33\u0E40-\u0E46\u0E81\u0E82\u0E84\u0E87\u0E88\u0E8A\u0E8D\u0E94-\u0E97\u0E99-\u0E9F\u0EA1-\u0EA3\u0EA5\u0EA7\u0EAA\u0EAB\u0EAD-\u0EB0\u0EB2\u0EB3\u0EBD\u0EC0-\u0EC4\u0EC6\u0EDC-\u0EDF\u0F00\u0F40-\u0F47\u0F49-\u0F6C\u0F88-\u0F8C\u1000-\u102A\u103F\u1050-\u1055\u105A-\u105D\u1061\u1065\u1066\u106E-\u1070\u1075-\u1081\u108E\u10A0-\u10C5\u10C7\u10CD\u10D0-\u10FA\u10FC-\u1248\u124A-\u124D\u1250-\u1256\u1258\u125A-\u125D\u1260-\u1288\u128A-\u128D\u1290-\u12B0\u12B2-\u12B5\u12B8-\u12BE\u12C0\u12C2-\u12C5\u12C8-\u12D6\u12D8-\u1310\u1312-\u1315\u1318-\u135A\u1380-\u138F\u13A0-\u13F5\u13F8-\u13FD\u1401-\u166C\u166F-\u167F\u1681-\u169A\u16A0-\u16EA\u16EE-\u16F8\u1700-\u170C\u170E-\u1711\u1720-\u1731\u1740-\u1751\u1760-\u176C\u176E-\u1770\u1780-\u17B3\u17D7\u17DC\u1820-\u1877\u1880-\u18A8\u18AA\u18B0-\u18F5\u1900-\u191E\u1950-\u196D\u1970-\u1974\u1980-\u19AB\u19B0-\u19C9\u1A00-\u1A16\u1A20-\u1A54\u1AA7\u1B05-\u1B33\u1B45-\u1B4B\u1B83-\u1BA0\u1BAE\u1BAF\u1BBA-\u1BE5\u1C00-\u1C23\u1C4D-\u1C4F\u1C5A-\u1C7D\u1CE9-\u1CEC\u1CEE-\u1CF1\u1CF5\u1CF6\u1D00-\u1DBF\u1E00-\u1F15\u1F18-\u1F1D\u1F20-\u1F45\u1F48-\u1F4D\u1F50-\u1F57\u1F59\u1F5B\u1F5D\u1F5F-\u1F7D\u1F80-\u1FB4\u1FB6-\u1FBC\u1FBE\u1FC2-\u1FC4\u1FC6-\u1FCC\u1FD0-\u1FD3\u1FD6-\u1FDB\u1FE0-\u1FEC\u1FF2-\u1FF4\u1FF6-\u1FFC\u2071\u207F\u2090-\u209C\u2102\u2107\u210A-\u2113\u2115\u2118-\u211D\u2124\u2126\u2128\u212A-\u2139\u213C-\u213F\u2145-\u2149\u214E\u2160-\u2188\u2C00-\u2C2E\u2C30-\u2C5E\u2C60-\u2CE4\u2CEB-\u2CEE\u2CF2\u2CF3\u2D00-\u2D25\u2D27\u2D2D\u2D30-\u2D67\u2D6F\u2D80-\u2D96\u2DA0-\u2DA6\u2DA8-\u2DAE\u2DB0-\u2DB6\u2DB8-\u2DBE\u2DC0-\u2DC6\u2DC8-\u2DCE\u2DD0-\u2DD6\u2DD8-\u2DDE\u3005-\u3007\u3021-\u3029\u3031-\u3035\u3038-\u303C\u3041-\u3096\u309B-\u309F\u30A1-\u30FA\u30FC-\u30FF\u3105-\u312D\u3131-\u318E\u31A0-\u31BA\u31F0-\u31FF\u3400-\u4DB5\u4E00-\u9FD5\uA000-\uA48C\uA4D0-\uA4FD\uA500-\uA60C\uA610-\uA61F\uA62A\uA62B\uA640-\uA66E\uA67F-\uA69D\uA6A0-\uA6EF\uA717-\uA71F\uA722-\uA788\uA78B-\uA7AD\uA7B0-\uA7B7\uA7F7-\uA801\uA803-\uA805\uA807-\uA80A\uA80C-\uA822\uA840-\uA873\uA882-\uA8B3\uA8F2-\uA8F7\uA8FB\uA8FD\uA90A-\uA925\uA930-\uA946\uA960-\uA97C\uA984-\uA9B2\uA9CF\uA9E0-\uA9E4\uA9E6-\uA9EF\uA9FA-\uA9FE\uAA00-\uAA28\uAA40-\uAA42\uAA44-\uAA4B\uAA60-\uAA76\uAA7A\uAA7E-\uAAAF\uAAB1\uAAB5\uAAB6\uAAB9-\uAABD\uAAC0\uAAC2\uAADB-\uAADD\uAAE0-\uAAEA\uAAF2-\uAAF4\uAB01-\uAB06\uAB09-\uAB0E\uAB11-\uAB16\uAB20-\uAB26\uAB28-\uAB2E\uAB30-\uAB5A\uAB5C-\uAB65\uAB70-\uABE2\uAC00-\uD7A3\uD7B0-\uD7C6\uD7CB-\uD7FB\uF900-\uFA6D\uFA70-\uFAD9\uFB00-\uFB06\uFB13-\uFB17\uFB1D\uFB1F-\uFB28\uFB2A-\uFB36\uFB38-\uFB3C\uFB3E\uFB40\uFB41\uFB43\uFB44\uFB46-\uFBB1\uFBD3-\uFD3D\uFD50-\uFD8F\uFD92-\uFDC7\uFDF0-\uFDFB\uFE70-\uFE74\uFE76-\uFEFC\uFF21-\uFF3A\uFF41-\uFF5A\uFF66-\uFFBE\uFFC2-\uFFC7\uFFCA-\uFFCF\uFFD2-\uFFD7\uFFDA-\uFFDC]|\uD800[\uDC00-\uDC0B\uDC0D-\uDC26\uDC28-\uDC3A\uDC3C\uDC3D\uDC3F-\uDC4D\uDC50-\uDC5D\uDC80-\uDCFA\uDD40-\uDD74\uDE80-\uDE9C\uDEA0-\uDED0\uDF00-\uDF1F\uDF30-\uDF4A\uDF50-\uDF75\uDF80-\uDF9D\uDFA0-\uDFC3\uDFC8-\uDFCF\uDFD1-\uDFD5]|\uD801[\uDC00-\uDC9D\uDD00-\uDD27\uDD30-\uDD63\uDE00-\uDF36\uDF40-\uDF55\uDF60-\uDF67]|\uD802[\uDC00-\uDC05\uDC08\uDC0A-\uDC35\uDC37\uDC38\uDC3C\uDC3F-\uDC55\uDC60-\uDC76\uDC80-\uDC9E\uDCE0-\uDCF2\uDCF4\uDCF5\uDD00-\uDD15\uDD20-\uDD39\uDD80-\uDDB7\uDDBE\uDDBF\uDE00\uDE10-\uDE13\uDE15-\uDE17\uDE19-\uDE33\uDE60-\uDE7C\uDE80-\uDE9C\uDEC0-\uDEC7\uDEC9-\uDEE4\uDF00-\uDF35\uDF40-\uDF55\uDF60-\uDF72\uDF80-\uDF91]|\uD803[\uDC00-\uDC48\uDC80-\uDCB2\uDCC0-\uDCF2]|\uD804[\uDC03-\uDC37\uDC83-\uDCAF\uDCD0-\uDCE8\uDD03-\uDD26\uDD50-\uDD72\uDD76\uDD83-\uDDB2\uDDC1-\uDDC4\uDDDA\uDDDC\uDE00-\uDE11\uDE13-\uDE2B\uDE80-\uDE86\uDE88\uDE8A-\uDE8D\uDE8F-\uDE9D\uDE9F-\uDEA8\uDEB0-\uDEDE\uDF05-\uDF0C\uDF0F\uDF10\uDF13-\uDF28\uDF2A-\uDF30\uDF32\uDF33\uDF35-\uDF39\uDF3D\uDF50\uDF5D-\uDF61]|\uD805[\uDC80-\uDCAF\uDCC4\uDCC5\uDCC7\uDD80-\uDDAE\uDDD8-\uDDDB\uDE00-\uDE2F\uDE44\uDE80-\uDEAA\uDF00-\uDF19]|\uD806[\uDCA0-\uDCDF\uDCFF\uDEC0-\uDEF8]|\uD808[\uDC00-\uDF99]|\uD809[\uDC00-\uDC6E\uDC80-\uDD43]|[\uD80C\uD840-\uD868\uD86A-\uD86C\uD86F-\uD872][\uDC00-\uDFFF]|\uD80D[\uDC00-\uDC2E]|\uD811[\uDC00-\uDE46]|\uD81A[\uDC00-\uDE38\uDE40-\uDE5E\uDED0-\uDEED\uDF00-\uDF2F\uDF40-\uDF43\uDF63-\uDF77\uDF7D-\uDF8F]|\uD81B[\uDF00-\uDF44\uDF50\uDF93-\uDF9F]|\uD82C[\uDC00\uDC01]|\uD82F[\uDC00-\uDC6A\uDC70-\uDC7C\uDC80-\uDC88\uDC90-\uDC99]|\uD835[\uDC00-\uDC54\uDC56-\uDC9C\uDC9E\uDC9F\uDCA2\uDCA5\uDCA6\uDCA9-\uDCAC\uDCAE-\uDCB9\uDCBB\uDCBD-\uDCC3\uDCC5-\uDD05\uDD07-\uDD0A\uDD0D-\uDD14\uDD16-\uDD1C\uDD1E-\uDD39\uDD3B-\uDD3E\uDD40-\uDD44\uDD46\uDD4A-\uDD50\uDD52-\uDEA5\uDEA8-\uDEC0\uDEC2-\uDEDA\uDEDC-\uDEFA\uDEFC-\uDF14\uDF16-\uDF34\uDF36-\uDF4E\uDF50-\uDF6E\uDF70-\uDF88\uDF8A-\uDFA8\uDFAA-\uDFC2\uDFC4-\uDFCB]|\uD83A[\uDC00-\uDCC4]|\uD83B[\uDE00-\uDE03\uDE05-\uDE1F\uDE21\uDE22\uDE24\uDE27\uDE29-\uDE32\uDE34-\uDE37\uDE39\uDE3B\uDE42\uDE47\uDE49\uDE4B\uDE4D-\uDE4F\uDE51\uDE52\uDE54\uDE57\uDE59\uDE5B\uDE5D\uDE5F\uDE61\uDE62\uDE64\uDE67-\uDE6A\uDE6C-\uDE72\uDE74-\uDE77\uDE79-\uDE7C\uDE7E\uDE80-\uDE89\uDE8B-\uDE9B\uDEA1-\uDEA3\uDEA5-\uDEA9\uDEAB-\uDEBB]|\uD869[\uDC00-\uDED6\uDF00-\uDFFF]|\uD86D[\uDC00-\uDF34\uDF40-\uDFFF]|\uD86E[\uDC00-\uDC1D\uDC20-\uDFFF]|\uD873[\uDC00-\uDEA1]|\uD87E[\uDC00-\uDE1D]/,
   ucontinue: /(?:[$0-9A-Z_a-z\xAA\xB5\xB7\xBA\xC0-\xD6\xD8-\xF6\xF8-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u02EC\u02EE\u0300-\u0374\u0376\u0377\u037A-\u037D\u037F\u0386-\u038A\u038C\u038E-\u03A1\u03A3-\u03F5\u03F7-\u0481\u0483-\u0487\u048A-\u052F\u0531-\u0556\u0559\u0561-\u0587\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\u05D0-\u05EA\u05F0-\u05F2\u0610-\u061A\u0620-\u0669\u066E-\u06D3\u06D5-\u06DC\u06DF-\u06E8\u06EA-\u06FC\u06FF\u0710-\u074A\u074D-\u07B1\u07C0-\u07F5\u07FA\u0800-\u082D\u0840-\u085B\u08A0-\u08B4\u08E3-\u0963\u0966-\u096F\u0971-\u0983\u0985-\u098C\u098F\u0990\u0993-\u09A8\u09AA-\u09B0\u09B2\u09B6-\u09B9\u09BC-\u09C4\u09C7\u09C8\u09CB-\u09CE\u09D7\u09DC\u09DD\u09DF-\u09E3\u09E6-\u09F1\u0A01-\u0A03\u0A05-\u0A0A\u0A0F\u0A10\u0A13-\u0A28\u0A2A-\u0A30\u0A32\u0A33\u0A35\u0A36\u0A38\u0A39\u0A3C\u0A3E-\u0A42\u0A47\u0A48\u0A4B-\u0A4D\u0A51\u0A59-\u0A5C\u0A5E\u0A66-\u0A75\u0A81-\u0A83\u0A85-\u0A8D\u0A8F-\u0A91\u0A93-\u0AA8\u0AAA-\u0AB0\u0AB2\u0AB3\u0AB5-\u0AB9\u0ABC-\u0AC5\u0AC7-\u0AC9\u0ACB-\u0ACD\u0AD0\u0AE0-\u0AE3\u0AE6-\u0AEF\u0AF9\u0B01-\u0B03\u0B05-\u0B0C\u0B0F\u0B10\u0B13-\u0B28\u0B2A-\u0B30\u0B32\u0B33\u0B35-\u0B39\u0B3C-\u0B44\u0B47\u0B48\u0B4B-\u0B4D\u0B56\u0B57\u0B5C\u0B5D\u0B5F-\u0B63\u0B66-\u0B6F\u0B71\u0B82\u0B83\u0B85-\u0B8A\u0B8E-\u0B90\u0B92-\u0B95\u0B99\u0B9A\u0B9C\u0B9E\u0B9F\u0BA3\u0BA4\u0BA8-\u0BAA\u0BAE-\u0BB9\u0BBE-\u0BC2\u0BC6-\u0BC8\u0BCA-\u0BCD\u0BD0\u0BD7\u0BE6-\u0BEF\u0C00-\u0C03\u0C05-\u0C0C\u0C0E-\u0C10\u0C12-\u0C28\u0C2A-\u0C39\u0C3D-\u0C44\u0C46-\u0C48\u0C4A-\u0C4D\u0C55\u0C56\u0C58-\u0C5A\u0C60-\u0C63\u0C66-\u0C6F\u0C81-\u0C83\u0C85-\u0C8C\u0C8E-\u0C90\u0C92-\u0CA8\u0CAA-\u0CB3\u0CB5-\u0CB9\u0CBC-\u0CC4\u0CC6-\u0CC8\u0CCA-\u0CCD\u0CD5\u0CD6\u0CDE\u0CE0-\u0CE3\u0CE6-\u0CEF\u0CF1\u0CF2\u0D01-\u0D03\u0D05-\u0D0C\u0D0E-\u0D10\u0D12-\u0D3A\u0D3D-\u0D44\u0D46-\u0D48\u0D4A-\u0D4E\u0D57\u0D5F-\u0D63\u0D66-\u0D6F\u0D7A-\u0D7F\u0D82\u0D83\u0D85-\u0D96\u0D9A-\u0DB1\u0DB3-\u0DBB\u0DBD\u0DC0-\u0DC6\u0DCA\u0DCF-\u0DD4\u0DD6\u0DD8-\u0DDF\u0DE6-\u0DEF\u0DF2\u0DF3\u0E01-\u0E3A\u0E40-\u0E4E\u0E50-\u0E59\u0E81\u0E82\u0E84\u0E87\u0E88\u0E8A\u0E8D\u0E94-\u0E97\u0E99-\u0E9F\u0EA1-\u0EA3\u0EA5\u0EA7\u0EAA\u0EAB\u0EAD-\u0EB9\u0EBB-\u0EBD\u0EC0-\u0EC4\u0EC6\u0EC8-\u0ECD\u0ED0-\u0ED9\u0EDC-\u0EDF\u0F00\u0F18\u0F19\u0F20-\u0F29\u0F35\u0F37\u0F39\u0F3E-\u0F47\u0F49-\u0F6C\u0F71-\u0F84\u0F86-\u0F97\u0F99-\u0FBC\u0FC6\u1000-\u1049\u1050-\u109D\u10A0-\u10C5\u10C7\u10CD\u10D0-\u10FA\u10FC-\u1248\u124A-\u124D\u1250-\u1256\u1258\u125A-\u125D\u1260-\u1288\u128A-\u128D\u1290-\u12B0\u12B2-\u12B5\u12B8-\u12BE\u12C0\u12C2-\u12C5\u12C8-\u12D6\u12D8-\u1310\u1312-\u1315\u1318-\u135A\u135D-\u135F\u1369-\u1371\u1380-\u138F\u13A0-\u13F5\u13F8-\u13FD\u1401-\u166C\u166F-\u167F\u1681-\u169A\u16A0-\u16EA\u16EE-\u16F8\u1700-\u170C\u170E-\u1714\u1720-\u1734\u1740-\u1753\u1760-\u176C\u176E-\u1770\u1772\u1773\u1780-\u17D3\u17D7\u17DC\u17DD\u17E0-\u17E9\u180B-\u180D\u1810-\u1819\u1820-\u1877\u1880-\u18AA\u18B0-\u18F5\u1900-\u191E\u1920-\u192B\u1930-\u193B\u1946-\u196D\u1970-\u1974\u1980-\u19AB\u19B0-\u19C9\u19D0-\u19DA\u1A00-\u1A1B\u1A20-\u1A5E\u1A60-\u1A7C\u1A7F-\u1A89\u1A90-\u1A99\u1AA7\u1AB0-\u1ABD\u1B00-\u1B4B\u1B50-\u1B59\u1B6B-\u1B73\u1B80-\u1BF3\u1C00-\u1C37\u1C40-\u1C49\u1C4D-\u1C7D\u1CD0-\u1CD2\u1CD4-\u1CF6\u1CF8\u1CF9\u1D00-\u1DF5\u1DFC-\u1F15\u1F18-\u1F1D\u1F20-\u1F45\u1F48-\u1F4D\u1F50-\u1F57\u1F59\u1F5B\u1F5D\u1F5F-\u1F7D\u1F80-\u1FB4\u1FB6-\u1FBC\u1FBE\u1FC2-\u1FC4\u1FC6-\u1FCC\u1FD0-\u1FD3\u1FD6-\u1FDB\u1FE0-\u1FEC\u1FF2-\u1FF4\u1FF6-\u1FFC\u200C\u200D\u203F\u2040\u2054\u2071\u207F\u2090-\u209C\u20D0-\u20DC\u20E1\u20E5-\u20F0\u2102\u2107\u210A-\u2113\u2115\u2118-\u211D\u2124\u2126\u2128\u212A-\u2139\u213C-\u213F\u2145-\u2149\u214E\u2160-\u2188\u2C00-\u2C2E\u2C30-\u2C5E\u2C60-\u2CE4\u2CEB-\u2CF3\u2D00-\u2D25\u2D27\u2D2D\u2D30-\u2D67\u2D6F\u2D7F-\u2D96\u2DA0-\u2DA6\u2DA8-\u2DAE\u2DB0-\u2DB6\u2DB8-\u2DBE\u2DC0-\u2DC6\u2DC8-\u2DCE\u2DD0-\u2DD6\u2DD8-\u2DDE\u2DE0-\u2DFF\u3005-\u3007\u3021-\u302F\u3031-\u3035\u3038-\u303C\u3041-\u3096\u3099-\u309F\u30A1-\u30FA\u30FC-\u30FF\u3105-\u312D\u3131-\u318E\u31A0-\u31BA\u31F0-\u31FF\u3400-\u4DB5\u4E00-\u9FD5\uA000-\uA48C\uA4D0-\uA4FD\uA500-\uA60C\uA610-\uA62B\uA640-\uA66F\uA674-\uA67D\uA67F-\uA6F1\uA717-\uA71F\uA722-\uA788\uA78B-\uA7AD\uA7B0-\uA7B7\uA7F7-\uA827\uA840-\uA873\uA880-\uA8C4\uA8D0-\uA8D9\uA8E0-\uA8F7\uA8FB\uA8FD\uA900-\uA92D\uA930-\uA953\uA960-\uA97C\uA980-\uA9C0\uA9CF-\uA9D9\uA9E0-\uA9FE\uAA00-\uAA36\uAA40-\uAA4D\uAA50-\uAA59\uAA60-\uAA76\uAA7A-\uAAC2\uAADB-\uAADD\uAAE0-\uAAEF\uAAF2-\uAAF6\uAB01-\uAB06\uAB09-\uAB0E\uAB11-\uAB16\uAB20-\uAB26\uAB28-\uAB2E\uAB30-\uAB5A\uAB5C-\uAB65\uAB70-\uABEA\uABEC\uABED\uABF0-\uABF9\uAC00-\uD7A3\uD7B0-\uD7C6\uD7CB-\uD7FB\uF900-\uFA6D\uFA70-\uFAD9\uFB00-\uFB06\uFB13-\uFB17\uFB1D-\uFB28\uFB2A-\uFB36\uFB38-\uFB3C\uFB3E\uFB40\uFB41\uFB43\uFB44\uFB46-\uFBB1\uFBD3-\uFD3D\uFD50-\uFD8F\uFD92-\uFDC7\uFDF0-\uFDFB\uFE00-\uFE0F\uFE20-\uFE2F\uFE33\uFE34\uFE4D-\uFE4F\uFE70-\uFE74\uFE76-\uFEFC\uFF10-\uFF19\uFF21-\uFF3A\uFF3F\uFF41-\uFF5A\uFF66-\uFFBE\uFFC2-\uFFC7\uFFCA-\uFFCF\uFFD2-\uFFD7\uFFDA-\uFFDC]|\uD800[\uDC00-\uDC0B\uDC0D-\uDC26\uDC28-\uDC3A\uDC3C\uDC3D\uDC3F-\uDC4D\uDC50-\uDC5D\uDC80-\uDCFA\uDD40-\uDD74\uDDFD\uDE80-\uDE9C\uDEA0-\uDED0\uDEE0\uDF00-\uDF1F\uDF30-\uDF4A\uDF50-\uDF7A\uDF80-\uDF9D\uDFA0-\uDFC3\uDFC8-\uDFCF\uDFD1-\uDFD5]|\uD801[\uDC00-\uDC9D\uDCA0-\uDCA9\uDD00-\uDD27\uDD30-\uDD63\uDE00-\uDF36\uDF40-\uDF55\uDF60-\uDF67]|\uD802[\uDC00-\uDC05\uDC08\uDC0A-\uDC35\uDC37\uDC38\uDC3C\uDC3F-\uDC55\uDC60-\uDC76\uDC80-\uDC9E\uDCE0-\uDCF2\uDCF4\uDCF5\uDD00-\uDD15\uDD20-\uDD39\uDD80-\uDDB7\uDDBE\uDDBF\uDE00-\uDE03\uDE05\uDE06\uDE0C-\uDE13\uDE15-\uDE17\uDE19-\uDE33\uDE38-\uDE3A\uDE3F\uDE60-\uDE7C\uDE80-\uDE9C\uDEC0-\uDEC7\uDEC9-\uDEE6\uDF00-\uDF35\uDF40-\uDF55\uDF60-\uDF72\uDF80-\uDF91]|\uD803[\uDC00-\uDC48\uDC80-\uDCB2\uDCC0-\uDCF2]|\uD804[\uDC00-\uDC46\uDC66-\uDC6F\uDC7F-\uDCBA\uDCD0-\uDCE8\uDCF0-\uDCF9\uDD00-\uDD34\uDD36-\uDD3F\uDD50-\uDD73\uDD76\uDD80-\uDDC4\uDDCA-\uDDCC\uDDD0-\uDDDA\uDDDC\uDE00-\uDE11\uDE13-\uDE37\uDE80-\uDE86\uDE88\uDE8A-\uDE8D\uDE8F-\uDE9D\uDE9F-\uDEA8\uDEB0-\uDEEA\uDEF0-\uDEF9\uDF00-\uDF03\uDF05-\uDF0C\uDF0F\uDF10\uDF13-\uDF28\uDF2A-\uDF30\uDF32\uDF33\uDF35-\uDF39\uDF3C-\uDF44\uDF47\uDF48\uDF4B-\uDF4D\uDF50\uDF57\uDF5D-\uDF63\uDF66-\uDF6C\uDF70-\uDF74]|\uD805[\uDC80-\uDCC5\uDCC7\uDCD0-\uDCD9\uDD80-\uDDB5\uDDB8-\uDDC0\uDDD8-\uDDDD\uDE00-\uDE40\uDE44\uDE50-\uDE59\uDE80-\uDEB7\uDEC0-\uDEC9\uDF00-\uDF19\uDF1D-\uDF2B\uDF30-\uDF39]|\uD806[\uDCA0-\uDCE9\uDCFF\uDEC0-\uDEF8]|\uD808[\uDC00-\uDF99]|\uD809[\uDC00-\uDC6E\uDC80-\uDD43]|[\uD80C\uD840-\uD868\uD86A-\uD86C\uD86F-\uD872][\uDC00-\uDFFF]|\uD80D[\uDC00-\uDC2E]|\uD811[\uDC00-\uDE46]|\uD81A[\uDC00-\uDE38\uDE40-\uDE5E\uDE60-\uDE69\uDED0-\uDEED\uDEF0-\uDEF4\uDF00-\uDF36\uDF40-\uDF43\uDF50-\uDF59\uDF63-\uDF77\uDF7D-\uDF8F]|\uD81B[\uDF00-\uDF44\uDF50-\uDF7E\uDF8F-\uDF9F]|\uD82C[\uDC00\uDC01]|\uD82F[\uDC00-\uDC6A\uDC70-\uDC7C\uDC80-\uDC88\uDC90-\uDC99\uDC9D\uDC9E]|\uD834[\uDD65-\uDD69\uDD6D-\uDD72\uDD7B-\uDD82\uDD85-\uDD8B\uDDAA-\uDDAD\uDE42-\uDE44]|\uD835[\uDC00-\uDC54\uDC56-\uDC9C\uDC9E\uDC9F\uDCA2\uDCA5\uDCA6\uDCA9-\uDCAC\uDCAE-\uDCB9\uDCBB\uDCBD-\uDCC3\uDCC5-\uDD05\uDD07-\uDD0A\uDD0D-\uDD14\uDD16-\uDD1C\uDD1E-\uDD39\uDD3B-\uDD3E\uDD40-\uDD44\uDD46\uDD4A-\uDD50\uDD52-\uDEA5\uDEA8-\uDEC0\uDEC2-\uDEDA\uDEDC-\uDEFA\uDEFC-\uDF14\uDF16-\uDF34\uDF36-\uDF4E\uDF50-\uDF6E\uDF70-\uDF88\uDF8A-\uDFA8\uDFAA-\uDFC2\uDFC4-\uDFCB\uDFCE-\uDFFF]|\uD836[\uDE00-\uDE36\uDE3B-\uDE6C\uDE75\uDE84\uDE9B-\uDE9F\uDEA1-\uDEAF]|\uD83A[\uDC00-\uDCC4\uDCD0-\uDCD6]|\uD83B[\uDE00-\uDE03\uDE05-\uDE1F\uDE21\uDE22\uDE24\uDE27\uDE29-\uDE32\uDE34-\uDE37\uDE39\uDE3B\uDE42\uDE47\uDE49\uDE4B\uDE4D-\uDE4F\uDE51\uDE52\uDE54\uDE57\uDE59\uDE5B\uDE5D\uDE5F\uDE61\uDE62\uDE64\uDE67-\uDE6A\uDE6C-\uDE72\uDE74-\uDE77\uDE79-\uDE7C\uDE7E\uDE80-\uDE89\uDE8B-\uDE9B\uDEA1-\uDEA3\uDEA5-\uDEA9\uDEAB-\uDEBB]|\uD869[\uDC00-\uDED6\uDF00-\uDFFF]|\uD86D[\uDC00-\uDF34\uDF40-\uDFFF]|\uD86E[\uDC00-\uDC1D\uDC20-\uDFFF]|\uD873[\uDC00-\uDEA1]|\uD87E[\uDC00-\uDE1D]|\uDB40[\uDD00-\uDDEF])+/,
@@ -2930,7 +2926,7 @@ function js_error (message, file, line, col, pos) {
 const new_line = 1
 const single_quote = 2
 const exists_quote = 4
-const end_templace = 8
+const template_end = 8
 
 function has_tok_flag (self, flag) { return !!(self.flags & flag) }
 
@@ -2961,11 +2957,11 @@ class ast_token {
     this.flags = set_tok_flag(this, single_quote, quote_type == '"')
     this.flags = set_tok_flag(this, exists_quote, !!quote_type)
   }
-  template_end () {
-    return has_tok_flag(this, end_templace)
+  get_template_end () {
+    return has_tok_flag(this, template_end)
   }
   set_template_end (new_template_end) {
-    this.flags = set_tok_flag(this, end_templace, new_template_end)
+    this.flags = set_tok_flag(this, template_end, new_template_end)
   }
 }
 
@@ -2991,7 +2987,7 @@ function tokenizer (text, file, comments, shebang) {
 
   function next (signal_eof, in_string) {
     let char = get_full_char(scope.text, scope.pos++)
-    if (signal_eof && !char) throw new Error('no char left')
+    if (signal_eof && !char) throw new Error('no chars left')
     if (newline_chars.has(char)) {
       scope.newline_before = scope.newline_before || !in_string
       ++scope.line
@@ -3016,8 +3012,7 @@ function tokenizer (text, file, comments, shebang) {
 
   function find_eol () {
     const text = scope.text
-    let i, n, char
-    for (i = scope.pos, n = scope.text.length; i < n; ++i) {
+    for (let i = scope.pos, length = scope.text.length, char; i < length; ++i) {
       char = text[i]
       if (newline_chars.has(char)) return i
     }
@@ -3306,7 +3301,7 @@ function tokenizer (text, file, comments, shebang) {
 
   function read_regexp (source) {
     let prev_backslash = false, in_class = false, char
-    while ((char = next(true))) {
+    while (char = next(true)) {
       if (newline_chars.has(char)) {
         pr('unexpected line terminator')
       } else if (prev_backslash) {
@@ -3484,12 +3479,11 @@ const unary_prefix = make_set(['typeof', 'void', 'delete', '--', '++', '!', '~',
 const unary_postfix = make_set(['--', '++'])
 const assign = make_set(['=', '+=', '-=', '??=', '&&=', '||=', '/=', '*=', '**=', '%=', '>>=', '<<=', '>>>=', '|=',
   '^=', '&='])
-const logical_asignment = make_set(['??=', '&&=', '||='])
+const logical_assign = make_set(['??=', '&&=', '||='])
 
 function set_precedence (a) {
   const result = {}
-  let i, b
-  for (i = 0; i < a.length; ++i) {
+  for (let i = 0, length = a.length, b; i < length; ++i) {
     for (b of a[i]) {
       result[b] = i + 1
     }
@@ -3858,7 +3852,7 @@ function parse (text, options) {
   }
 
   function function_ (ctor, is_generator_property, sync, is_export_default) {
-    const in_statement = ctor == ast_defun, gen = is('operator', '*')
+    const in_statement = ctor === ast_defun, gen = is('operator', '*')
     if (gen) next()
     const name = is('name') ? as_symbol(in_statement ? ast_symbol_defun: ast_symbol_lambda) : null
     if (in_statement && !name) is_export_default ? ctor = ast_function : unexpected()
@@ -4086,10 +4080,10 @@ function parse (text, options) {
     return a
   }
 
-  function _function_body (block, generate, sync, name, args) {
+  function _function_body (block, generator, sync, name, args) {
     const loop = scope.in_loop, labels = scope.labels, is_generator = scope.in_generator, is_async = scope.in_async
     ++scope.in_function
-    if (generate) scope.in_generator = scope.in_function
+    if (generator) scope.in_generator = scope.in_function
     if (sync) scope.in_async = scope.in_function
     if (args) parameters(args)
     if (block) scope.in_directives = true
@@ -4215,7 +4209,7 @@ function parse (text, options) {
           file})
       } else {
         defined = new ast_var_def({start: scope.token, name: as_symbol(sym_type), value: is('operator', '=')
-          ? (next(), expression(false, noin)) : (!noin && kind == 'const') ? cr('no init') : null, end: prev(), file})
+          ? (next(), expression(false, noin)) : (!noin && kind == 'const') ? cr('no const init') : null, end: prev(), file})
         if (defined.name.name == 'import') cr('unexpected import')
       }
       defs.push(defined)
@@ -4281,15 +4275,15 @@ function parse (text, options) {
         break
       case 'atom':
         switch (tok.value) {
-            case 'false':
-              result = new ast_false({start: tok, end: tok, file})
-              break
-            case 'true':
-              result = new ast_true({start: tok, end: tok, file})
-              break
-            case 'null':
-              result = new ast_null({start: tok, end: tok, file})
-              break
+          case 'false':
+            result = new ast_false({start: tok, end: tok, file})
+            break
+          case 'true':
+            result = new ast_true({start: tok, end: tok, file})
+            break
+          case 'null':
+            result = new ast_null({start: tok, end: tok, file})
+            break
         }
         break
     }
@@ -4321,7 +4315,7 @@ function parse (text, options) {
       return insert_default(expr, above)
     } else if (expr instanceof ast_array) {
       return insert_default(new ast_destructure({start: expr.start, is_array: true,
-        names: expr.elements.map(elm => to_fun_args(elm)), end: expr.end, file}), above)
+        names: expr.elements.map(el => to_fun_args(el)), end: expr.end, file}), above)
     } else if (expr instanceof ast_assign) {
       return insert_default(to_fun_args(expr.left, expr.right), above)
     } else if (expr instanceof ast_default_assign) {
@@ -4343,7 +4337,7 @@ function parse (text, options) {
         case '(':
           if (async && !allow_calls) break
           const exprs = params_or_seq_(allow_arrows, !async)
-          if (allow_arrows && is('arrow', '=>')) return arrow_function(start, exprs.map(e => to_fun_args(e)), !!async)
+          if (allow_arrows && is('arrow', '=>')) return arrow_function(start, exprs.map(expr => to_fun_args(expr)), !!async)
           const expr = async ? new ast_call({expr: async, args: exprs}) : to_expr_or_sequence(start, exprs)
           if (expr.start) {
             const outer_comments_before = start.comments_before.length
@@ -4406,7 +4400,7 @@ function parse (text, options) {
     segments.push(new ast_template_segment({start: scope.token, raw: template_raws.get(scope.token),
       value: scope.token.value, end: scope.token, file}))
 
-    while (!scope.token.template_end()) {
+    while (!scope.token.get_template_end()) {
       next()
       handle_regexp()
       segments.push(expression(true))
@@ -4646,7 +4640,7 @@ function parse (text, options) {
     return new ast_name_mapping({start, foreign_name, name, end: prev(), file})
   }
 
-  function map_nameAsterisk (is_import, import_name) {
+  function map_name_asterisk (is_import, import_name) {
     const foreign_type = is_import ? ast_symbol_import_foreign : ast_symbol_export_foreign
     const type = is_import ? ast_symbol_import: ast_symbol_export
     const start = scope.token, end = prev()
@@ -4674,7 +4668,7 @@ function parse (text, options) {
         next()
         name = is_import ? as_symbol(ast_symbol_import) : as_symbol_or_string(ast_symbol_export_foreign)
       }
-      names = [map_nameAsterisk(is_import, name)]
+      names = [map_name_asterisk(is_import, name)]
     }
     return names
   }
@@ -4854,7 +4848,7 @@ function parse (text, options) {
         annotate(call)
         chain_contents = subscripts(call, true, true)
       } else if (is('name') || is('privatename')) {
-        if (is('privatename') && !scope.in_class) cr('use private field for enclosing class')
+        if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
         const ast_dot_variant = is('privatename') ? ast_dot_hash : ast_dot
         chain_contents = annotate(subscripts(new ast_dot_variant({start, expr, optional: true,
           property: as_name(), end: prev(), file}), allow_calls, true))
@@ -4951,7 +4945,7 @@ function parse (text, options) {
       const key = new ast_symbol_private_property({start, name: start.value, end: start, file})
       next()
       expect_token('operator', 'in')
-      return expr_op(new ast_private_in({start, key, value: expr_ops(noin, precedence['in'], true, true), end: prev(),
+      return expr_op(new ast_private_in({start, key, value: expr_ops(noin, precedence['in'], true), end: prev(),
         file}), 0, noin)
     } else {
       return expr_op(maybe_unary(allow_calls, allow_arrows), min_prec, noin)
@@ -5011,7 +5005,7 @@ function parse (text, options) {
       if (is_assignable(left) || (left = to_destructure(left)) instanceof ast_destructure) {
         next()
         return new ast_assign({start, left, operator: val, right: maybe_assign(noin),
-          logical: logical_asignment.has(val), end: prev(), file})
+          logical: logical_assign.has(val), end: prev(), file})
       }
       cr('bad assign')
     }
@@ -5103,8 +5097,8 @@ function left_is_object (root) {
 }
 
 function is_some_comments (comment) {
-  return ((comment.type == 'comment2' || comment.type == 'comment1')
-    && /@preserve|@copyright|@lic|@cc_on|^\**!/i.test(comment.value))
+  return (comment.type == 'comment2' || comment.type == 'comment1')
+    && /@preserve|@copyright|@lic|@cc_on|^\**!/i.test(comment.value)
 }
 
 class rope {
@@ -5124,7 +5118,7 @@ class rope {
     const { committed, current } = this
     if (index < committed.length) {
       this.committed = committed.slice(0, index) + char + committed.slice(index)
-    } else if (index === committed.length) {
+    } else if (index == committed.length) {
       this.committed += char
     } else {
       index -= committed.length
@@ -5149,7 +5143,7 @@ class rope {
     let char, n = this.length()
     if (n <= 0) return true
     while ((char = this.charCodeAt(--n)) && (char == code_space || char == code_line_break))
-    return !char || char === 59 || char === 123
+    return !char || char == 59 || char == 123
   }
   has_nlb () {
     let n = this.length() - 1
@@ -5236,8 +5230,12 @@ function output_stream (options) {
     string = string.replace(/[\\\b\f\n\r\v\t\x22\x27\u2028\u2029\0\ufeff]/g,
       function (s, i) {
       switch (s) {
-        case '"': ++dq; return '"'
-        case "'": ++sq; return "'"
+        case '"':
+          ++dq
+          return '"'
+        case "'":
+          ++sq
+          return "'"
         case '\\': return '\\\\'
         case '\n': return '\\n'
         case '\r': return '\\r'
@@ -5662,7 +5660,7 @@ function output_stream (options) {
     append_comments: readonly || comment_filter === return_false ? func : append_comments,
     line: function () { return current_line}, col: function () { return current_col },
     pos: function () { return current_pos }, push_node: function (root) { stack.push(root) },
-    pop_node: function () { return stack.pop() }, parent: function (n) { return stack[(stack.length - 2) - (n || 0)]}}
+    pop_node: function () { return stack.pop() }, parent: function (n) { return stack[stack.length - 2 - (n || 0)]}}
 }
 
 function def_parens (root, func) {
@@ -5672,7 +5670,7 @@ function def_parens (root, func) {
 def_parens(tree, return_false)
 
 def_parens(ast_function, function (output) {
-  if (!output.has_parens() && first(output)) return true
+  if (!output.has_parens() && first_in_statement(output)) return true
   if (output.options['webkit']) {
     const p = output.parent()
     if (p instanceof ast_prop_access && p.expr === this) return true
@@ -5694,9 +5692,9 @@ def_parens(ast_arrow, function (output) {
   return p instanceof ast_prop_access && p.expr === this || p instanceof ast_conditional && p.condition === this
 })
 
-def_parens(ast_object, function (output) { return !output.has_parens() && first(output) })
+def_parens(ast_object, function (output) { return !output.has_parens() && first_in_statement(output) })
 
-def_parens(ast_class_expression, first)
+def_parens(ast_class_expression, first_in_statement)
 
 def_parens(ast_unary, function (output) {
   const p = output.parent()
@@ -5991,7 +5989,7 @@ function output_js () {
   })
   def_print(ast_for_in, function (self, output) {
     output.print('for')
-    if (self.await) {
+    if (self.is_await) {
       output.space()
       output.print('await')
     }
@@ -6497,7 +6495,7 @@ function output_js () {
       a.forEach(function (expr, i) {
         if (i) output.comma()
         expr.print(output)
-        if (i === length - 1 && expr instanceof ast_hole) output.comma()
+        if (i == length - 1 && expr instanceof ast_hole) output.comma()
       })
       if (length > 0) output.space()
     })
@@ -6781,24 +6779,28 @@ function output_js () {
     return best
   }
 
+  function lowercase (num) {
+    return num.toString(16).toLowerCase()
+  }
+
   function make_num (num) {
     const string = num.toString(10).replace(/^0\./, '.').replace('e+', 'e')
-    const st = [string]
-    if (Math.floor(num) === num) {
-      num < 0 ? st.push('-0x' + (-num).toString(16).toLowerCase()) : st.push('0x' + num.toString(16).toLowerCase())
+    const strings = [string]
+    if (Math.floor(num) == num) {
+      num < 0 ? strings.push('-0x' + lowercase(-num)) : strings.push('0x' + lowercase(num))
     }
     let match, length, digits
     if (match = /^\.0+/.exec(string)) {
       length = match[0].length
       digits = string.slice(length)
-      st.push(digits + 'e-' + (digits.length + length - 1))
+      strings.push(digits + 'e-' + (digits.length + length - 1))
     } else if (match = /0+$/.exec(string)) {
       length = match[0].length
-      st.push(string.slice(0, -length) + 'e' + length)
+      strings.push(string.slice(0, -length) + 'e' + length)
     } else if (match = /^(\d)\.(\d+)e(-?\d+)$/.exec(string)) {
-      st.push(match[1] + match[2] + 'e' + (match[3] - match[2].length))
+      strings.push(match[1] + match[2] + 'e' + (match[3] - match[2].length))
     }
-    return best_of(st)
+    return best_of(strings)
   }
 
   function make_block (statement, output) {
@@ -6909,17 +6911,17 @@ ast_class_property.prototype.drop = function (comp) {
   if (key && value) return make_sequence(this, [key, value])
   return key || value || null
 }
-ast_binary.prototype.drop = function (comp, first) {
+ast_binary.prototype.drop = function (comp, first_in_statement) {
   const right = this.right.drop(comp)
-  if (!right) return this.left.drop(comp, first)
+  if (!right) return this.left.drop(comp, first_in_statement)
   if (lazy_op.has(this.operator)) {
     if (right === this.right) return this
     const root = this.copy()
     root.right = right
     return root
   } else {
-    const left = this.left.drop(comp, first)
-    if (!left) return this.right.drop(comp, first)
+    const left = this.left.drop(comp, first_in_statement)
+    if (!left) return this.right.drop(comp, first_in_statement)
     return make_sequence(this, [left, right])
   }
 }
@@ -6944,16 +6946,16 @@ ast_conditional.prototype.drop = function (comp) {
   root.alt = alt
   return root
 }
-ast_unary.prototype.drop = function (comp, first) {
+ast_unary.prototype.drop = function (comp, first_in_statement) {
   if (unary_side_effects.has(this.operator)) {
     !this.expr.has_side_effects(comp) ? set_flag(this, write_only_flag) : clear_flag(this, write_only_flag)
     return this
   }
   if (this.operator == 'typeof' && this.expr instanceof ast_symbol_ref) return null
-  const expr = this.expr.drop(comp, first)
-  if (first && expr && is_iife_call(expr)) {
+  const expr = this.expr.drop(comp, first_in_statement)
+  if (first_in_statement && expr && is_iife_call(expr)) {
     if (expr === this.expr && this.operator == '!') return this
-    return expr.negate(comp, first)
+    return expr.negate(comp, first_in_statement)
   }
   return expr
 }
@@ -6961,14 +6963,14 @@ ast_symbol_ref.prototype.drop = function (comp) {
   const safe_access = this.is_declared(comp) || safe_globals.has(this.name)
   return safe_access ? null : this
 }
-ast_object.prototype.drop = function (comp, first) {
-  const values = trim(this.properties, comp, first)
+ast_object.prototype.drop = function (comp, first_in_statement) {
+  const values = trim(this.properties, comp, first_in_statement)
   return values && make_sequence(this, values)
 }
-ast_object_property.prototype.drop = function (comp, first) {
+ast_object_property.prototype.drop = function (comp, first_in_statement) {
   const computed_key = this instanceof ast_key_value && this.key instanceof tree
-  const key = computed_key && this.key.drop(comp, first)
-  const value = this.value && this.value.drop(comp, first)
+  const key = computed_key && this.key.drop(comp, first_in_statement)
+  const value = this.value && this.value.drop(comp, first_in_statement)
   if (key && value) return make_sequence(this, [key, value])
   return key || value
 }
@@ -6981,26 +6983,26 @@ ast_object_getter.prototype.drop = function () {
 ast_object_setter.prototype.drop = function () {
   return this.computed_key() ? this.key : null
 }
-ast_array.prototype.drop = function (comp, first) {
-  const values = trim(this.elements, comp, first)
+ast_array.prototype.drop = function (comp, first_in_statement) {
+  const values = trim(this.elements, comp, first_in_statement)
   return values && make_sequence(this, values)
 }
-ast_dot.prototype.drop = function (comp, first) {
-  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first)
+ast_dot.prototype.drop = function (comp, first_in_statement) {
+  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first_in_statement)
   if (!this.optional && this.expr.may_throw_on_access(comp)) return this
-  return this.expr.drop(comp, first)
+  return this.expr.drop(comp, first_in_statement)
 }
-ast_sub.prototype.drop = function (comp, first) {
-  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first)
+ast_sub.prototype.drop = function (comp, first_in_statement) {
+  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first_in_statement)
   if (!this.optional && this.expr.may_throw_on_access(comp)) return this
   const property = this.property.drop(comp)
   if (property && this.optional) return this
-  const expr = this.expr.drop(comp, first)
+  const expr = this.expr.drop(comp, first_in_statement)
   if (expr && property) return make_sequence(this, [expr, property])
   return expr || property
 }
-ast_chain.prototype.drop = function (comp, first) {
-  return this.expr.drop(comp, first)
+ast_chain.prototype.drop = function (comp, first_in_statement) {
+  return this.expr.drop(comp, first_in_statement)
 }
 ast_sequence.prototype.drop = function (comp) {
   const last = this.tail_node()
@@ -7011,12 +7013,12 @@ ast_sequence.prototype.drop = function (comp) {
   if (!exprs.length) return make_node(ast_number, this, {value: 0})
   return make_sequence(this, exprs)
 }
-ast_spread.prototype.drop = function (comp, first) {
-  return this.expr.drop(comp, first)
+ast_spread.prototype.drop = function (comp, first_in_statement) {
+  return this.expr.drop(comp, first_in_statement)
 }
 ast_template_segment.prototype.drop = return_null
 ast_template_string.prototype.drop = function (comp) {
-  const values = trim(this.segments, comp, first)
+  const values = trim(this.segments, comp, first_in_statement)
   return values && make_sequence(this, values)
 }
 
@@ -7126,8 +7128,7 @@ ast_scope.prototype.drop_unused = function (comp) {
         if (!in_use_ids.has(defined.id) || defined.orig.length > 1) root.name = null
       }
       if (root instanceof ast_lambda && !(root instanceof ast_accessor)) {
-        let trim = !comp.options['keep_fargs'], sym
-        for (let a = root.argnames, i = a.length; --i >= 0;) {
+        for (let a = root.argnames, i = a.length, sym, trim = !comp.options['keep_fargs']; --i >= 0;) {
           sym = a[i]
           if (sym instanceof ast_spread) sym = sym.expr
           if (sym instanceof ast_default_assign) sym = sym.left
@@ -7353,7 +7354,7 @@ function remove_initializers (var_statement) {
   return decls.length ? make_node(ast_var, var_statement, {defs: decls}) : null
 }
 
-function trim_code (comp, stat, target) {
+function trim_unreachable (comp, stat, target) {
   observe(stat, root => {
     if (root instanceof ast_var) {
       const no_initializers = remove_initializers(root)
@@ -7414,7 +7415,7 @@ function tighten_body (statements, comp) {
   function collapse (statements, comp) {
     if (nearest_scope.pinned() || defun_scope.pinned()) return statements
     const candidates = []
-    let stat_index = statements.length, args
+    let stat_index = statements.length, args, defined
     const scanner = new transforms(function (root) {
       if (abort) return root
       if (!hit) {
@@ -7465,7 +7466,7 @@ function tighten_body (statements, comp) {
         changed = abort = true
         if (candidate instanceof ast_unary_postfix) return make_node(ast_unary_prefix, candidate, candidate)
         if (candidate instanceof ast_var_def) {
-          const defined = candidate.name.defined()
+          defined = candidate.name.defined()
           const value = candidate.value
           if (defined.references.length - defined.replaced == 1 && !comp.exposed(defined)) {
             defined.replaced++
@@ -7494,8 +7495,8 @@ function tighten_body (statements, comp) {
       if (stop_after === root) abort = true
       if (stop_if_hit === root) stop_if_hit = null
     })
-    let hit_stack = [], hit_index, candidate, value_def, stop_after, stop_if_hit, lhs, lvalues, lhs_local
-    let side_effects, replace_all, may_throw, funarg, hit, abort, replaced, can_replace
+    let hit_stack, hit_index, candidate, value_def, stop_after, stop_if_hit, lhs, lvalues, lhs_local
+    let side_effects, replace_all, may_throw, funarg, hit, abort, replaced, can_replace, i, j, length
     const multi_replacer = new transforms(function (root) {
       if (abort) return root
       if (!hit) {
@@ -7517,6 +7518,7 @@ function tighten_body (statements, comp) {
 
     while (--stat_index >= 0) {
       if (stat_index == 0 && comp.options['unused']) extract_args()
+      hit_stack = []
       extract(statements[stat_index])
       while (candidates.length > 0) {
         hit_stack = candidates.pop()
@@ -7539,22 +7541,23 @@ function tighten_body (statements, comp) {
         replaced = 0
         can_replace = !args || !hit
         if (!can_replace) {
-          for (let j = comp.self().argnames.lastIndexOf(candidate.name) + 1; !abort && j < args.length; j++) {
+          for (j = comp.self().argnames.lastIndexOf(candidate.name) + 1; !abort && j < args.length; j++) {
             args[j].transform(scanner)
           }
           can_replace = true
         }
-        for (let i = stat_index, length = statements.length; !abort && i < length; i++) {
+        for (i = stat_index, length = statements.length; !abort && i < length; i++) {
           statements[i].transform(scanner)
         }
         if (value_def) {
-          const defined = candidate.name.defined()
-          if (abort && defined.references.length - defined.replaced > replaced) replaced = false
-          else {
+          defined = candidate.name.defined()
+          if (abort && defined.references.length - defined.replaced > replaced) {
+            replaced = false
+          } else {
             abort = false
             hit_index = 0
             hit = funarg
-            for (let i = stat_index, length = statements.length; !abort && i < length; i++) {
+            for (i = stat_index, length = statements.length; !abort && i < length; i++) {
               statements[i].transform(multi_replacer)
             }
             value_def.single_use = false
@@ -7568,8 +7571,7 @@ function tighten_body (statements, comp) {
       if (root instanceof ast_scope) return root
       if (root instanceof ast_switch) {
         root.expr = root.expr.transform(scanner)
-        let i = 0, length = root.body.length, branch
-        for (i; !abort && i < length; i++) {
+        for (let i = 0, length = root.body.length, branch; !abort && i < length; i++) {
           branch = root.body[i]
           if (branch instanceof ast_case) {
             if (!hit) {
@@ -7633,8 +7635,7 @@ function tighten_body (statements, comp) {
         const length = fn.argnames.length
         args = iife.args.slice(length)
         const names = new Set()
-        let sym, arg, defined, is_reassigned, elements
-        for (let i = length; --i >= 0;) {
+        for (let i = length, arg, defined, elements, is_reassigned, sym; --i >= 0;) {
           sym = fn.argnames[i]
           arg = iife.args[i]
           defined = sym.defined && sym.defined()
@@ -7839,13 +7840,9 @@ function tighten_body (statements, comp) {
 
     function is_lhs_local (lhs) {
       while (lhs instanceof ast_prop_access) lhs = lhs.expr
-      return lhs instanceof ast_symbol_ref
-        && lhs.defined().scope.get_defun_scope() === defun_scope
-        && !(in_loop && (lvalues.has(lhs.name)
-            || candidate instanceof ast_unary
-            || (candidate instanceof ast_assign
-              && !candidate.logical
-              && candidate.operator != '=')))
+      return lhs instanceof ast_symbol_ref && lhs.defined().scope.get_defun_scope() === defun_scope
+        && !(in_loop && (lvalues.has(lhs.name) || candidate instanceof ast_unary || (candidate instanceof ast_assign
+        && !candidate.logical && candidate.operator != '=')))
     }
 
     function value_has_side_effects (expr) {
@@ -7895,8 +7892,7 @@ function tighten_body (statements, comp) {
 
   function eliminate_spurious_blocks (statements) {
     const seen_dirs = []
-    let stat
-    for (let i = 0; i < statements.length;) {
+    for (let i = 0, length = statements.length, stat; i < length;) {
       stat = statements[i]
       if (stat instanceof ast_block_statement && stat.body.every(evictable)) {
         changed = true
@@ -7944,8 +7940,7 @@ function tighten_body (statements, comp) {
       }
 
       if (stat instanceof ast_if) {
-        let ab, new_else
-        ab = aborts(stat.body)
+        let ab = aborts(stat.body), new_else
         if (can_merge_flow(ab) && (new_else = as_statement_array_with_return(stat.body, ab))) {
           if (ab.label) remove(ab.label.thedef.references, ab)
           changed = true
@@ -8055,7 +8050,8 @@ function tighten_body (statements, comp) {
     }
 
     function next_index (i) {
-      for (let j = i + 1, length = statements.length, stat; j < length; j++) {
+      let j = i + 1, length = statements.length, stat
+      for (; j < length; j++) {
         stat = statements[j]
         if (!(stat instanceof ast_var && declarations_only(stat))) break
       }
@@ -8095,7 +8091,7 @@ function tighten_body (statements, comp) {
     }
     statements.length = n
     changed = n != length
-    if (has_quit) has_quit.forEach(function (stat) { trim_code(comp, stat, statements) })
+    if (has_quit) has_quit.forEach(function (stat) { trim_unreachable(comp, stat, statements) })
   }
 
   function declarations_only (root) {
@@ -8104,14 +8100,14 @@ function tighten_body (statements, comp) {
 
   function sequencesize (statements, comp) {
     if (statements.length < 2) return
-    let seq = [], n = 0, body, stat, i, length
+    let body, i = 0, length = statements.length, n = 0, seq = [], stat
     function push_seq () {
       if (!seq.length) return
       body = make_sequence(seq[0], seq)
       statements[n++] = make_node(ast_statement, body, {body})
       seq = []
     }
-    for (i = 0, length = statements.length; i < length; i++) {
+    for (; i < length; i++) {
       stat = statements[i]
       if (stat instanceof ast_statement) {
         if (seq.length >= comp.sequences_limit) push_seq()
@@ -8154,7 +8150,7 @@ function tighten_body (statements, comp) {
       const left = prev.body
       return make_sequence(left, [left, right]).transform(comp)
     }
-    let i = 0, j = statements.length, n = 0, stat, prev
+    let i = 0, j = statements.length, n = 0, prev, stat
     for (; i < j; i++) {
       stat = statements[i]
       if (prev) {
@@ -8210,7 +8206,7 @@ function tighten_body (statements, comp) {
     statements.length = n
   }
 
-  function join_object_assigns(defn, body) {
+  function join_object_assigns (defn, body) {
     if (!(defn instanceof ast_definitions)) return
     const defined = defn.defs[defn.defs.length - 1]
     if (!(defined.value instanceof ast_object)) return
@@ -8251,6 +8247,23 @@ function tighten_body (statements, comp) {
 
   function join_consecutive_vars (statements) {
     let i = 0, j = -1, length = statements.length, stat, prev, defs, exprs
+
+    function extract_object_assigns (value) {
+      statements[++j] = stat
+      exprs = join_object_assigns(prev, value)
+      if (exprs) {
+        changed = true
+        if (exprs.length) {
+          return make_sequence(value, exprs)
+        } else if (value instanceof ast_sequence) {
+          return value.tail_node().left
+        } else {
+          return value.left
+        }
+      }
+      return value
+    }
+
     for (; i < length; i++) {
       stat = statements[i]
       prev = statements[j]
@@ -8307,21 +8320,6 @@ function tighten_body (statements, comp) {
       }
     }
     statements.length = j + 1
-    function extract_object_assigns (value) {
-      statements[++j] = stat
-      exprs = join_object_assigns(prev, value)
-      if (exprs) {
-        changed = true
-        if (exprs.length) {
-          return make_sequence(value, exprs)
-        } else if (value instanceof ast_sequence) {
-          return value.tail_node().left
-        } else {
-          return value.left
-        }
-      }
-      return value
-    }
   }
 }
 
@@ -8650,7 +8648,9 @@ function handle_defined_after_hoist (parent) {
   }
 
   if (potential_conflicts.length) {
-    const found_symbols = [], found_symbol_writes = new Set(), defun_ranges = new Map()
+    const found_symbols = []
+    const found_symbol_writes = new Set()
+    const defun_ranges = new Map()
     let trees
     parent.observe((trees = new observes((root, ascend) => {
       if (root instanceof ast_defun && defuns_of_interest.has(root)) {
@@ -8968,7 +8968,7 @@ def_eval(ast_binary, function (comp, depth) {
   const right = this.right._eval(comp, depth)
   if (right === this.right) return this
   if (left != null && right != null && identity_comparison.has(this.operator)
-    && has_identity(left) && has_identity(right) && typeof left === typeof right) {
+    && has_identity(left) && has_identity(right) && typeof left == typeof right) {
     return this
   }
   if ((typeof left == 'bigint') !== (typeof right == 'bigint') || typeof left == 'bigint' && (this.operator == '>>>'
@@ -9095,7 +9095,7 @@ def_is_number(ast_assign, function (comp) {
   return numeric_ops.has(this.operator.slice(0, -1)) || this.operator == '=' && this.right.is_number(comp)
 })
 def_is_number(ast_sequence, function (comp) { return this.tail_node().is_number(comp) })
-def_is_number(ast_conditional, function (comp) { return this.consequent.is_number(comp) && this.alt.is_number(comp)})
+def_is_number(ast_conditional, function (comp) { return this.consequent.is_number(comp) && this.alt.is_number(comp) })
 
 function def_is_int32 (root, func) {
   root.prototype.is_int32 = func
@@ -9148,7 +9148,7 @@ function is_null_or_undefined (root, comp) {
 
 function is_nullish_shortcircuited (root, comp) {
   if (root instanceof ast_prop_access || root instanceof ast_call) {
-    return ((root.optional && is_null_or_undefined(root.expr, comp)) || is_nullish_shortcircuited(root.expr, comp))
+    return (root.optional && is_null_or_undefined(root.expr, comp)) || is_nullish_shortcircuited(root.expr, comp)
   }
   if (root instanceof ast_chain) return is_nullish_shortcircuited(root.expr, comp)
   return false
@@ -9168,20 +9168,24 @@ def_has_side_effects(ast_empty_statement, return_false)
 def_has_side_effects(ast_literal, return_false)
 def_has_side_effects(ast_this, return_false)
 
-function any (list, comp) {
+function side_effects (list, comp) {
   for (let i = list.length; --i >= 0;) {
     if (list[i].has_side_effects(comp)) return true
   }
   return false
 }
 
-def_has_side_effects(ast_block, function (comp) { return any(this.body, comp) })
+def_has_side_effects(ast_block, function (comp) { return side_effects(this.body, comp) })
 def_has_side_effects(ast_call, function (comp) {
   if (!this.is_callee_pure(comp) && (!this.expr.is_call_pure(comp) || this.expr.has_side_effects(comp))) return true
-  return any(this.args, comp)
+  return side_effects(this.args, comp)
 })
-def_has_side_effects(ast_switch, function (comp) { return this.expr.has_side_effects(comp) || any(this.body, comp) })
-def_has_side_effects(ast_case, function (comp) { return this.expr.has_side_effects(comp) || any(this.body, comp) })
+def_has_side_effects(ast_switch, function (comp) {
+  return this.expr.has_side_effects(comp) || side_effects(this.body, comp)
+})
+def_has_side_effects(ast_case, function (comp) {
+  return this.expr.has_side_effects(comp) || side_effects(this.body, comp)
+})
 def_has_side_effects(ast_try, function (comp) {
   return this.body.has_side_effects(comp) || this.bcatch && this.bcatch.has_side_effects(comp)
     || this.bfinally && this.bfinally.has_side_effects(comp)
@@ -9195,9 +9199,9 @@ def_has_side_effects(ast_statement, function (comp) { return this.body.has_side_
 def_has_side_effects(ast_lambda, return_false)
 def_has_side_effects(ast_class, function (comp) {
   if (this.extends && this.extends.has_side_effects(comp)) return true
-  return any(this.properties, comp)
+  return side_effects(this.properties, comp)
 })
-def_has_side_effects(ast_class_static, function (comp) { return any(this.body, comp) })
+def_has_side_effects(ast_class_static, function (comp) { return side_effects(this.body, comp) })
 def_has_side_effects(ast_binary, function (comp) {
   return this.left.has_side_effects(comp) || this.right.has_side_effects(comp)
 })
@@ -9215,7 +9219,7 @@ def_has_side_effects(ast_symbol_ref, function (comp) {
 def_has_side_effects(ast_symbol_class_property, return_false)
 def_has_side_effects(ast_declaration, return_false)
 def_has_side_effects(ast_object, function (comp) {
-  return any(this.properties, comp)
+  return side_effects(this.properties, comp)
 })
 def_has_side_effects(ast_object_property, function (comp) {
   return this.computed_key() && this.key.has_side_effects(comp) || this.value
@@ -9234,7 +9238,7 @@ def_has_side_effects(ast_object_getter, function (comp) {
 def_has_side_effects(ast_object_setter, function (comp) {
   return this.computed_key() && this.key.has_side_effects(comp)
 })
-def_has_side_effects(ast_array, function (comp) { return any(this.elements, comp) })
+def_has_side_effects(ast_array, function (comp) { return side_effects(this.elements, comp) })
 def_has_side_effects(ast_dot, function (comp) {
   if (is_nullish(this, comp)) return this.expr.has_side_effects(comp)
   if (!this.optional && this.expr.may_throw_on_access(comp)) return true
@@ -9248,11 +9252,11 @@ def_has_side_effects(ast_sub, function (comp) {
   return property || this.expr.has_side_effects(comp)
 })
 def_has_side_effects(ast_chain, function (comp) { return this.expr.has_side_effects(comp) })
-def_has_side_effects(ast_sequence, function (comp) { return any(this.exprs, comp) })
-def_has_side_effects(ast_definitions, function (comp) { return any(this.defs, comp) })
+def_has_side_effects(ast_sequence, function (comp) { return side_effects(this.exprs, comp) })
+def_has_side_effects(ast_definitions, function (comp) { return side_effects(this.defs, comp) })
 def_has_side_effects(ast_var_def, function () { return this.value })
 def_has_side_effects(ast_template_segment, return_false)
-def_has_side_effects(ast_template_string, function (comp) { return any(this.segments, comp) })
+def_has_side_effects(ast_template_string, function (comp) { return side_effects(this.segments, comp) })
 
 function any_throw(list, comp) {
   for (let i = list.length; --i >= 0;) {
@@ -9462,16 +9466,16 @@ function is_lhs (root, parent) {
 }
 
 function def_negate (root, func) {
-  root.prototype.negate = function (comp, first) {
-    return func.call(this, comp, first)
+  root.prototype.negate = function (comp, first_in_statement) {
+    return func.call(this, comp, first_in_statement)
   }
 }
 
 function basic_negation (expr) { return make_node(ast_unary_prefix, expr, {operator: '!', expr}) }
 
-function best (orig, alt, first) {
+function best (orig, alt, first_in_statement) {
   const negated = basic_negation(orig)
-  if (first) {
+  if (first_in_statement) {
     const stat = make_node(ast_statement, alt, {body: alt})
     return best_of_expression(negated, stat) === stat ? alt : negated
   }
@@ -9492,29 +9496,37 @@ def_negate(ast_sequence, function (comp) {
   exprs.push(exprs.pop().negate(comp))
   return make_sequence(this, exprs)
 })
-def_negate(ast_conditional, function (comp, first) {
+def_negate(ast_conditional, function (comp, first_in_statement) {
   const self = this.copy()
   self.consequent = self.consequent.negate(comp)
   self.alt = self.alt.negate(comp)
-  return best(this, self, first)
+  return best(this, self, first_in_statement)
 })
-def_negate(ast_binary, function (comp, first) {
+def_negate(ast_binary, function (comp, first_in_statement) {
   const self = this.copy(), op = this.operator
   switch (op) {
-    case '==': self.operator = '!='; return self
-    case '!=': self.operator = '=='; return self
-    case '===': self.operator = '!=='; return self
-    case '!==': self.operator = '==='; return self
+    case '==':
+      self.operator = '!='
+      return self
+    case '!=':
+      self.operator = '=='
+      return self
+    case '===':
+      self.operator = '!=='
+      return self
+    case '!==':
+      self.operator = '==='
+      return self
     case '&&':
       self.operator = '||'
-      self.left = self.left.negate(comp, first)
+      self.left = self.left.negate(comp, first_in_statement)
       self.right = self.right.negate(comp)
-      return best(this, self, first)
+      return best(this, self, first_in_statement)
     case '||':
       self.operator = '&&'
-      self.left = self.left.negate(comp, first)
+      self.left = self.left.negate(comp, first_in_statement)
       self.right = self.right.negate(comp)
-      return best(this, self, first)
+      return best(this, self, first_in_statement)
   }
   return basic_negation(this)
 })
@@ -9834,7 +9846,8 @@ function inline_into_call (self, comp) {
       && returned instanceof ast_symbol_ref && returned.name === fn.argnames[0].name) {
       const replacement = (self.args[0] || make_node(ast_undefined)).optimize(comp)
       let parent
-      if (replacement instanceof ast_prop_access && (parent = comp.parent()) instanceof ast_call && parent.expr === self) {
+      if (replacement instanceof ast_prop_access && (parent = comp.parent()) instanceof ast_call
+        && parent.expr === self) {
         return make_sequence(self, [make_node(ast_number, self, {value: 0}), replacement])
       }
       return replacement
@@ -9852,7 +9865,7 @@ function inline_into_call (self, comp) {
       && (nearest_scope = comp.find_scope())
       && !scope_encloses_variables_in_this_scope(nearest_scope, fn, comp.imports) && !(function in_default_assign () {
           let p, i = 0
-          while ((p = comp.parent(i++))) {
+          while (p = comp.parent(i++)) {
             if (p instanceof ast_default_assign) return true
             if (p instanceof ast_block) break
           }
@@ -9902,8 +9915,8 @@ function inline_into_call (self, comp) {
     const body = fn.body
     const length = body.length
     if (comp.options['inline'] < 3) return length == 1 && return_value(stat)
-    let line
-    for (let i = 0; i < length; i++) {
+    stat = null
+    for (let i = 0, line; i < length; i++) {
       line = body[i]
       if (line instanceof ast_var) {
         if (stat && !line.defs.every(var_def => !var_def.value)) return false
@@ -9917,8 +9930,7 @@ function inline_into_call (self, comp) {
   }
 
   function can_inject_args (block, safe) {
-    let arg
-    for (let i = 0, length = fn.argnames.length; i < length; i++) {
+    for (let i = 0, length = fn.argnames.length, arg; i < length; i++) {
       arg = fn.argnames[i]
       if (arg instanceof ast_default_assign) {
         if (has_flag(arg.left, unused_flag)) continue
@@ -9939,9 +9951,7 @@ function inline_into_call (self, comp) {
   }
 
   function can_inject_vars (block, safe) {
-    const length = fn.body.length
-    let i, j, stat, name
-    for (i = 0; i < length; i++) {
+    for (let i = 0, length = fn.body.length, j, stat, name; i < length; i++) {
       stat = fn.body[i]
       if (!(stat instanceof ast_var)) continue
       if (!safe) return false
@@ -9959,7 +9969,7 @@ function inline_into_call (self, comp) {
     const block = new Set()
     do {
       scope = comp.parent(++level)
-      if (scope.is_block_scope() && scope.blocks) scope.blocks.vars.forEach((variable) => block.add(variable.name))
+      if (scope.is_block_scope() && scope.blocks) scope.blocks.vars.forEach(variable => block.add(variable.name))
       if (scope instanceof ast_catch) {
         if (scope.argname) block.add(scope.argname.name)
       } else if (scope instanceof ast_iteration_statement) {
@@ -10090,7 +10100,7 @@ function best_of_statement (ast1, ast2) {
 }
 
 function best_of (comp, ast1, ast2) {
-  return first(comp) ? best_of_statement(ast1, ast2) : best_of_expression(ast1, ast2)
+  return first_in_statement(comp) ? best_of_statement(ast1, ast2) : best_of_expression(ast1, ast2)
 }
 
 function get_simple_key (key) {
@@ -10199,8 +10209,7 @@ function is_reachable (scope_node, defs) {
 }
 
 function is_recursive_ref (comp, defined) {
-  let root, name
-  for (let i = 0; root = comp.parent(i); i++) {
+  for (let i = 0, name, root; root = comp.parent(i); i++) {
     if (root instanceof ast_lambda || root instanceof ast_class) {
       name = root.name
       if (name && name.defined() === defined) return true
@@ -10311,8 +10320,7 @@ class reduces extends observes {
   }
 
   in_computed_key () {
-    let self = this.self()
-    for (let i = 0, p; p = this.parent(i); i++) {
+    for (let i = 0, p, self = this.self(); p = this.parent(i); i++) {
       if (p instanceof ast_object_property && p.key === self) return true
     }
     return false
@@ -10327,8 +10335,7 @@ class reduces extends observes {
     this._toplevel = toplevel
     if (this.options['expr']) this._toplevel.process_expression(true)
     const passes = +this.options.passes || 1, min_count = 1 / 0, mangle = this.mangle_options()
-    let stopping = false, pass
-    for (pass = 0; pass < passes; pass++) {
+    for (let pass = 0, stopping = false; pass < passes; pass++) {
       this._toplevel.figure_out_scope(mangle)
       if (pass === 0 && this.options['drop_console']) {
         this._toplevel = this._toplevel.drop_console(this.options['drop_console'])
@@ -10394,7 +10401,7 @@ def_optimize(tree, function (self) { return self })
 ast_toplevel.prototype.drop_console = function (options) {
   const is_array = Array.isArray(options)
   return this.transform(new transforms(function (self) {
-    if (self.type != 'ast_call') return
+    if (self.type !== 'ast_call') return
     const expr = self.expr
     if (!(expr instanceof ast_prop_access)) return
     if (is_array && options.indexOf(expr.property) === -1) return
@@ -10610,7 +10617,7 @@ function if_break_in_loop (self, comp) {
       body.push(make_node(ast_statement, self.init, {body: self.init}))
     }
     if (self.condition) body.push(make_node(ast_statement, self.condition, {body: self.condition}))
-    trim_code(comp, self.body, body)
+    trim_unreachable(comp, self.body, body)
     return make_node(ast_block_statement, self, {body})
   }
   if (first instanceof ast_if) {
@@ -10663,7 +10670,7 @@ def_optimize(ast_for, function (self, comp) {
       if (cond instanceof tree) cond = self.condition.tail_node().evaluate(comp)
       if (!cond) {
         const body = []
-        trim_code(comp, self.body, body)
+        trim_unreachable(comp, self.body, body)
         if (self.init instanceof ast_state) {
           body.push(self.init)
         } else if (self.init) {
@@ -10690,7 +10697,7 @@ def_optimize(ast_if, function (self, comp) {
     if (cond instanceof tree) cond = self.condition.tail_node().evaluate(comp)
     if (!cond) {
       const body = []
-      trim_code(comp, self.body, body)
+      trim_unreachable(comp, self.body, body)
       body.push(make_node(ast_statement, self.condition, {body: self.condition}))
       if (self.alt) body.push(self.alt)
       return make_node(ast_block_statement, self, {body}).optimize(comp)
@@ -10698,7 +10705,7 @@ def_optimize(ast_if, function (self, comp) {
       const body = []
       body.push(make_node(ast_statement, self.condition, {body: self.condition}))
       body.push(self.body)
-      if (self.alt) trim_code(comp, self.alt, body)
+      if (self.alt) trim_unreachable(comp, self.alt, body)
       return make_node(ast_block_statement, self, {body}).optimize(comp)
     }
   }
@@ -10737,8 +10744,8 @@ def_optimize(ast_if, function (self, comp) {
       alt: self.alt.value || make_node(ast_undefined, self.alt)}).transform(comp)}).optimize(comp)
   }
   if (self.body instanceof ast_if && !self.body.alt && !self.alt) {
-    self = make_node(ast_if, self, {condition: make_node(ast_binary, self.condition, {operator: '&&', left: self.condition,
-      right: self.body.condition}), body: self.body.body, alt: null})
+    self = make_node(ast_if, self, {condition: make_node(ast_binary, self.condition, {operator: '&&',
+      left: self.condition, right: self.body.condition}), body: self.body.body, alt: null})
   }
   if (aborts(self.body)) {
     if (self.alt) {
@@ -10759,7 +10766,7 @@ def_optimize(ast_if, function (self, comp) {
 
 def_optimize(ast_switch, function (self, comp) {
   if (!comp.options['switches']) return self
-  let value = self.expr.evaluate(comp), branch
+  let value = self.expr.evaluate(comp)
   if (!(value instanceof tree)) {
     const orig = self.expr
     self.expr = make_node_from_constant(value, orig)
@@ -10768,7 +10775,7 @@ def_optimize(ast_switch, function (self, comp) {
   if (!comp.options['dead_code']) return self
   if (value instanceof tree) value = self.expr.tail_node().evaluate(comp)
   const decl = [], body = []
-  let default_branch, exact_match, i, length, expr, default_index
+  let branch, default_branch, exact_match, expr, i, length, default_index
   for (i = 0, length = self.body.length; i < length && !exact_match; i++) {
     branch = self.body[i]
     if (branch instanceof ast_default) {
@@ -10798,7 +10805,7 @@ def_optimize(ast_switch, function (self, comp) {
   default_branch = null
   exact_match = null
   if (body.every((branch, i) => (branch === default_or_exact || branch.expr instanceof ast_literal)
-    && (branch.body.length === 0 || aborts(branch) || body.length - 1 === i))) {
+    && (branch.body.length === 0 || aborts(branch) || i == body.length - 1))) {
     for (let i = 0; i < body.length; i++) {
       const branch = body[i]
       for (let j = i + 1; j < body.length; j++) {
@@ -10823,14 +10830,14 @@ def_optimize(ast_switch, function (self, comp) {
       }
     }
   }
-  for (let i = 0; i < body.length; i++) {
+  for (let i = 0, length = body.length; i < length; i++) {
     let branch = body[i]
     if (branch.body.length === 0) continue
     if (!aborts(branch)) continue
-    for (let j = i + 1; j < body.length; i++, j++) {
+    for (let j = i + 1; j < length; i++, j++) {
       let next = body[j]
       if (next.body.length === 0) continue
-      if (branches_equivalent(next, branch, false) || (j === body.length - 1
+      if (branches_equivalent(next, branch, false) || (j == body.length - 1
         && branches_equivalent(next, branch, true))) {
         branch.body = []
         branch = next
@@ -10840,7 +10847,7 @@ def_optimize(ast_switch, function (self, comp) {
     }
   }
   {
-    let i = body.length - 1
+    let branch, i = body.length - 1, j
     for (; i >= 0; i--) {
       let branch_body = body[i].body
       if (is_break(branch_body[branch_body.length - 1], comp)) branch_body.pop()
@@ -10848,8 +10855,8 @@ def_optimize(ast_switch, function (self, comp) {
     }
     i++
     if (!default_or_exact || body.indexOf(default_or_exact) >= i) {
-      for (let j = body.length - 1; j >= i; j--) {
-        let branch = body[j]
+      for (j = body.length - 1; j >= i; j--) {
+        branch = body[j]
         if (branch === default_or_exact) {
           default_or_exact = null
           body.pop()
@@ -10896,7 +10903,7 @@ def_optimize(ast_switch, function (self, comp) {
   default_or: if (default_or_exact) {
     let i = body.findIndex(branch => !is_inert_body(branch))
     let case_body
-    if (i === body.length - 1) {
+    if (i == body.length - 1) {
       let branch = body[i]
       if (has_nested_break(self)) break default_or
       case_body = make_node(ast_block_statement, branch, {body: branch.body})
@@ -10922,7 +10929,7 @@ def_optimize(ast_switch, function (self, comp) {
       right: branch.expr}), body: make_node(ast_block_statement, branch, {body: branch.body}),
       alt: null}).optimize(comp)
   }
-  if (body.length === 2 && default_or_exact && !has_nested_break(self)) {
+  if (body.length == 2 && default_or_exact && !has_nested_break(self)) {
     let branch = body[0] === default_or_exact ? body[1] : body[0]
     let exact_exp = default_or_exact.expr && statement(default_or_exact.expr)
     if (aborts(body[0])) {
@@ -10957,7 +10964,7 @@ def_optimize(ast_switch, function (self, comp) {
   return self
 
   function eliminate_branch (branch, prev) {
-    prev && !aborts(prev) ? prev.body = prev.body.concat(branch.body) : trim_code(comp, branch, decl)
+    prev && !aborts(prev) ? prev.body = prev.body.concat(branch.body) : trim_unreachable(comp, branch, decl)
   }
 
   function branches_equivalent (branch, prev, insert_break) {
@@ -11002,7 +11009,7 @@ def_optimize(ast_try, function (self, comp) {
   if (self.bcatch && self.bfinally && self.bfinally.body.every(is_empty)) self.bfinally = null
   if (comp.options['dead_code'] && self.body.body.every(is_empty)) {
     const body = []
-    if (self.bcatch) trim_code(comp, self.bcatch, body)
+    if (self.bcatch) trim_unreachable(comp, self.bcatch, body)
     if (self.bfinally) body.push(...self.bfinally.body)
     return make_node(ast_block_statement, self, {body}).optimize(comp)
   }
@@ -11049,8 +11056,8 @@ def_optimize(ast_call, function (self, comp) {
   const is_func = fn instanceof ast_lambda
   if (is_func && fn.pinned()) return self
   if (comp.options['unused'] && simple_args && is_func && !fn.uses_args) {
-    let pos = 0, last = 0, root, trim
-    for (let i = 0, length = self.args.length; i < length; i++) {
+    let i = 0, last = 0, length = self.args.length, pos = 0, root, trim
+    for (; i < length; i++) {
       if (fn.argnames[i] instanceof ast_spread) {
         if (has_flag(fn.argnames[i].expr, unused_flag)) while (i < length) {
           root = self.args[i++].drop(comp)
@@ -11106,7 +11113,7 @@ def_optimize(ast_sequence, function (self, comp) {
 
   function filter_for_side_effects () {
     const last = self.exprs.length - 1
-    let first_expr = first(comp)
+    let first_expr = first_in_statement(comp)
     self.exprs.forEach(function (expr, index) {
       if (index < last) expr = expr.drop(comp, first_expr)
       if (expr) {
@@ -11119,10 +11126,7 @@ def_optimize(ast_sequence, function (self, comp) {
   function trim_right_for_undefined () {
     while (end > 0 && is_undefined(exprs[end], comp)) end--
     if (end < exprs.length - 1) {
-      exprs[end] = make_node(ast_unary_prefix, self, {
-        operator: 'void',
-        expr: exprs[end]
-      })
+      exprs[end] = make_node(ast_unary_prefix, self, {operator: 'void', expr: exprs[end]})
       exprs.length = end + 1
     }
   }
@@ -11166,7 +11170,7 @@ def_optimize(ast_unary_prefix, function (self, comp) {
     switch (self.operator) {
       case '!':
         if (expr instanceof ast_unary_prefix && expr.operator == '!') return expr.expr
-        if (expr instanceof ast_binary) self = best_of(comp, self, expr.negate(comp, first(comp)))
+        if (expr instanceof ast_binary) self = best_of(comp, self, expr.negate(comp, first_in_statement(comp)))
         break
       case 'typeof':
         return (expr instanceof ast_symbol_ref ? make_node(ast_true, self)
@@ -11219,9 +11223,8 @@ ast_binary.prototype.lift_sequences = function (comp) {
       return make_sequence(this, exprs).optimize(comp)
     }
     if (this.right instanceof ast_sequence && !this.left.has_side_effects(comp)) {
-      const assign = this.operator == '=' && this.left instanceof ast_symbol_ref
       let exprs = this.right.exprs, expr, i
-      const last = exprs.length - 1
+      const assign = this.operator == '=' && this.left instanceof ast_symbol_ref, last = exprs.length - 1
       for (i = 0; i < last; i++) {
         if (!assign && exprs[i].has_side_effects(comp)) break
       }
@@ -11334,21 +11337,25 @@ def_optimize(ast_binary, function (self, comp) {
         && self.right instanceof ast_binary && lhs.operator == self.right.operator && (is_undefined(lhs.left, comp)
         && self.right.left instanceof ast_null || lhs.left instanceof ast_null && is_undefined(self.right.left, comp))
         && !lhs.right.has_side_effects(comp) && lhs.right.equivalent_to(self.right.right)) {
-        let right = make_node(ast_binary, self, {operator: lhs.operator.slice(0, -1), left: make_node(ast_null, self), right: lhs.right})
-        if (lhs !== self.left) right = make_node(ast_binary, self, {operator: self.operator, left: self.left.left, right})
-        return right
+        if (lhs !== self.left) {
+          return make_node(ast_binary, self, {operator: self.operator, left: self.left.left,
+          right})
+        } else {
+          return make_node(ast_binary, self, {operator: lhs.operator.slice(0, -1),
+            left: make_node(ast_null, self), right: lhs.right})
+        }
       }
       break
     }
     if (self.operator == '+' && comp.in_boolean_context()) {
-      let l = self.left.evaluate(comp)
-      let r = self.right.evaluate(comp)
+      let l = self.left.evaluate(comp), r = self.right.evaluate(comp)
       if (l && typeof l == 'string') return make_sequence(self, [self.right, make_node(ast_true, self)]).optimize(comp)
       if (r && typeof r == 'string') return make_sequence(self, [self.left, make_node(ast_true, self)]).optimize(comp)
     }
     if (comp.options['comparisons'] && self.is_boolean()) {
       if (!(comp.parent() instanceof ast_binary) || comp.parent() instanceof ast_assign) {
-        const negated = make_node(ast_unary_prefix, self, {operator: '!', expr: self.negate(comp, first(comp))})
+        const negated = make_node(ast_unary_prefix, self, {operator: '!', expr: self.negate(comp,
+          first_in_statement(comp))})
         self = best_of(comp, self, negated)
       }
     }
@@ -11478,7 +11485,7 @@ def_optimize(ast_binary, function (self, comp) {
         const l = self.left, r = self.right
         const segments = l.segments
         segments[segments.length - 1].value += r.segments[0].value
-        for (let i = 1; i < r.segments.length; i++) {
+        for (let i = 1, length = r.segments.length; i < length; i++) {
           segments.push(r.segments[i])
         }
         return l
@@ -11539,7 +11546,7 @@ def_optimize(ast_binary, function (self, comp) {
         y_node = right.left
       }
       if (x_node && y_node) {
-        if ((y & z) === 0) {
+        if (y & z === 0) {
           self = make_node(ast_binary, self, {operator: self.operator, left: z_node, right: x_node})
         } else {
           const reordered_ops = make_node(ast_binary, self, {operator: '|', left: make_node(ast_binary, self,
@@ -11615,7 +11622,7 @@ def_optimize(ast_symbol_ref, function (self, comp) {
   return comp.options['reduce_vars'] && !comp.is_lhs() ? inline_into_symbolref(self, comp) : self
 })
 
-function is_atomic(lhs, self) { return lhs instanceof ast_symbol_ref || lhs.type === self.type }
+function is_atomic (lhs, self) { return lhs instanceof ast_symbol_ref || lhs.type === self.type }
 
 def_optimize(ast_undefined, function (self, comp) {
   const lhs = comp.is_lhs()
@@ -11694,7 +11701,7 @@ def_optimize(ast_assign, function (self, comp) {
     }
     const stop_at = self.left.defined().scope.get_defun_scope()
     let parent
-    while (parent = comp.parent(level++) !== stop_at) {
+    while ((parent = comp.parent(level++)) !== stop_at) {
       if (parent instanceof ast_try) {
         if (parent.bfinally) return true
         if (parent.bcatch && may_assign_throw()) return true
@@ -11772,7 +11779,7 @@ def_optimize(ast_conditional, function (self, comp) {
   }
   const cond = self.condition.evaluate(comp)
   if (cond !== self.condition) return maintain_bind(comp.parent(), comp.self(), cond ? self.consequent : self.alt)
-  const negated = cond.negate(comp, first(comp))
+  const negated = cond.negate(comp, first_in_statement(comp))
   if (best_of(comp, cond, negated) === negated) {
     self = make_node(ast_conditional, self, {condition: negated, consequent: self.alt, alt: self.consequent})
   }
@@ -11881,8 +11888,7 @@ def_optimize(ast_conditional, function (self, comp) {
 })
 
 function optimize_template (self) {
-  let i, length, raw, reducable, index
-  for (i = 0, length = self.segments.length; i < length; i++) {
+  for (let i = 0, index, length = self.segments.length, raw, reducable; i < length; i++) {
     if (self.segments[i] instanceof ast_template_segment) {
       raw = self.segments[i].raw
       reducable = true
@@ -11925,8 +11931,7 @@ function optimize_template (self) {
 def_optimize(ast_template_string, function (self, comp) {
   if (comp.parent() instanceof ast_prefixed_template) return optimize_template(self)
   const segments = []
-  let segment, result, inners, i, len1, j, len2
-  for (i = 0, len1 = self.segments.length; i < len1; i++) {
+  for (let i = 0, inners, j, len1 = self.segments.length, len2, result, segment; i < len1; i++) {
     segment = self.segments[i]
     if (segment instanceof tree) {
       result = segment.evaluate(comp)
@@ -11948,18 +11953,15 @@ def_optimize(ast_template_string, function (self, comp) {
   }
   self.segments = segments
   if (segments.length == 1) return make_node(ast_string, self, segments[0])
-  if (segments.length === 3 && segments[1] instanceof tree
+  if (segments.length == 3 && segments[1] instanceof tree
     && (segments[1].is_string(comp) || segments[1].is_number(comp) || is_nullish(segments[1], comp))) {
     if (segments[2].value == '') {
-      return make_node(ast_binary, self, {operator: '+',
-        left: make_node(ast_string, self, {value: segments[0].value}),
-        right: segments[1],
-      })
+      return make_node(ast_binary, self, {operator: '+', left: make_node(ast_string, self, {value: segments[0].value}),
+        right: segments[1]})
     }
     if (segments[0].value == '') {
       return make_node(ast_binary, self, {operator: '+', left: segments[1],
-        right: make_node(ast_string, self, {value: segments[2].value}),
-      })
+        right: make_node(ast_string, self, {value: segments[2].value})})
     }
   }
   return self
@@ -11981,8 +11983,7 @@ ast_prop_access.prototype.flatten_object = function (key, comp) {
   const expr = this.expr
   if (expr instanceof ast_object) {
     const props = expr.properties
-    let prop, v
-    for (let i = props.length; --i >= 0;) {
+    for (let i = props.length, prop, v; --i >= 0;) {
       prop = props[i]
       if ('' + (prop instanceof ast_concise_method ? prop.key.name : prop.key) == key) {
         if (!props.every(p => (p instanceof ast_key_value || p instanceof ast_concise_method && !p.gen)
@@ -12033,8 +12034,7 @@ def_optimize(ast_sub, function (self, comp) {
     && (fn = expr.scope) instanceof ast_lambda && fn.uses_args
     && !(fn instanceof ast_arrow) && prop instanceof ast_number) {
     const index = prop.get_value(), params = new Set(), argnames = fn.argnames
-    let arg, param
-    for (arg = 0; arg < argnames.length; arg++) {
+    for (let arg = 0, length = argnames.length, param; arg < length; arg++) {
       if (!(argnames[arg] instanceof ast_symbol_funarg)) break opt_arguments
       param = argnames[arg].name
       if (params.has(param)) break opt_arguments
@@ -12093,10 +12093,8 @@ def_optimize(ast_sub, function (self, comp) {
         values.push(result)
         return make_sequence(self, values).optimize(comp)
       } else {
-        return make_node(ast_sub, self, {
-          expr: make_node(ast_array, expr, {elements: values}),
-          property: make_node(ast_number, prop, {value: index})
-        })
+        return make_node(ast_sub, self, {expr: make_node(ast_array, expr, {elements: values}),
+          property: make_node(ast_number, prop, {value: index})})
       }
     }
   }
@@ -12144,7 +12142,7 @@ function inline_array_like_spread (elements) {
     el = elements[i]
     if (el instanceof ast_spread) {
       expr = el.expr
-      if (expr instanceof ast_array && !expr.elements.some(elm => elm instanceof ast_hole)) {
+      if (expr instanceof ast_array && !expr.elements.some(el => el instanceof ast_hole)) {
         elements.splice(i, 1, ...expr.elements)
         i--
       }
@@ -12196,7 +12194,7 @@ def_optimize(ast_function, function (self, comp) {
 })
 
 def_optimize(ast_class, function (self) {
-  for (let i = 0; i < self.properties.length; i++) {
+  for (let i = 0, length = self.properties.length; i < length; i++) {
     const prop = self.properties[i]
     if (prop instanceof ast_class_static && prop.body.length == 0) {
       self.properties.splice(i, 1)
@@ -12237,11 +12235,11 @@ def_optimize(ast_destructure, function (self, comp) {
     && Array.isArray(self.names) && !is_destructure_export_decl(comp)
     && !(self.names[self.names.length - 1] instanceof ast_spread)) {
     const keep = []
-    for (let i = 0, length = self.names.length, elem; i < length; i++) {
-      elem = self.names[i]
-      if (!(elem instanceof ast_key_value && typeof elem.key == 'string'
-        && elem.value instanceof ast_declaration && !should_retain(comp, elem.value.defined()))) {
-        keep.push(elem)
+    for (let i = 0, length = self.names.length, el; i < length; i++) {
+      el = self.names[i]
+      if (!(el instanceof ast_key_value && typeof el.key == 'string'
+        && el.value instanceof ast_declaration && !should_retain(comp, el.value.defined()))) {
+        keep.push(el)
       }
     }
     if (keep.length != self.names.length) self.names = keep
@@ -12253,6 +12251,7 @@ def_optimize(ast_yield, function (self, comp) {
   if (self.expr && !self.star && is_undefined(self.expr, comp)) self.expr = null
   return self
 })
+
 function lift_key (self, comp) {
   if (!comp.options['computed_props']) return self
   if (!(self.key instanceof ast_literal)) return self
@@ -12296,7 +12295,8 @@ def_optimize(ast_key_value, function (self, comp) {
 def_optimize(ast_object_property, lift_key)
 
 function build (input, output, options={}) {
-  options = defaults(options, {'format': {}, 'mangle': {}, 'module': false, 'reduce': {}, 'parse': {}, 'toplevel': true})
+  options = defaults(options, {'format': {}, 'mangle': {}, 'module': false, 'reduce': {}, 'parse': {},
+    'toplevel': true})
   if (output.slice(-3) == '.js') output_js()
   options.parse.module = options.module
   options.reduce.module = options.module
