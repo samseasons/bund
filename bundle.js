@@ -9,18 +9,18 @@ function return_this () { return this }
 function return_true () { return true }
 function return_false () { return false }
 
-class tree {
+class ast_tree {
   constructor (props) {
-    this.func('tree', ['start', 'end', 'file'], props)
+    this.func('ast_tree', ['start', 'end', 'file'], props)
   }
 }
-tree.prototype.func = function (type, args, props) {
+ast_tree.prototype.func = function (type, args, props) {
   this.type = type
   if (props) args.forEach(arg => this[arg] = props[arg])
 }
-tree.prototype.ascend = func
-tree.prototype.branch = func
-tree.prototype._copy = function (deep) {
+ast_tree.prototype.ascend = func
+ast_tree.prototype.branch = func
+ast_tree.prototype._copy = function (deep) {
   if (deep) {
     let self = this.copy()
     return self.transform(new transforms(function (root) {
@@ -29,14 +29,14 @@ tree.prototype._copy = function (deep) {
   }
   return new this.constructor(this)
 }
-tree.prototype.copy = function (deep) {
+ast_tree.prototype.copy = function (deep) {
   return this._copy(deep)
 }
-tree.prototype.equals = return_false
-tree.prototype.observe = function (observer) {
+ast_tree.prototype.equals = return_false
+ast_tree.prototype.observe = function (observer) {
   return observer.observe(this)
 }
-tree.prototype.transform = function (trees, trim) {
+ast_tree.prototype.transform = function (trees, trim) {
   trees.push(this)
   let transformed
   if (trees.before) transformed = trees.before(this, this.ascend, trim)
@@ -56,12 +56,12 @@ function tray (array, trees) {
   let a, i, t = []
   for (i = 0; i < array.length; i++) {
     a = array[i].transform(trees, true)
-    a instanceof tree ? t.push(a) : a.v && t.push(...a.v)
+    a instanceof ast_tree ? t.push(a) : a.v && t.push(...a.v)
   }
   return t
 }
 
-class ast_array extends tree {
+class ast_array extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_array', ['elements', 'start', 'end', 'file'], props)
@@ -82,7 +82,7 @@ ast_array.prototype.observe = function (observer) {
   })
 }
 
-class ast_await extends tree {
+class ast_await extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_await', ['expr', 'start', 'end', 'file'], props)
@@ -149,7 +149,7 @@ ast_yield.prototype.equals = function (other) {
   return this.star == other.star
 }
 
-class ast_binary extends tree {
+class ast_binary extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_binary', ['operator', 'left', 'right', 'start', 'end', 'file'], props)
@@ -187,7 +187,7 @@ class ast_default_assign extends ast_binary {
   }
 }
 
-class ast_call extends tree {
+class ast_call extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_call', ['expr', 'args', 'optional', 'anno', 'start', 'end', 'file'], props)
@@ -218,7 +218,7 @@ ast_call.prototype.ascend = function (self, trees) {
   self.args = tray(self.args, trees, false)
 }
 
-class ast_conditional extends tree {
+class ast_conditional extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_conditional', ['condition', 'consequent', 'alt', 'start', 'end', 'file'], props)
@@ -243,7 +243,7 @@ ast_conditional.prototype.ascend = function (self, trees) {
   self.alt = self.alt.transform(trees)
 }
 
-class ast_destructure extends tree {
+class ast_destructure extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_destructure', ['names', 'is_array', 'start', 'end', 'file'], props)
@@ -267,14 +267,14 @@ ast_destructure.prototype.ascend = function (self, trees) {
   self.names = tray(self.names, trees)
 }
 
-class ast_directive extends tree {
+class ast_directive extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_directive', ['value', 'quote', 'start', 'end', 'file'], props)
   }
 }
 
-class ast_literal extends tree {
+class ast_literal extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_literal', ['start', 'end', 'file'], props)
@@ -507,7 +507,7 @@ function traverse (self, observer) {
   }
 }
 
-class ast_state extends tree {
+class ast_state extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_state', ['start', 'end', 'file'], props)
@@ -541,7 +541,7 @@ class ast_debugger extends ast_state {
 }
 ast_debugger.prototype.equals = return_true
 
-class ast_block extends tree {
+class ast_block extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_block', ['body', 'blocks', 'start', 'end', 'file'], props)
@@ -568,7 +568,7 @@ class ast_block_statement extends ast_block {
   }
 }
 
-class ast_empty_statement extends tree {
+class ast_empty_statement extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_empty_statement', ['start', 'end', 'file'], props)
@@ -576,7 +576,7 @@ class ast_empty_statement extends tree {
 }
 ast_empty_statement.prototype.equals = return_true
 
-class ast_statement_with_body extends tree {
+class ast_statement_with_body extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_statement_with_body', ['body', 'start', 'end', 'file'], props)
@@ -856,7 +856,7 @@ ast_lambda.prototype.length_property = function () {
 ast_lambda.prototype.ascend = function (self, trees) {
   if (self.name) self.name = self.name.transform(trees)
   self.argnames = tray(self.argnames, trees)
-  self.body = self.body instanceof tree ? self.body.transform(trees) : tray(self.body, trees)
+  self.body = self.body instanceof ast_tree ? self.body.transform(trees) : tray(self.body, trees)
 }
 
 class ast_accessor extends ast_lambda {
@@ -891,7 +891,7 @@ class ast_defun extends ast_lambda {
   }
 }
 
-class ast_prefixed_template extends tree {
+class ast_prefixed_template extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_prefixed_template', ['template_string', 'prefix', 'start', 'end', 'file'], props)
@@ -913,7 +913,7 @@ ast_prefixed_template.prototype.ascend = function (self, trees) {
   self.template_string = self.template_string.transform(trees)
 }
 
-class ast_template_string extends tree {
+class ast_template_string extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_template_string', ['segments', 'start', 'end', 'file'], props)
@@ -935,7 +935,7 @@ ast_template_string.prototype.ascend = function (self, trees) {
   self.segments = tray(self.segments, trees)
 }
 
-class ast_template_segment extends tree {
+class ast_template_segment extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_template_segment', ['value', 'raw', 'start', 'end', 'file'], props)
@@ -1105,7 +1105,7 @@ ast_case.prototype.ascend = function (self, trees) {
   self.body = tray(self.body, trees)
 }
 
-class ast_try extends tree {
+class ast_try extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_try', ['body', 'bcatch', 'bfinally', 'start', 'end', 'file'], props)
@@ -1140,7 +1140,7 @@ class ast_try_block extends ast_block {
   }
 }
 
-class ast_catch extends tree {
+class ast_catch extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_catch', ['argname', 'body', 'blocks', 'start', 'end', 'file'], props)
@@ -1165,7 +1165,7 @@ ast_catch.prototype.ascend = function (self, trees) {
   self.body = tray(self.body, trees)
 }
 
-class ast_finally extends tree {
+class ast_finally extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_finally', ['body', 'blocks', 'start', 'end', 'file'], props)
@@ -1173,7 +1173,7 @@ class ast_finally extends tree {
 }
 ast_finally.prototype.equals = return_true
 
-class ast_definitions extends tree {
+class ast_definitions extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_definitions', ['defs', 'start', 'end', 'file'], props)
@@ -1217,7 +1217,7 @@ class ast_const extends ast_definitions {
   }
 }
 
-class ast_var_def extends tree {
+class ast_var_def extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_var_def', ['name', 'value', 'start', 'end', 'file'], props)
@@ -1244,7 +1244,7 @@ ast_var_def.prototype.ascend = function (self, trees) {
   if (self.value) self.value = self.value.transform(trees)
 }
 
-class ast_name_mapping extends tree {
+class ast_name_mapping extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_name_mapping', ['foreign_name', 'name', 'start', 'end', 'file'], props)
@@ -1266,10 +1266,10 @@ ast_name_mapping.prototype.ascend = function (self, trees) {
   self.name = self.name.transform(trees)
 }
 
-class ast_import extends tree {
+class ast_import extends ast_tree {
   constructor (props) {
     super()
-    this.func('ast_import', ['import_name', 'import_names', 'module', 'assert_clause', 'start', 'end', 'file'], props)
+    this.func('ast_import', ['import_name', 'import_names', 'module', 'attributes', 'start', 'end', 'file'], props)
   }
 }
 ast_import.prototype.equals = function (other) {
@@ -1301,11 +1301,11 @@ ast_import.prototype.ascend = function (self, trees) {
   self.module = self.module.transform(trees)
 }
 
-class ast_export extends tree {
+class ast_export extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_export', ['defined', 'value', 'is_default', 'names', 'module',
-      'assert_clause', 'start', 'end', 'file'], props)
+      'attributes', 'start', 'end', 'file'], props)
   }
 }
 ast_export.prototype.equals = function (other) {
@@ -1342,7 +1342,7 @@ ast_export.prototype.ascend = function (self, trees) {
   if (self.module) self.module = self.module.transform(trees)
 }
 
-class ast_sequence extends tree {
+class ast_sequence extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_sequence', ['exprs', 'start', 'end', 'file'], props)
@@ -1365,7 +1365,7 @@ ast_sequence.prototype.ascend = function (self, trees) {
   self.exprs = result.length ? result : [new ast_number({value: 0})]
 }
 
-class ast_prop_access extends tree {
+class ast_prop_access extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_prop_access', ['expr', 'property', 'optional', 'start', 'end', 'file'], props)
@@ -1444,7 +1444,7 @@ ast_sub.prototype.ascend = function (self, trees) {
   self.property = self.property.transform(trees)
 }
 
-class ast_object extends tree {
+class ast_object extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_object', ['properties', 'start', 'end', 'file'], props)
@@ -1467,7 +1467,7 @@ ast_object.prototype.ascend = function (self, trees) {
   self.properties = tray(self.properties, trees)
 }
 
-class ast_object_property extends tree {
+class ast_object_property extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_object_property', ['key', 'value', 'anno', 'start', 'end', 'file'], props)
@@ -1476,16 +1476,16 @@ class ast_object_property extends tree {
 ast_object_property.prototype.equals = return_true
 ast_object_property.prototype.observe = function (observer) {
   return observer.observe(this, function () {
-    if (this.key instanceof tree) this.key.observe(observer)
+    if (this.key instanceof ast_tree) this.key.observe(observer)
     this.value.observe(observer)
   })
 }
 ast_object_property.prototype.branch = function (push) {
   push(this.value)
-  if (this.key instanceof tree) push(this.key)
+  if (this.key instanceof ast_tree) push(this.key)
 }
 ast_object_property.prototype.ascend = function (self, trees) {
-  if (self.key instanceof tree) self.key = self.key.transform(trees)
+  if (self.key instanceof ast_tree) self.key = self.key.transform(trees)
   if (self.value) self.value = self.value.transform(trees)
 }
 
@@ -1499,7 +1499,7 @@ ast_key_value.prototype.equals = function (other) {
   return this.key === other.key
 }
 ast_key_value.prototype.computed_key = function () {
-  return this.key instanceof tree
+  return this.key instanceof ast_tree
 }
 
 class ast_private_setter extends ast_object_property {
@@ -1508,7 +1508,7 @@ class ast_private_setter extends ast_object_property {
     this.func('ast_private_setter', ['static', 'key', 'value', 'start', 'end', 'file'], props)
   }
 }
-ast_private_setter.prototype.computed_key = () => false
+ast_private_setter.prototype.computed_key = return_false
 
 class ast_private_getter extends ast_object_property {
   constructor (props) {
@@ -1516,7 +1516,7 @@ class ast_private_getter extends ast_object_property {
     this.func('ast_private_getter', ['static', 'key', 'value', 'start', 'end', 'file'], props)
   }
 }
-ast_private_getter.prototype.computed_key = () => false
+ast_private_getter.prototype.computed_key = return_false
 
 class ast_object_setter extends ast_object_property {
   constructor (props) {
@@ -1558,12 +1558,16 @@ ast_concise_method.prototype.computed_key = function () {
   return !(this.key instanceof ast_symbol_method)
 }
 
-class ast_private_method extends ast_concise_method {
+class ast_private_method extends ast_object_property {
   constructor (props) {
     super()
     this.func('ast_private_method', ['quote', 'static', 'gen', 'sync', 'key', 'value', 'start', 'end', 'file'], props)
   }
 }
+ast_private_method.prototype.equals = function (other) {
+  return this.static === other.static && this.gen === other.gen && this.async === other.async
+}
+ast_private_method.prototype.computed_key = return_false
 
 class ast_class extends ast_scope {
   constructor (props) {
@@ -1610,9 +1614,10 @@ ast_class.prototype.visit_nondeferred_class_parts = function (observer) {
 }
 ast_class.prototype.visit_deferred_class_parts = function (observer) {
   this.properties.forEach(prop => {
-    if (prop instanceof ast_concise_method) {
+    if (prop instanceof ast_concise_method || prop instanceof ast_private_method) {
       prop.observe(observer)
-    } else if (prop instanceof ast_class_property && !prop.static && prop.value) {
+    } else if ((prop instanceof ast_class_property || prop instanceof ast_private_property) && !prop.static
+      && prop.value) {
       observer.push(prop)
       prop.value.observe(observer)
       observer.pop()
@@ -1649,30 +1654,40 @@ class ast_class_property extends ast_object_property {
   }
 }
 ast_class_property.prototype.equals = function (other) {
-  return this.static === other.static
+  return this.static === other.static && (typeof this.key == 'string' ? this.key === other.key : true)
 }
 ast_class_property.prototype.observe = function (observer) {
   return observer.observe(this, function () {
-    if (this.key instanceof tree) this.key.observe(observer)
-    if (this.value instanceof tree) this.value.observe(observer)
+    if (this.key instanceof ast_tree) this.key.observe(observer)
+    if (this.value instanceof ast_tree) this.value.observe(observer)
   })
 }
 ast_class_property.prototype.branch = function (push) {
-  if (this.value instanceof tree) push(this.value)
-  if (this.key instanceof tree) push(this.key)
+  if (this.value instanceof ast_tree) push(this.value)
+  if (this.key instanceof ast_tree) push(this.key)
 }
 ast_class_property.prototype.computed_key = function () {
   return !(this.key instanceof ast_symbol_class_property)
 }
 
-class ast_private_property extends ast_class_property {
+class ast_private_property extends ast_object_property {
   constructor (props) {
     super()
     this.func('ast_private_property', ['quote', 'static', 'key', 'value', 'start', 'end', 'file'], props)
   }
 }
+ast_private_property.prototype.equals = function (other) { return this.static === other.static }
+ast_private_property.prototype.observe = function (observer) {
+  return observer.observe(this, function () {
+    if (this.value instanceof ast_tree) this.value.observe(observer)
+  })
+}
+ast_private_property.prototype.branch = function (push) {
+  if (this.value instanceof ast_tree) push(this.value)
+}
+ast_private_property.prototype.computed_key = return_false
 
-class ast_private_in extends tree {
+class ast_private_in extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_private_in', ['key', 'value', 'start', 'end', 'file'], props)
@@ -1717,7 +1732,7 @@ ast_class_static.prototype.branch = function (push) {
   while (i--) push(this.body[i])
 }
 ast_class_static.prototype.copy = copy_block_scope
-ast_class_static.prototype.computed_key = () => false
+ast_class_static.prototype.computed_key = return_false
 ast_class_static.prototype.ascend = function (self, trees) {
   return self.body = tray(self.body, trees)
 }
@@ -1730,7 +1745,7 @@ class ast_class_expression extends ast_class {
   }
 }
 
-class ast_symbol extends tree {
+class ast_symbol extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_symbol', ['scope', 'name', 'thedef', 'start', 'end', 'file'], props)
@@ -1740,7 +1755,7 @@ ast_symbol.prototype.equals = function (other) {
   return this.name === other.name
 }
 
-class ast_new_target extends tree {
+class ast_new_target extends ast_tree {
   constructor (props) {
     super()
     this.func('ast_new_target', ['start', 'end', 'file'], props)
@@ -1919,7 +1934,7 @@ function node_size (root, func) {
   root.prototype.size = func
 }
 
-node_size(tree, function (node, stack) {
+node_size(ast_tree, function (node, stack) {
   let size = 0
   walk_parent(this, (root, info) => {
     size += root._size(info)
@@ -1939,7 +1954,26 @@ function key_size (key) { return typeof key == 'string' ? key.length : 0 }
 
 function static_size (sttc) { return sttc ? 7 : 0 }
 
-tree.prototype._size = () => 0
+function first_in_statement (stack) {
+  for (let i = 0, p, root = stack.parent(-1); p = stack.parent(i); i++) {
+    if (p instanceof ast_state && p.body === root) return true
+    if ((p instanceof ast_sequence && p.exprs[0] === root) ||
+      (p.type == 'ast_call' && p.expr === root) ||
+      (p instanceof ast_prefixed_template && p.prefix === root) ||
+      (p instanceof ast_dot && p.expr === root) ||
+      (p instanceof ast_sub && p.expr === root) ||
+      (p instanceof ast_chain && p.expr === root) ||
+      (p instanceof ast_conditional && p.condition === root) ||
+      (p instanceof ast_binary && p.left === root) ||
+      (p instanceof ast_unary_postfix && p.expr === root)) {
+      root = p
+    } else {
+      return false
+    }
+  }
+}
+
+ast_tree.prototype._size = () => 0
 ast_directive.prototype._size = () => 2 + this.value.length
 ast_block.prototype._size = function () { return 2 + len1(this.body) }
 ast_empty_statement.prototype._size = () => 1
@@ -2019,14 +2053,13 @@ ast_conditional.prototype._size = () => 3
 ast_array.prototype._size = function () { return 2 + len1(this.elements) }
 ast_object.prototype._size = function (info) { return 2 + len1(this.properties) + first_in_statement(info) ? 2 : 0 }
 ast_key_value.prototype._size = function () { return key_size(this.key) + 1 }
-ast_private_getter.prototype._size = function () { return static_size(this.static) + key_size(this.key)
-  + lambda_size(this) + 4 }
 ast_object_setter.prototype._size = function () { return 5 + static_size(this.static) + key_size(this.key) }
 ast_object_getter.prototype._size = function () { return 5 + static_size(this.static) + key_size(this.key) }
 ast_concise_method.prototype._size = function () { return static_size(this.static) + key_size(this.key)
   + lambda_size(this) }
-ast_private_method.prototype._size = function () { return static_size(this.static) + key_size(this.key)
-  + lambda_size(this) + 1 }
+ast_private_method.prototype._size = function () { ast_concise_method.prototype._size.call(this) + 1 }
+ast_private_getter.prototype._size = function () { ast_concise_method.prototype._size.call(this) + 4 }
+ast_private_setter.prototype._size = function () { ast_concise_method.prototype._size.call(this) + 4 }
 ast_class.prototype._size = function () { return (this.name ? 8 : 7) + (this.extends ? 8 : 0) }
 ast_class_property.prototype._size = function () {
   return static_size(this.static) + (typeof this.key == 'string' ? this.key.length + 2 : 0) + (this.value ? 1 : 0)
@@ -2062,11 +2095,8 @@ ast_infinity.prototype._size = () => 8
 ast_false.prototype._size = () => 5
 ast_true.prototype._size = () => 4
 
-const dont_mangle = 1, want_mangle = 2
-
-const walk_abort = Symbol('abort walk')
-
-let block_scopes = null
+const dont_mangle = 1, want_mangle = 2, walk_abort = Symbol('abort walk')
+let block_scopes
 
 function redefined_catch_def (root) {
   if (root.orig[0] instanceof ast_symbol_catch && root.scope.is_block_scope()) {
@@ -2099,7 +2129,7 @@ class symbol_def {
     this.fixed = false
   }
   fixed_value() {
-    if (!this.fixed || this.fixed instanceof tree) return this.fixed
+    if (!this.fixed || this.fixed instanceof ast_tree) return this.fixed
     return this.fixed()
   }
   unmangleable(options) {
@@ -2124,7 +2154,7 @@ class symbol_def {
   static next_id = 1
 }
 
-ast_scope.prototype.figure_out_scope = function (options, {parents = null, toplevel = this} = {}) {
+ast_scope.prototype.figure_out_scope = function (options, {parents = undefined, toplevel = this} = {}) {
   options = defaults(options, {'cache': null, 'module': false})
   if (!(toplevel instanceof ast_toplevel)) throw new Error('bad toplevel scope')
   let scope = this.parents = parents, labels = new Map(), defun, destructure
@@ -2288,7 +2318,6 @@ ast_toplevel.prototype.def_global = function (root) {
     return global
   }
 }
-
 ast_scope.prototype.init_scope_vars = function (parents) {
   this.vars = new Map()
   this.withs = false
@@ -2307,7 +2336,7 @@ ast_scope.prototype.conflicting_def_shallow = function (name, file) {
 ast_scope.prototype.add_child_scope = function (scope) {
   if (scope.parents === this) return
   scope.parents = this
-  if (scope instanceof ast_arrow && !this.uses_args) {
+  if (scope instanceof ast_arrow && (this instanceof ast_lambda && !this.uses_args)) {
     this.uses_args = observe(scope, root => {
       if (root instanceof ast_symbol_ref && root.scope instanceof ast_lambda && root.name == 'arguments') {
         return walk_abort
@@ -2348,14 +2377,13 @@ function find_scopes_visible_from (scopes) {
   return [...found_scopes]
 }
 
-ast_scope.prototype.create_symbol = function (sym_class, {source, name, scope,
-  conflict_scopes = [scope], init = null} = {}) {
+ast_scope.prototype.create_symbol = function (sym_class, {source, name, scope, scopes = [scope], init = null} = {}) {
   let symbol_name
-  conflict_scopes = find_scopes_visible_from(conflict_scopes)
+  scopes = find_scopes_visible_from(scopes)
   if (name) {
     name = symbol_name = name.replace(/(?:^[^a-z_$]|[^a-z0-9_$])/ig, '_')
     let i = 0
-    while (conflict_scopes.find(s => s.conflicting_def_shallow(symbol_name, s.file))) {
+    while (scopes.find(s => s.conflicting_def_shallow(symbol_name, s.file))) {
       symbol_name = name + '$' + i++
     }
   }
@@ -2366,7 +2394,7 @@ ast_scope.prototype.create_symbol = function (sym_class, {source, name, scope,
   return symbol
 }
 
-tree.prototype.is_block_scope = return_false
+ast_tree.prototype.is_block_scope = return_false
 ast_class.prototype.is_block_scope = return_false
 ast_lambda.prototype.is_block_scope = return_false
 ast_toplevel.prototype.is_block_scope = return_false
@@ -2440,10 +2468,7 @@ function next_mangled (scope, options) {
   }
 }
 
-ast_scope.prototype.next_mangled = function (options) {
-  return next_mangled(this, options)
-}
-
+ast_scope.prototype.next_mangled = function (options) { return next_mangled(this, options) }
 ast_toplevel.prototype.next_mangled = function (options) {
   const names = this.mangled_names
   let name
@@ -2472,13 +2497,9 @@ ast_symbol.prototype.unreferenced = function () {
   return !this.defined().references.length && !this.scope.pinned()
 }
 
-ast_symbol.prototype.defined = function () {
-  return this.thedef
-}
+ast_symbol.prototype.defined = function () { return this.thedef }
 
-ast_symbol.prototype.global = function () {
-  return this.thedef.global
-}
+ast_symbol.prototype.global = function () { return this.thedef.global }
 
 function format_mangler_options (options) {
   options = defaults(options, {'eval': false, 'nth': base54, 'module': false, 'reserved': [], 'toplevel': false})
@@ -2529,7 +2550,7 @@ ast_toplevel.prototype.mangle_names = function (options) {
   block_scopes = null
 }
 
-tree.prototype.tail_node = return_this
+ast_tree.prototype.tail_node = return_this
 
 ast_sequence.prototype.tail_node = function () {
   return this.exprs[this.exprs.length - 1]
@@ -2552,7 +2573,7 @@ ast_toplevel.prototype.compute_char_frequency = function (options) {
   if (!nth.reset || !nth.consider || !nth.sort) return
   nth.reset()
   try {
-    tree.prototype.print = function (stream, force_parens) {
+    ast_tree.prototype.print = function (stream, force_parens) {
       this._print(stream, force_parens)
       if (this instanceof ast_symbol && !this.unmangleable(options)) {
         nth.consider(this.name, -1)
@@ -2568,7 +2589,7 @@ ast_toplevel.prototype.compute_char_frequency = function (options) {
     }
     nth.consider(this.print_to_string(), 1)
   } finally {
-    tree.prototype.print = tree.prototype._print
+    ast_tree.prototype.print = ast_tree.prototype._print
   }
   nth.sort()
 }
@@ -2630,7 +2651,7 @@ function walk_parent (root, cb, initial_stack) {
   let current
   const info = {
     parent: (n = 0) => {
-      if (n === -1) return current
+      if (n == -1) return current
       if (initial_stack && n >= stack.length) {
         n -= stack.length
         return initial_stack[initial_stack.length - (n + 1)]
@@ -2722,7 +2743,7 @@ class observes {
       }
     }
   }
-  loopcontrol (root) {
+  loop_control (root) {
     const stack = this.stack
     let i, x
     if (root.label) {
@@ -2768,25 +2789,6 @@ function mangle_props (ast, options) {
       root.property = mangle_private(root.property)
     }
   }))
-}
-
-function first_in_statement (stack) {
-  for (let i = 0, p, root = stack.parent(-1); p = stack.parent(i); i++) {
-    if (p instanceof ast_state && p.body === root) return true
-    if ((p instanceof ast_sequence && p.exprs[0] === root) ||
-      (p.type == 'ast_call' && p.expr === root) ||
-      (p instanceof ast_prefixed_template && p.prefix === root) ||
-      (p instanceof ast_dot && p.expr === root) ||
-      (p instanceof ast_sub && p.expr === root) ||
-      (p instanceof ast_chain && p.expr === root) ||
-      (p instanceof ast_conditional && p.condition === root) ||
-      (p instanceof ast_binary && p.left === root) ||
-      (p instanceof ast_unary_postfix && p.expr === root)) {
-      root = p
-    } else {
-      return false
-    }
-  }
 }
 
 const _pure = 1
@@ -3034,10 +3036,9 @@ function tokenizer (text, file, comments, shebang) {
   let prev_was_dot = false, previous_token = null
 
   function token (type, value, is_comment) {
-    scope.regex_allowed = ((type == 'operator' && !unary_postfix.has(value)) ||
-               (type == 'keyword' && keywords_before_expression.has(value)) ||
-               (type == 'punc' && punc_before_expression.has(value))) ||
-               (type == 'arrow')
+    scope.regex_allowed = ((type == 'operator' && !unary_postfix.has(value))
+      || (type == 'keyword' && keywords_before_expression.has(value))
+      || (type == 'punc' && punc_before_expression.has(value))) || (type == 'arrow')
     prev_was_dot = type == 'punc' && (value == '.' || value == '?.')
     const line = scope.tokline
     const col = scope.tokcol
@@ -3218,7 +3219,7 @@ function tokenizer (text, file, comments, shebang) {
       } else if (char == '$' && peek() == '{') {
         next(true, true)
         scope.brace_counter++
-        tok = token(begin ? 'template_head': 'template_substitution', content)
+        tok = token(begin ? 'template_head' : 'template_cont', content)
         template_raws.set(tok, raw)
         tok.set_template_end(false)
         return tok
@@ -3234,7 +3235,7 @@ function tokenizer (text, file, comments, shebang) {
       content += char
     }
     scope.template_braces.pop()
-    tok = token(begin ? 'template_head': 'template_substitution', content)
+    tok = token(begin ? 'template_head' : 'template_cont', content)
     template_raws.set(tok, raw)
     tok.set_template_end(true)
     return tok
@@ -3851,14 +3852,14 @@ function parse (text, options) {
     return new ast_arrow({start, end, file, sync, argnames, body})
   }
 
-  function function_ (ctor, is_generator_property, sync, is_export_default) {
+  function function_ (ctor, is_generator, sync, is_export_default) {
     const in_statement = ctor === ast_defun, gen = is('operator', '*')
     if (gen) next()
     const name = is('name') ? as_symbol(in_statement ? ast_symbol_defun: ast_symbol_lambda) : null
     if (in_statement && !name) is_export_default ? ctor = ast_function : unexpected()
     if (name && ctor !== ast_accessor && !(name instanceof ast_declaration)) unexpected(prev())
     const argnames = []
-    const body = _function_body(true, gen || is_generator_property, sync, name, argnames)
+    const body = _function_body(true, gen || is_generator, sync, name, argnames)
     return new ctor({start: argnames.start, end: body.end, file, gen, sync, name, argnames, body})
   }
 
@@ -4116,7 +4117,7 @@ function parse (text, options) {
     if (!is_in_generator()) cr('yield outside generator', scope.prev.line, scope.prev.col, scope.prev.pos)
     const start = scope.token
     let has_expression = true, star = false
-    if (can_insert_semicolon() || (is('punc') && punc_after_expression.has(scope.token.value))) {
+    if (can_insert_semicolon() || is('punc') && punc_after_expression.has(scope.token.value) || is('template_cont')) {
       has_expression = false
     } else if (is('operator', '*')) {
       star = true
@@ -4209,7 +4210,7 @@ function parse (text, options) {
           file})
       } else {
         defined = new ast_var_def({start: scope.token, name: as_symbol(sym_type), value: is('operator', '=')
-          ? (next(), expression(false, noin)) : (!noin && kind == 'const') ? cr('no const init') : null, end: prev(), file})
+          ? (next(), expression(false, noin)) : (!noin && kind == 'const') && cr('no const init'), end: prev(), file})
         if (defined.name.name == 'import') cr('unexpected import')
       }
       defs.push(defined)
@@ -4366,7 +4367,7 @@ function parse (text, options) {
         case '[':
           return subscripts(array_(), allow_calls)
         case '{':
-          return subscripts(object_or_destructure_(), allow_calls)
+          return subscripts(object_or_destructure(), allow_calls)
       }
       if (!async) unexpected()
     }
@@ -4440,7 +4441,7 @@ function parse (text, options) {
     return function_(ast_accessor, gen, sync)
   })
 
-  const object_or_destructure_ = embed_tokens(function object_or_destructure_ () {
+  const object_or_destructure = embed_tokens(function object_or_destructure () {
     const properties = []
     let start = scope.token, first = true
     expect('{')
@@ -4569,7 +4570,8 @@ function parse (text, options) {
       if (is('operator', '=')) {
         next()
         return annotate(new variant({start, static: sttc, quote, key, value: expression(false), end: prev(), file}))
-      } else if (is('name') || is('privatename') || is('operator', '*') || is('punc', ';') || is('punc', '}')) {
+      } else if (is('name') || is('privatename') || is('punc', '[') || is('operator', '*') || is('punc', ';')
+        || is('punc', '}')) {
         return annotate(new variant({start, static: sttc, quote, key, end: prev(), file}))
       }
     }
@@ -4585,10 +4587,10 @@ function parse (text, options) {
     return new ast_class_static({start, body, end: prev(), file})
   }
 
-  function maybe_import_assertion () {
+  function maybe_import_attributes () {
     if (is('name', 'assert') && !has_newline_before(scope.token)) {
       next()
-      return object_or_destructure_()
+      return object_or_destructure()
     }
     return null
   }
@@ -4603,7 +4605,7 @@ function parse (text, options) {
     const module = scope.token
     if (module.type != 'string') unexpected()
     next()
-    const assert_clause = maybe_import_assertion()
+    const attributes = maybe_import_attributes()
     const resolved = resolve(file, module.value)
     if (import_name) {
       import_name.file = resolved
@@ -4617,7 +4619,7 @@ function parse (text, options) {
     })
     return new ast_import({start, import_name, import_names,
       module: new ast_string({start: module, value: module.value, quote: module.quote, end: module, file}),
-      assert_clause, end: scope.token, file})
+      attributes, end: scope.token, file})
   }
 
   function map_name (is_import) {
@@ -4685,8 +4687,8 @@ function parse (text, options) {
         const string = scope.token
         if (string.type != 'string') unexpected()
         next()
-        const assert_clause = maybe_import_assertion()
-        return new ast_export({start, assert_clause, is_default, names, module: new ast_string({start: string,
+        const attributes = maybe_import_attributes()
+        return new ast_export({start, attributes, is_default, names, module: new ast_string({start: string,
           value: string.value, quote: string.quote, end: string, file}), end: prev(), file})
       } else {
         return new ast_export({start, is_default, names, end: prev(), file})
@@ -4708,7 +4710,7 @@ function parse (text, options) {
     } else {
       unexpected(root.start)
     }
-    return new ast_export({start, assert_clause: null, is_default, value, defined, end: prev(), file})
+    return new ast_export({start, attributes: null, is_default, value, defined, end: prev(), file})
   }
 
   function as_property_name () {
@@ -5251,17 +5253,11 @@ function output_stream (options) {
       return s
     })
 
-    function single_quote () {
-      return "'" + string.replace(/\x27/g, "\\'") + "'"
-    }
+    function single_quote () { return "'" + string.replace(/\x27/g, "\\'") + "'" }
 
-    function quote_double () {
-      return '"' + string.replace(/\x22/g, '\\"') + '"'
-    }
+    function quote_double () { return '"' + string.replace(/\x22/g, '\\"') + '"' }
 
-    function quote_template () {
-      return '`' + string.replace(/`/g, "\\`") + '`'
-    }
+    function quote_template () { return '`' + string.replace(/`/g, "\\`") + '`' }
 
     string = to_utf8(string)
     if (quote == '`') return quote_template()
@@ -5284,8 +5280,7 @@ function output_stream (options) {
   }
 
   function make_name (name) {
-    name = to_utf8(name.toString(), true)
-    return name
+    return to_utf8(name.toString(), true)
   }
 
   let might_add_newline = 0, newline_insert = -1, last = ''
@@ -5667,8 +5662,7 @@ function def_parens (root, func) {
   root.prototype.needs_parens = func
 }
 
-def_parens(tree, return_false)
-
+def_parens(ast_tree, return_false)
 def_parens(ast_function, function (output) {
   if (!output.has_parens() && first_in_statement(output)) return true
   if (output.options['webkit']) {
@@ -5685,30 +5679,24 @@ def_parens(ast_function, function (output) {
   }
   return false
 })
-
 def_parens(ast_arrow, function (output) {
   const p = output.parent()
   if (output.options['wrap_func_args'] && p instanceof ast_call && member(this, p.args)) return true
   return p instanceof ast_prop_access && p.expr === this || p instanceof ast_conditional && p.condition === this
 })
-
 def_parens(ast_object, function (output) { return !output.has_parens() && first_in_statement(output) })
-
 def_parens(ast_class_expression, first_in_statement)
-
 def_parens(ast_unary, function (output) {
   const p = output.parent()
   return p instanceof ast_prop_access && p.expr === this || p instanceof ast_call && p.expr === this
     || p instanceof ast_binary && p.operator == '**' && this instanceof ast_unary_prefix && p.left === this
     && this.operator != '++' && this.operator != '--'
 })
-
 def_parens(ast_await, function (output) {
   const p = output.parent()
   return p instanceof ast_prop_access && p.expr === this || p instanceof ast_call && p.expr === this
     || p instanceof ast_binary && p.operator == '**' && p.left === this
 })
-
 def_parens(ast_sequence, function (output) {
   const p = output.parent()
   return p instanceof ast_call || p instanceof ast_unary || p instanceof ast_binary
@@ -5716,7 +5704,6 @@ def_parens(ast_sequence, function (output) {
     || p instanceof ast_object_property || p instanceof ast_conditional || p instanceof ast_arrow
     || p instanceof ast_default_assign || p instanceof ast_spread || p instanceof ast_for_of && this === p.object
     || p instanceof ast_yield  || p instanceof ast_export})
-
 def_parens(ast_binary, function (output) {
   const p = output.parent()
   if (p instanceof ast_call && p.expr === this) return true
@@ -5738,7 +5725,6 @@ def_parens(ast_binary, function (output) {
     if (pp > sp || (pp == sp && this === p.value)) return true
   }
 })
-
 def_parens(ast_private_in, function (output) {
   const p = output.parent()
   if (p instanceof ast_call && p.expr === this) return true
@@ -5752,7 +5738,6 @@ def_parens(ast_private_in, function (output) {
   }
   if (p instanceof ast_private_in && this === p.value) return true
 })
-
 def_parens(ast_yield, function (output) {
   const p = output.parent()
   if (p instanceof ast_binary && p.operator != '=') return true
@@ -5761,13 +5746,11 @@ def_parens(ast_yield, function (output) {
   if (p instanceof ast_unary) return true
   if (p instanceof ast_prop_access && p.expr === this) return true
 })
-
 def_parens(ast_chain, function (output) {
   const p = output.parent()
   if (!(p instanceof ast_call || p instanceof ast_prop_access)) return false
   return p.expr === this
 })
-
 def_parens(ast_prop_access, function (output) {
   const p = output.parent()
   if (p instanceof ast_new && p.expr === this) {
@@ -5777,7 +5760,6 @@ def_parens(ast_prop_access, function (output) {
     })
   }
 })
-
 def_parens(ast_call, function (output) {
   const p = output.parent()
   let p1
@@ -5786,14 +5768,11 @@ def_parens(ast_call, function (output) {
   return this.expr instanceof ast_function && p instanceof ast_prop_access
     && p.expr === this && (p1 = output.parent(1)) instanceof ast_assign && p1.left === p
 })
-
 def_parens(ast_new, function (output) {
   const p = output.parent()
   if (this.args.length === 0 && (p instanceof ast_prop_access || p instanceof ast_call && p.expr === this
-      || p instanceof ast_prefixed_template && p.prefix === this))
-    return true
+    || p instanceof ast_prefixed_template && p.prefix === this)) return true
 })
-
 def_parens(ast_number, function (output) {
   const p = output.parent()
   if (p instanceof ast_prop_access && p.expr === this) {
@@ -5827,7 +5806,7 @@ function def_print (nodetype, generator) {
 }
 
 function output_js () {
-  tree.prototype.print = function (output, force_parens) {
+  ast_tree.prototype.print = function (output, force_parens) {
     const self = this, generator = self.codegen
     if (self instanceof ast_scope) {
       output.active_scope = self
@@ -5847,13 +5826,12 @@ function output_js () {
     output.pop_node()
     if (self === output.use_asm) output.use_asm = null
   }
-  tree.prototype._print = tree.prototype.print
-  tree.prototype.print_to_string = function (options) {
+  ast_tree.prototype._print = ast_tree.prototype.print
+  ast_tree.prototype.print_to_string = function (options) {
     const output = output_stream(options)
     this.print(output)
     return output.get()
   }
-
   def_print(ast_directive, function (self, output) {
     output.print_string(self.value, self.quote)
     output.semicolon()
@@ -5899,7 +5877,6 @@ function output_js () {
     })
     output.in_directive = false
   }
-
   ast_statement_with_body.prototype._do_print_body = function (output) {
     print_maybe_braced_body(this.body, output)
   }
@@ -6026,7 +6003,7 @@ function output_js () {
     }
     if (self.name instanceof ast_symbol) {
       self.name.print(output)
-    } else if (nokeyword && self.name instanceof tree) {
+    } else if (nokeyword && self.name instanceof ast_tree) {
       output.with_square(function () { self.name.print(output) })
     }
     output.with_parens(function () {
@@ -6073,8 +6050,9 @@ function output_js () {
   })
   ast_arrow.prototype._do_print = function (output) {
     const self = this, parent = output.parent()
-    const needs_parens = (parent instanceof ast_binary && !(parent instanceof ast_assign)) ||
-      parent instanceof ast_unary || (parent instanceof ast_call && self === parent.expr)
+    const needs_parens = (parent instanceof ast_binary && !(parent instanceof ast_assign)
+      && !(parent instanceof ast_default_assign)) || parent instanceof ast_unary
+      || (parent instanceof ast_call && self === parent.expr)
     if (needs_parens) output.print('(')
     if (self.sync) {
       output.print('async')
@@ -6151,7 +6129,6 @@ function output_js () {
     self.expr.print(output)
     if (parentheses) output.print(')')
   })
-
   ast_loop_control.prototype._do_print = function (output, kind) {
     output.print(kind)
     if (this.label) {
@@ -6323,10 +6300,8 @@ function output_js () {
   })
   def_print(ast_export, function (self, output) {
     if (self.names) {
-      if (self.names.length === 1 &&
-        self.names[0].name.name == '*' &&
-        !self.names[0].name.quote) {
-          self.names[0].print(output)
+      if (self.names.length == 1 && self.names[0].name.name == '*' && !self.names[0].name.quote) {
+        self.names[0].print(output)
       } else {
         output.print('{')
         self.names.forEach(function (name_export, i) {
@@ -6349,9 +6324,9 @@ function output_js () {
       output.space()
       self.module.print(output)
     }
-    if (self.assert_clause) {
-      output.print('assert')
-      self.assert_clause.print(output)
+    if (self.attributes) {
+      output.print('with')
+      self.attributes.print(output)
     }
     if (self.value && !(self.value instanceof ast_defun
       || self.value instanceof ast_function || self.value instanceof ast_class)
@@ -6359,20 +6334,14 @@ function output_js () {
       output.semicolon()
     }
   })
-
   function parenthesize (root, output, noin) {
     let parens = false
-    if (noin) {
-      parens = observe(root, root => {
-        if (root instanceof ast_scope && !(root instanceof ast_arrow)) return true
-        if (root instanceof ast_binary && root.operator == 'in' || root instanceof ast_private_in) {
-          return walk_abort
-        }
-      })
-    }
+    if (noin) parens = observe(root, root => {
+      if (root instanceof ast_scope && !(root instanceof ast_arrow)) return true
+      if (root instanceof ast_binary && root.operator == 'in' || root instanceof ast_private_in) return walk_abort
+    })
     root.print(output, parens)
   }
-
   def_print(ast_var_def, function (self, output) {
     self.name.print(output)
     if (self.value) {
@@ -6577,7 +6546,7 @@ function output_js () {
       const defined = self.defined()
       return defined ? defined.mangled_name || defined.name : self.name
     }
-    const try_shorthand = output.options['shorthand'] && !(self.key instanceof tree)
+    const try_shorthand = output.options['shorthand'] && !(self.key instanceof ast_tree)
     if (try_shorthand && self.value instanceof ast_symbol && get_name(self.value) === self.key
       && !all_reserved_words.has(self.key)) {
       const was_shorthand = print_property_name(self.key, self.quote, output)
@@ -6598,7 +6567,7 @@ function output_js () {
       output.space()
       self.value.right.print(output)
     } else {
-      if (!(self.key instanceof tree)) {
+      if (!(self.key instanceof ast_tree)) {
         print_property_name(self.key, self.quote, output)
       } else {
         output.with_square(function () { self.key.print(output) })
@@ -6671,7 +6640,8 @@ function output_js () {
   def_print(ast_private_getter, function (self, output) {
     self._print_getter_setter('get', true, output)
   })
-  def_print(ast_private_method, function (self, output) {
+
+  function print_method (self, is_private, output) {
     let type
     if (self.gen && self.sync) {
       type = 'async*'
@@ -6680,7 +6650,14 @@ function output_js () {
     } else if (self.sync) {
       type = 'async'
     }
-    self._print_getter_setter(type, true, output)
+    self._print_getter_setter(type, is_private, output)
+  }
+
+  def_print(ast_concise_method, function (self, output) {
+    print_method(self, false, output)
+  })
+  def_print(ast_private_method, function (self, output) {
+    print_method(self, true, output)
   })
   def_print(ast_private_in, function (self, output) {
     self.key.print(output)
@@ -6691,17 +6668,6 @@ function output_js () {
   })
   def_print(ast_symbol_private_property, function (self, output) {
     output.print('#' + self.name)
-  })
-  def_print(ast_concise_method, function (self, output) {
-    let type
-    if (self.gen && self.sync) {
-      type = 'async*'
-    } else if (self.gen) {
-      type = '*'
-    } else if (self.sync) {
-      type = 'async'
-    }
-    self._print_getter_setter(type, false, output)
   })
   def_print(ast_class_static, function (self, output) {
     output.print('static')
@@ -6739,15 +6705,14 @@ function output_js () {
     output.print(self.get_value() + 'n')
   })
 
-  const r_slash_script = /(<\s*\/\s*script)/i
-  const r_starts_with_script = /^\s*script/i
-  const slash_script_replace = (_, script) => script.replace('/', '\\/')
+  const r_slash_script = /(<\s*\/\s*script)/i, r_starts_with_script = /^\s*script/i
+  const replace_slash = (_, script) => script.replace('/', '\\/')
 
   def_print(ast_reg_exp, function (self, output) {
     let { source, flags } = self.get_value()
     source = source_regexp(source)
     flags = flags ? sort_regexp_flags(flags) : ''
-    source = source.replace(r_slash_script, slash_script_replace)
+    source = source.replace(r_slash_script, replace_slash)
     if (r_starts_with_script.test(source) && output.last().endsWith('<')) output.print(' ')
     output.print(output.to_utf8(`/${source}/${flags}`, false, true))
     const parent = output.parent()
@@ -6824,7 +6789,7 @@ function defmap (nodetype, generator) {
   })
 }
 
-defmap([tree, ast_labeled_statement, ast_toplevel], func)
+defmap([ast_tree, ast_labeled_statement, ast_toplevel], func)
 defmap([ast_array, ast_block_statement, ast_catch, ast_class, ast_literal, ast_debugger,
   ast_definitions, ast_directive, ast_finally, ast_jump, ast_lambda, ast_new, ast_object,
   ast_statement_with_body, ast_symbol, ast_switch, ast_switch_branch, ast_template_string,
@@ -6847,6 +6812,12 @@ const has_flag = (root, flag) => root.flags & flag
 const set_flag = (root, flag) => { root.flags |= flag }
 const clear_flag = (root, flag) => { root.flags &= ~flag }
 
+function def_drop (nodes, func) {
+  for (const node of [].concat(nodes)) {
+    node.prototype.drop = func
+  }
+}
+
 function trim (nodes, comp, first) {
   const length = nodes.length
   if (!length) return null
@@ -6863,7 +6834,7 @@ function trim (nodes, comp, first) {
   return changed ? result.length ? result : null : nodes
 }
 
-tree.prototype.drop = return_this
+ast_tree.prototype.drop = return_this
 ast_literal.prototype.drop = return_null
 ast_this.prototype.drop = return_null
 ast_call.prototype.drop = function (comp, first) {
@@ -6905,23 +6876,23 @@ ast_class.prototype.drop = function (comp) {
   const exprs = make_sequence(this, with_effects)
   return this instanceof ast_def_class ? make_node(ast_statement, this, {body: exprs}) : exprs
 }
-ast_class_property.prototype.drop = function (comp) {
+def_drop([ast_class_property, ast_private_property], function (comp) {
   const key = this.computed_key() && this.key.drop(comp)
   const value = this.static && this.value && this.value.drop(comp)
   if (key && value) return make_sequence(this, [key, value])
   return key || value || null
-}
-ast_binary.prototype.drop = function (comp, first_in_statement) {
+})
+ast_binary.prototype.drop = function (comp, first) {
   const right = this.right.drop(comp)
-  if (!right) return this.left.drop(comp, first_in_statement)
+  if (!right) return this.left.drop(comp, first)
   if (lazy_op.has(this.operator)) {
     if (right === this.right) return this
     const root = this.copy()
     root.right = right
     return root
   } else {
-    const left = this.left.drop(comp, first_in_statement)
-    if (!left) return this.right.drop(comp, first_in_statement)
+    const left = this.left.drop(comp, first)
+    if (!left) return this.right.drop(comp, first)
     return make_sequence(this, [left, right])
   }
 }
@@ -6946,16 +6917,16 @@ ast_conditional.prototype.drop = function (comp) {
   root.alt = alt
   return root
 }
-ast_unary.prototype.drop = function (comp, first_in_statement) {
+ast_unary.prototype.drop = function (comp, first) {
   if (unary_side_effects.has(this.operator)) {
     !this.expr.has_side_effects(comp) ? set_flag(this, write_only_flag) : clear_flag(this, write_only_flag)
     return this
   }
   if (this.operator == 'typeof' && this.expr instanceof ast_symbol_ref) return null
-  const expr = this.expr.drop(comp, first_in_statement)
-  if (first_in_statement && expr && is_iife_call(expr)) {
+  const expr = this.expr.drop(comp, first)
+  if (first && expr && is_iife_call(expr)) {
     if (expr === this.expr && this.operator == '!') return this
-    return expr.negate(comp, first_in_statement)
+    return expr.negate(comp, first)
   }
   return expr
 }
@@ -6963,46 +6934,40 @@ ast_symbol_ref.prototype.drop = function (comp) {
   const safe_access = this.is_declared(comp) || safe_globals.has(this.name)
   return safe_access ? null : this
 }
-ast_object.prototype.drop = function (comp, first_in_statement) {
-  const values = trim(this.properties, comp, first_in_statement)
+ast_object.prototype.drop = function (comp, first) {
+  const values = trim(this.properties, comp, first)
   return values && make_sequence(this, values)
 }
-ast_object_property.prototype.drop = function (comp, first_in_statement) {
-  const computed_key = this instanceof ast_key_value && this.key instanceof tree
-  const key = computed_key && this.key.drop(comp, first_in_statement)
-  const value = this.value && this.value.drop(comp, first_in_statement)
+def_drop([ast_key_value, ast_object_property], function (comp, first) {
+  const computed_key = this.key instanceof ast_tree
+  const key = computed_key && this.key.drop(comp, first)
+  const value = this.value && this.value.drop(comp, first)
   if (key && value) return make_sequence(this, [key, value])
   return key || value
-}
-ast_concise_method.prototype.drop = function () {
+})
+def_drop([ast_concise_method, ast_object_getter, ast_object_setter], function () {
   return this.computed_key() ? this.key : null
-}
-ast_object_getter.prototype.drop = function () {
-  return this.computed_key() ? this.key : null
-}
-ast_object_setter.prototype.drop = function () {
-  return this.computed_key() ? this.key : null
-}
-ast_array.prototype.drop = function (comp, first_in_statement) {
-  const values = trim(this.elements, comp, first_in_statement)
+})
+ast_array.prototype.drop = function (comp, first) {
+  const values = trim(this.elements, comp, first)
   return values && make_sequence(this, values)
 }
-ast_dot.prototype.drop = function (comp, first_in_statement) {
-  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first_in_statement)
+ast_dot.prototype.drop = function (comp, first) {
+  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first)
   if (!this.optional && this.expr.may_throw_on_access(comp)) return this
-  return this.expr.drop(comp, first_in_statement)
+  return this.expr.drop(comp, first)
 }
-ast_sub.prototype.drop = function (comp, first_in_statement) {
-  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first_in_statement)
+ast_sub.prototype.drop = function (comp, first) {
+  if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first)
   if (!this.optional && this.expr.may_throw_on_access(comp)) return this
   const property = this.property.drop(comp)
   if (property && this.optional) return this
-  const expr = this.expr.drop(comp, first_in_statement)
+  const expr = this.expr.drop(comp, first)
   if (expr && property) return make_sequence(this, [expr, property])
   return expr || property
 }
-ast_chain.prototype.drop = function (comp, first_in_statement) {
-  return this.expr.drop(comp, first_in_statement)
+ast_chain.prototype.drop = function (comp, first) {
+  return this.expr.drop(comp, first)
 }
 ast_sequence.prototype.drop = function (comp) {
   const last = this.tail_node()
@@ -7013,12 +6978,12 @@ ast_sequence.prototype.drop = function (comp) {
   if (!exprs.length) return make_node(ast_number, this, {value: 0})
   return make_sequence(this, exprs)
 }
-ast_spread.prototype.drop = function (comp, first_in_statement) {
-  return this.expr.drop(comp, first_in_statement)
+ast_spread.prototype.drop = function (comp, first) {
+  return this.expr.drop(comp, first)
 }
 ast_template_segment.prototype.drop = return_null
 ast_template_string.prototype.drop = function (comp) {
-  const values = trim(this.segments, comp, first_in_statement)
+  const values = trim(this.segments, comp, first)
   return values && make_sequence(this, values)
 }
 
@@ -7044,7 +7009,7 @@ ast_scope.prototype.drop_unused = function (comp) {
       if (comp.top_retain(defined)) in_use_ids.set(defined.id, defined)
     })
   }
-  const var_defs_by_id = new Map(), initializations = new Map(), self_referential_classes = new Set()
+  const var_defs_by_id = new Map(), initializations = new Map()
   let scope = this
   let trees = new observes(function (root, ascend) {
     if (root instanceof ast_lambda && root.uses_args) {
@@ -7056,15 +7021,11 @@ ast_scope.prototype.drop_unused = function (comp) {
     }
     if (root === self) return
     if (root instanceof ast_class && root.has_side_effects(comp)) {
-      if (root.is_self_referential()) self_referential_classes.add(root)
-      root.visit_nondeferred_class_parts(trees)
+      root.is_self_referential() ? ascend() : root.visit_nondeferred_class_parts(trees)
     }
     if (root instanceof ast_defun || root instanceof ast_def_class) {
-      const node_def = root.name.defined()
-      const in_ = trees.parent() instanceof ast_export
-      if (in_ || !drop_funcs && scope === self) {
-        if (node_def.global) in_use_ids.set(node_def.id, node_def)
-      }
+      const node_def = root.name.defined(), in_ = trees.parent() instanceof ast_export
+      if ((in_ || !drop_funcs && scope === self) && node_def.global) in_use_ids.set(node_def.id, node_def)
       map_add(initializations, node_def.id, root)
       return true
     }
@@ -7075,9 +7036,7 @@ ast_scope.prototype.drop_unused = function (comp) {
     if (root instanceof ast_definitions && in_root_scope) {
       const in_ = trees.parent() instanceof ast_export
       root.defs.forEach(function (defined) {
-        if (defined.name instanceof ast_symbol_var) {
-          map_add(var_defs_by_id, defined.name.defined().id, defined)
-        }
+        if (defined.name instanceof ast_symbol_var) map_add(var_defs_by_id, defined.name.defined().id, defined)
         if (in_ || !drop_vars) {
           observe(defined.name, root => {
             if (root instanceof ast_declaration) {
@@ -7104,9 +7063,8 @@ ast_scope.prototype.drop_unused = function (comp) {
     const init = initializations.get(defined.id)
     if (init) init.forEach(function (init) { init.observe(trees) })
   })
-  self_referential_classes.forEach(function (cls) { cls.observe(trees) })
   const transformer = new transforms(
-    function before (root, ascend, list) {
+    function before (root, ascend, listed) {
       const parent = transformer.parent()
       if (drop_vars) {
         const sym = assign_as_unused(root)
@@ -7118,7 +7076,7 @@ ast_scope.prototype.drop_unused = function (comp) {
               return maintain_bind(parent, root, root.right.transform(transformer))
             }
           } else if (!in_use) {
-            return list ? {} : make_node(ast_number, root, {value: 0})
+            return listed ? {} : make_node(ast_number, root, {value: 0})
           }
         }
       }
@@ -7128,7 +7086,9 @@ ast_scope.prototype.drop_unused = function (comp) {
         if (!in_use_ids.has(defined.id) || defined.orig.length > 1) root.name = null
       }
       if (root instanceof ast_lambda && !(root instanceof ast_accessor)) {
-        for (let a = root.argnames, i = a.length, sym, trim = !comp.options['keep_fargs']; --i >= 0;) {
+        let trim = !comp.options['keep_fargs'] || parent instanceof ast_call && parent.expr === root
+          && !root.pinned() && (!root.name || root.name.unreferenced())
+        for (let a = root.argnames, i = a.length, sym; --i >= 0;) {
           sym = a[i]
           if (sym instanceof ast_spread) sym = sym.expr
           if (sym instanceof ast_default_assign) sym = sym.left
@@ -7148,7 +7108,7 @@ ast_scope.prototype.drop_unused = function (comp) {
           const kept = root.drop(comp)
           if (kept == null) {
             defined.eliminated++
-            return list ? {} : make_node(ast_empty_statement, root)
+            return listed ? {} : make_node(ast_empty_statement, root)
           }
           return kept
         }
@@ -7159,7 +7119,7 @@ ast_scope.prototype.drop_unused = function (comp) {
         const keep = defined.global && !drop_funcs || in_use_ids.has(defined.id)
         if (!keep) {
           defined.eliminated++
-          return list ? {} : make_node(ast_empty_statement, root)
+          return listed ? {} : make_node(ast_empty_statement, root)
         }
       }
       if (root instanceof ast_definitions && !(parent instanceof ast_for_in && parent.init === root)) {
@@ -7226,11 +7186,11 @@ ast_scope.prototype.drop_unused = function (comp) {
         }
         switch (body.length) {
           case 0:
-            return list ? {} : make_node(ast_empty_statement, root)
+            return listed ? {} : make_node(ast_empty_statement, root)
           case 1:
             return body[0]
           default:
-            return list ? _splice(body) : make_node(ast_block_statement, root, {body})
+            return listed ? _splice(body) : make_node(ast_block_statement, root, {body})
         }
       }
       if (root instanceof ast_for) {
@@ -7246,7 +7206,7 @@ ast_scope.prototype.drop_unused = function (comp) {
         } else if (is_empty(root.init)) {
           root.init = null
         }
-        return !block ? root : list ? _splice(block.body) : block
+        return !block ? root : listed ? _splice(block.body) : block
       }
       if (root instanceof ast_labeled_statement
         && root.body instanceof ast_for) {
@@ -7255,13 +7215,13 @@ ast_scope.prototype.drop_unused = function (comp) {
           const block = root.body
           root.body = block.body.pop()
           block.body.push(root)
-          return list ? _splice(block.body) : block
+          return listed ? _splice(block.body) : block
         }
         return root
       }
       if (root instanceof ast_block_statement) {
         ascend(root, this)
-        if (list && root.body.every(evictable)) return _splice(root.body)
+        if (listed && root.body.every(evictable)) return _splice(root.body)
         return root
       }
       if (root instanceof ast_scope && !(root instanceof ast_class_static)) {
@@ -7363,12 +7323,7 @@ function trim_unreachable (comp, stat, target) {
     }
     if (root instanceof ast_defun) {
       target.push(root === stat ? root : make_node(ast_var, root, {
-        defs: [
-          make_node(ast_var_def, root, {
-            name: make_node(ast_symbol_var, root.name, root.name),
-            value: null
-          })
-        ]
+        defs: [make_node(ast_var_def, root, {name: make_node(ast_symbol_var, root.name, root.name), value: null})]
       }))
       return true
     }
@@ -7441,7 +7396,7 @@ function tighten_body (statements, comp) {
         || parent instanceof ast_for && root !== parent.init
         || !replace_all && (root instanceof ast_symbol_ref && !root.is_declared(comp) && !safe_globals.has(root))
         || root instanceof ast_symbol_ref && parent instanceof ast_call && has_annotation(parent, _noinline)
-        || root instanceof ast_object_property && root.key instanceof tree) {
+        || root instanceof ast_object_property && root.key instanceof ast_tree) {
         abort = true
         return root
       }
@@ -7819,7 +7774,7 @@ function tighten_body (statements, comp) {
         return true
       }
       let found = false
-      return statements[stat_index].transform(new transforms(function (root, ascend, list) {
+      return statements[stat_index].transform(new transforms(function (root, ascend, in_list) {
         if (found) return root
         if (root === expr || root.body === expr) {
           found = true
@@ -7827,12 +7782,12 @@ function tighten_body (statements, comp) {
             root.value = root.name instanceof ast_symbol_const ? make_node(ast_undefined, root.value) : null
             return root
           }
-          return list ? {} : null
+          return in_list ? {} : null
         }
-      }, function (root) {
+      }, function (root, in_list) {
         if (root instanceof ast_sequence)
           switch (root.exprs.length) {
-            case 0: return null
+            case 0: return in_list ? {} : make_node(ast_number, node, {value: 0})
             case 1: return root.exprs[0]
           }
       }))
@@ -7940,9 +7895,9 @@ function tighten_body (statements, comp) {
       }
 
       if (stat instanceof ast_if) {
-        let ab = aborts(stat.body), new_else
-        if (can_merge_flow(ab) && (new_else = as_statement_array_with_return(stat.body, ab))) {
-          if (ab.label) remove(ab.label.thedef.references, ab)
+        let abort = aborts(stat.body), new_else
+        if (can_merge_flow(abort) && (new_else = as_statement_array_with_return(stat.body, abort))) {
+          if (abort.label) remove(abort.label.thedef.references, abort)
           changed = true
           stat = stat.copy()
           stat.condition = stat.condition.negate(comp)
@@ -7953,9 +7908,9 @@ function tighten_body (statements, comp) {
           statements[i] = stat.transform(comp)
           continue
         }
-        ab = aborts(stat.alt)
-        if (can_merge_flow(ab) && (new_else = as_statement_array_with_return(stat.alt, ab))) {
-          if (ab.label) remove(ab.label.thedef.references, ab)
+        abort = aborts(stat.alt)
+        if (can_merge_flow(abort) && (new_else = as_statement_array_with_return(stat.alt, abort))) {
+          if (abort.label) remove(abort.label.thedef.references, abort)
           changed = true
           stat = stat.copy()
           stat.body = make_node(ast_block_statement, stat.body, {
@@ -8017,16 +7972,16 @@ function tighten_body (statements, comp) {
       return !value || value instanceof ast_unary_prefix && value.operator == 'void'
     }
 
-    function can_merge_flow (ab) {
-      if (!ab) return false
+    function can_merge_flow (abort) {
+      if (!abort) return false
       for (let j = i + 1, length = statements.length, stat; j < length; j++) {
         stat = statements[j]
         if (stat instanceof ast_const || stat instanceof ast_let) return false
       }
-      const lct = ab instanceof ast_loop_control ? comp.loopcontrol(ab) : null
-      return ab instanceof ast_return && in_lambda && is_return_void(ab.value)
-        || ab instanceof ast_continue && self === loop_body(lct)
-        || ab instanceof ast_break && lct instanceof ast_block_statement && self === lct
+      const lct = abort instanceof ast_loop_control ? comp.loop_control(abort) : null
+      return abort instanceof ast_return && in_lambda && is_return_void(abort.value)
+        || abort instanceof ast_continue && self === loop_body(lct)
+        || abort instanceof ast_break && lct instanceof ast_block_statement && self === lct
     }
 
     function extract_functions () {
@@ -8041,11 +7996,11 @@ function tighten_body (statements, comp) {
       })
     }
 
-    function as_statement_array_with_return (root, ab) {
+    function as_statement_array_with_return (root, abort) {
       let body = as_statement_array(root)
-      if (ab !== body[body.length - 1]) return undefined
+      if (abort !== body[body.length - 1]) return undefined
       body = body.slice(0, -1)
-      if (ab.value) body.push(make_node(ast_statement, ab.value, {body: ab.value.expr}))
+      if (abort.value) body.push(make_node(ast_statement, abort.value, {body: abort.value.expr}))
       return body
     }
 
@@ -8074,7 +8029,7 @@ function tighten_body (statements, comp) {
     for (; i < length; i++) {
       stat = statements[i]
       if (stat instanceof ast_loop_control) {
-        lct = comp.loopcontrol(stat)
+        lct = comp.loop_control(stat)
         if (stat instanceof ast_break && !(lct instanceof ast_iteration_statement) && loop_body(lct) === self
           || stat instanceof ast_continue && loop_body(lct) === self) {
           if (stat.label) remove(stat.label.thedef.references, stat)
@@ -8114,8 +8069,7 @@ function tighten_body (statements, comp) {
         body = stat.body
         if (seq.length > 0) body = body.drop(comp)
         if (body) merge_sequence(seq, body)
-      } else if (stat instanceof ast_definitions && declarations_only(stat)
-        || stat instanceof ast_defun) {
+      } else if (stat instanceof ast_definitions && declarations_only(stat) || stat instanceof ast_defun) {
         statements[n++] = stat
       } else {
         push_seq()
@@ -8228,10 +8182,12 @@ function tighten_body (statements, comp) {
       if (defined.name.name != sym.name) break
       if (!root.right.constant_expression(nearest_scope)) break
       let prop = root.left.property
-      if (prop instanceof tree) prop = prop.evaluate(comp)
-      if (prop instanceof tree) break
+      if (prop instanceof ast_tree) prop = prop.evaluate(comp)
+      if (prop instanceof ast_tree) break
       prop = '' + prop
+
       function diff (root) { return root.key && root.key.name != prop }
+      
       if (!defined.value.properties.every(diff)) break
       const p = defined.value.properties.filter(function (p) { return p.key === prop })[0]
       if (!p) {
@@ -8327,7 +8283,7 @@ function def_reduce_vars (root, func) {
   root.prototype.reduce_vars = func
 }
 
-def_reduce_vars(tree, func)
+def_reduce_vars(ast_tree, func)
 
 function reset_def (comp, defined) {
   defined.assigns = 0
@@ -8400,7 +8356,7 @@ function safe_to_assign (trees, defined, scope, value) {
   if (!safe_to_read(trees, defined)) return false
   if (defined.fixed === false) return false
   if (defined.fixed != null && (!value || defined.references.length > defined.assigns)) return false
-  if (defined.fixed instanceof ast_defun) return value instanceof tree && defined.fixed.parents === scope
+  if (defined.fixed instanceof ast_defun) return value instanceof ast_tree && defined.fixed.parents === scope
   return defined.orig.every(sym => {
     return !(sym instanceof ast_symbol_const || sym instanceof ast_symbol_defun || sym instanceof ast_symbol_lambda)
   })
@@ -8497,7 +8453,7 @@ def_reduce_vars(ast_assign, function (trees, ascend, comp) {
     if (!eq) defined.chained = true
     defined.fixed = eq ? function () { return root.right } : function () {
       return make_node(ast_binary, root, {operator: root.operator.slice(0, -1),
-        left: fixed instanceof tree ? fixed : fixed(), right: root.right})
+        left: fixed instanceof ast_tree ? fixed : fixed(), right: root.right})
     }
   }
   if (root.logical) {
@@ -8523,9 +8479,7 @@ def_reduce_vars(ast_binary, function (trees) {
   return true
 })
 
-def_reduce_vars(ast_block, function (trees, ascend, comp) {
-  reset_block_variables(comp, this)
-})
+def_reduce_vars(ast_block, function (trees, ascend, comp) { reset_block_variables(comp, this) })
 
 def_reduce_vars(ast_case, function (trees) {
   push(trees)
@@ -8545,9 +8499,7 @@ def_reduce_vars(ast_class, function (trees, ascend) {
   return true
 })
 
-def_reduce_vars(ast_class_static, function (trees, ascend, comp) {
-  reset_block_variables(comp, this)
-})
+def_reduce_vars(ast_class_static, function (trees, ascend, comp) { reset_block_variables(comp, this) })
 
 def_reduce_vars(ast_conditional, function (trees) {
   this.condition.observe(trees)
@@ -8578,7 +8530,7 @@ def_reduce_vars(ast_prop_access, function (trees) {
   if (!this.optional) return
   this.expr.observe(trees)
   push(trees)
-  if (this.property instanceof tree) this.property.observe(trees)
+  if (this.property instanceof ast_tree) this.property.observe(trees)
   return true
 })
 
@@ -8588,6 +8540,89 @@ def_reduce_vars(ast_default, function (trees, ascend) {
   pop(trees)
   return true
 })
+
+function handle_defined_after_hoist (parent) {
+  const defuns = []
+  observe(parent, root => {
+    if (root === parent) return
+    if (root instanceof ast_defun) {
+      defuns.push(root)
+      return true
+    }
+    if (root instanceof ast_scope || root instanceof ast_statement) return true
+  })
+  const defun_dependencies_map = new Map()
+  const dependencies_map = new Map()
+  const symbols_of_interest = new Set()
+  const defuns_of_interest = new Set()
+  for (const defun of defuns) {
+    const fname_def = defun.name.defined()
+    const enclosing_defs = []
+    for (const defined of defun.encl) {
+      if (defined.fixed === false || defined === fname_def || defined.scope.get_defun_scope() !== parent) {
+        continue
+      }
+      symbols_of_interest.add(defined.id)
+      if (defined.assigns === 0 && defined.orig.length === 1 && defined.orig[0] instanceof ast_symbol_defun) {
+        defuns_of_interest.add(defined.id)
+        symbols_of_interest.add(defined.id)
+        defuns_of_interest.add(fname_def.id)
+        symbols_of_interest.add(fname_def.id)
+        if (!defun_dependencies_map.has(fname_def.id)) {
+          defun_dependencies_map.set(fname_def.id, [])
+        }
+        defun_dependencies_map.get(fname_def.id).push(defined.id)
+        continue
+      }
+      enclosing_defs.push(defined)
+    }
+    if (enclosing_defs.length) {
+      dependencies_map.set(fname_def.id, enclosing_defs)
+      defuns_of_interest.add(fname_def.id)
+      symbols_of_interest.add(fname_def.id)
+    }
+  }
+  if (!dependencies_map.size) return
+  let symbol_index = 1
+  const defun_first_read_map = new Map(), symbol_last_write_map = new Map()
+  walk_parent(parent, (node, walk_info) => {
+    if (node instanceof ast_symbol && node.thedef) {
+      const id = node.defined().id
+      symbol_index++
+      if (symbols_of_interest.has(id)) {
+        if (node instanceof ast_symbol_block || is_lhs(node, walk_info.parent())) {
+          symbol_last_write_map.set(id, symbol_index)
+        }
+      }
+      if (defuns_of_interest.has(id)) {
+        if (!defun_first_read_map.has(id) && !is_recursive_ref(walk_info, id)) {
+          defun_first_read_map.set(id, symbol_index)
+        }
+      }
+    }
+  })
+  for (const [defun, defun_first_read] of defun_first_read_map) {
+    const queue = new Set(defun_dependencies_map.get(defun))
+    for (const enclosed_defun of queue) {
+      let enclosed_defun_first_read = defun_first_read_map.get(enclosed_defun)
+      if (enclosed_defun_first_read != null && enclosed_defun_first_read < defun_first_read) {
+        continue
+      }
+      defun_first_read_map.set(enclosed_defun, defun_first_read)
+      for (const enclosed_enclosed_defun of defun_dependencies_map.get(enclosed_defun) || []) {
+        queue.add(enclosed_enclosed_defun)
+      }
+    }
+  }
+  for (const [defun, defs] of dependencies_map) {
+    const defun_first_read = defun_first_read_map.get(defun)
+    if (defun_first_read === undefined) continue
+    for (const defined of defs) {
+      if (defined.fixed === false) continue
+      if (defun_first_read < symbol_last_write_map.get(defined.id) || 0) defined.fixed = false
+    }
+  }
+}
 
 function mark_lambda (trees, ascend, comp) {
   clear_flag(this, inlined_flag)
@@ -8614,87 +8649,6 @@ function mark_lambda (trees, ascend, comp) {
   pop(trees)
   handle_defined_after_hoist(this)
   return true
-}
-
-function handle_defined_after_hoist (parent) {
-  const defuns = []
-  observe(parent, root => {
-    if (root === parent) return
-    if (root instanceof ast_defun) defuns.push(root)
-    if (root instanceof ast_scope || root instanceof ast_statement) return true
-  })
-  const symbols_of_interest = new Set()
-  const defuns_of_interest = new Set()
-  const potential_conflicts = []
-  for (const defun of defuns) {
-    const fname_def = defun.name.defined()
-    const found_self_ref_in_other_defuns = defuns.some(
-      defined => defined !== defun && defined.encl.indexOf(fname_def) !== -1
-    )
-    for (const defined of defun.encl) {
-      if (defined.fixed === false || defined === fname_def || defined.scope.get_defun_scope() !== parent
-        || (defined.assigns === 0 && defined.orig.length === 1 && defined.orig[0] instanceof ast_symbol_defun)) {
-        continue
-      }
-      if (found_self_ref_in_other_defuns) {
-        defined.fixed = false
-        continue
-      }
-      potential_conflicts.push({defun, defined, fname_def})
-      symbols_of_interest.add(defined.id)
-      symbols_of_interest.add(fname_def.id)
-      defuns_of_interest.add(defun)
-    }
-  }
-
-  if (potential_conflicts.length) {
-    const found_symbols = []
-    const found_symbol_writes = new Set()
-    const defun_ranges = new Map()
-    let trees
-    parent.observe((trees = new observes((root, ascend) => {
-      if (root instanceof ast_defun && defuns_of_interest.has(root)) {
-        const start = found_symbols.length
-        ascend()
-        const end = found_symbols.length
-        defun_ranges.set(root, {start, end})
-        return true
-      }
-      if (root instanceof ast_symbol && root.thedef) {
-        const id = root.defined().id
-        if (symbols_of_interest.has(id)) {
-          if (root instanceof ast_declaration || is_lhs(root, trees)) found_symbol_writes.add(found_symbols.length)
-          found_symbols.push(id)
-        }
-      }
-    })))
-
-    for (const { defined, defun, fname_def } of potential_conflicts) {
-      const defun_range = defun_ranges.get(defun)
-      const find = (sym_id, starting_at = 0, must_be_write = false) => {
-        let index = starting_at
-        while (true) {
-          index = found_symbols.indexOf(sym_id, index)
-          if (index === -1) {
-            break
-          } else if (index >= defun_range.start && index < defun_range.end) {
-            index = defun_range.end
-            continue
-          } else if (must_be_write && !found_symbol_writes.has(index)) {
-            index++
-            continue
-          } else {
-            break
-          }
-        }
-        return index
-      }
-      const read_defun_at = find(fname_def.id)
-      const wrote_def_at = find(defined.id, read_defun_at + 1, true)
-      const wrote_def_after_reading_defun = read_defun_at != -1 && wrote_def_at != -1 && wrote_def_at > read_defun_at
-      if (wrote_def_after_reading_defun) defined.fixed = false
-    }
-  }
 }
 
 def_reduce_vars(ast_lambda, mark_lambda)
@@ -8768,9 +8722,7 @@ def_reduce_vars(ast_labeled_statement, function (trees) {
   return true
 })
 
-def_reduce_vars(ast_symbol_catch, function () {
-  this.defined().fixed = false
-})
+def_reduce_vars(ast_symbol_catch, function () { this.defined().fixed = false })
 
 def_reduce_vars(ast_symbol_ref, function (trees, ascend, comp) {
   const defined = this.defined()
@@ -8799,9 +8751,7 @@ def_reduce_vars(ast_symbol_ref, function (trees, ascend, comp) {
 })
 
 def_reduce_vars(ast_toplevel, function (trees, ascend, comp) {
-  this.globals.forEach(function (defined) {
-    reset_def(comp, defined)
-  })
+  this.globals.forEach(function (defined) { reset_def(comp, defined) })
   reset_variables(trees, comp, this)
   ascend()
   handle_defined_after_hoist(this)
@@ -8837,7 +8787,7 @@ def_reduce_vars(ast_unary, function (trees) {
   defined.chained = true
   defined.fixed = function () {
     return make_node(ast_binary, root, {operator: root.operator.slice(0, -1),
-      left: make_node(ast_unary_prefix, root, { operator: '+', expr: fixed instanceof tree ? fixed : fixed()}),
+      left: make_node(ast_unary_prefix, root, { operator: '+', expr: fixed instanceof ast_tree ? fixed : fixed()}),
       right: make_node(ast_number, root, {value: 1})
     })
   }
@@ -8881,7 +8831,7 @@ function def_eval(root, func) { root.prototype._eval = func }
 
 const nullish = Symbol('nullish')
 
-tree.prototype.evaluate = function (comp) {
+ast_tree.prototype.evaluate = function (comp) {
   const val = this._eval(comp, 1)
   if (!val || val instanceof RegExp) return val
   if (typeof val == 'function' || typeof val == 'object' || val == nullish) return this
@@ -8892,15 +8842,16 @@ tree.prototype.evaluate = function (comp) {
   return val
 }
 
-tree.prototype.is_constant = function () {
+ast_tree.prototype.is_constant = function () {
   if (this instanceof ast_literal) {
     return !(this instanceof ast_reg_exp)
   } else {
     return this instanceof ast_unary_prefix && this.expr instanceof ast_literal && unary_prefix.has(this.operator)
+      && (this.expr instanceof ast_const || this.expr.is_constant())
   }
 }
 
-tree.prototype._eval = return_this
+ast_tree.prototype._eval = return_this
 ast_class.prototype._eval = return_this
 ast_lambda.prototype._eval = return_this
 ast_state.prototype._eval = return_false
@@ -8939,9 +8890,15 @@ const identity_comparison = make_set('== != === !==')
 
 def_eval(ast_unary_prefix, function (comp, depth) {
   let expr = this.expr
-  if (comp.options['typeofs'] && this.operator == 'typeof' && (expr instanceof ast_lambda
-      || expr instanceof ast_symbol_ref && expr.fixed_value() instanceof ast_lambda)) {
-    return typeof func
+  if (comp.options['typeofs'] && this.operator == 'typeof') {
+    if ((expr instanceof ast_lambda || expr instanceof ast_symbol_ref && expr.fixed_value() instanceof ast_lambda)) {
+      return typeof func
+    }
+    if ((expr instanceof ast_object || expr instanceof ast_array || (expr instanceof ast_symbol_ref
+      && (expr.fixed_value() instanceof ast_object || expr.fixed_value() instanceof ast_array)))
+      && !expr.has_side_effects(comp)) {
+      return typeof {}
+    }
   }
   if (!non_converting_unary.has(this.operator)) depth++
   expr = expr._eval(comp, depth)
@@ -9063,7 +9020,7 @@ function def_is_boolean (root, func) {
   root.prototype.is_boolean = func
 }
 
-def_is_boolean(tree, return_false)
+def_is_boolean(ast_tree, return_false)
 def_is_boolean(ast_unary_prefix, function () { return unary_bool.has(this.operator) })
 def_is_boolean(ast_binary, function () {
   return binary_bool.has(this.operator) || lazy_op.has(this.operator)
@@ -9075,24 +9032,74 @@ def_is_boolean(ast_sequence, function () { return this.tail_node().is_boolean() 
 def_is_boolean(ast_true, return_true)
 def_is_boolean(ast_false, return_true)
 
+const unary = make_set('+ - ~ ++ --')
+const numeric_ops = make_set('+ - * / % & | ^ << >> >>>')
+
+function def_is_bigint (root, func) {
+  root.prototype.is_bigint = func
+}
+
+def_is_bigint(ast_tree, return_false)
+def_is_bigint(ast_big_int, return_true)
+def_is_bigint(ast_unary, function (comp) {
+  return unary.has(this.operator) && this.expr.is_bigint(comp)
+})
+def_is_bigint(ast_binary, function (comp) {
+  if (this.operator == '+') {
+    return this.left.is_bigint(comp) && this.right.is_number_or_bigint(comp) || this.right.is_bigint(comp)
+      && this.left.is_number_or_bigint(comp)
+  } else if (numeric_ops.has(this.operator)) {
+    return this.left.is_bigint(comp) || this.right.is_bigint(comp)
+  } else {
+    return false
+  }
+})
+def_is_bigint(ast_assign, function (comp) { return (numeric_ops.has(this.operator.slice(0, -1))
+  || this.operator == '=') && this.right.is_bigint(comp)})
+def_is_bigint(ast_sequence, function (comp) { return this.tail_node().is_bigint(comp) })
+def_is_bigint(ast_conditional, function (comp) { return this.consequent.is_bigint(comp)
+  && this.alt.is_bigint(comp) })
+
+function def_is_number_or_bigint (node, func) {
+  node.prototype.is_number_or_bigint = func
+}
+
+def_is_number_or_bigint(ast_tree, return_false)
+def_is_number_or_bigint(ast_number, return_true)
+def_is_number_or_bigint(ast_big_int, return_true)
+def_is_number_or_bigint(ast_unary, function () { return unary.has(this.operator) })
+def_is_number_or_bigint(ast_binary, function (comp) { return this.operator == '+' ? this.left.is_number_or_bigint(comp)
+  && this.right.is_number_or_bigint(comp) : numeric_ops.has(this.operator)
+})
+def_is_number_or_bigint(ast_assign, function (comp) {
+  return (numeric_ops.has(this.operator.slice(0, -1)) || this.operator == '=') && this.right.is_number_or_bigint(comp)
+})
+def_is_number_or_bigint(ast_sequence, function (comp) {
+  return this.tail_node().is_number_or_bigint(comp)
+})
+def_is_number_or_bigint(ast_conditional, function (comp) {
+  return this.consequent.is_number_or_bigint(comp) && this.alt.is_number_or_bigint(comp)
+})
+
 function def_is_number (root, func) {
   root.prototype.is_number = func
 }
 
-def_is_number(tree, return_false)
+def_is_number(ast_tree, return_false)
 def_is_number(ast_number, return_true)
-
-const unary = make_set('+ - ~ ++ --')
-const numeric_ops = make_set('- * / % & | ^ << >> >>>')
-
-def_is_number(ast_unary, function () { return unary.has(this.operator) && !(this.expr instanceof ast_big_int)})
+def_is_number(ast_unary, function (comp) { return unary.has(this.operator) && this.expr.is_number(comp)})
 def_is_number(ast_binary, function (comp) {
-  return numeric_ops.has(this.operator) || this.operator == '+'
-    && this.left.is_number(comp)
-    && this.right.is_number(comp)
+  if (this.operator == '+') {
+    return this.left.is_number(comp) && this.right.is_number_or_bigint(comp) || this.right.is_number(comp)
+      && this.left.is_number_or_bigint(comp)
+  } else if (numeric_ops.has(this.operator)) {
+    return this.left.is_number(comp) || this.right.is_number(comp)
+  } else {
+    return false
+  }
 })
 def_is_number(ast_assign, function (comp) {
-  return numeric_ops.has(this.operator.slice(0, -1)) || this.operator == '=' && this.right.is_number(comp)
+  return (numeric_ops.has(this.operator.slice(0, -1)) || this.operator == '=') && this.right.is_number(comp)
 })
 def_is_number(ast_sequence, function (comp) { return this.tail_node().is_number(comp) })
 def_is_number(ast_conditional, function (comp) { return this.consequent.is_number(comp) && this.alt.is_number(comp) })
@@ -9101,22 +9108,22 @@ function def_is_int32 (root, func) {
   root.prototype.is_int32 = func
 }
 
-def_is_int32(tree, return_false)
+def_is_int32(ast_tree, return_false)
 def_is_int32(ast_number, function () {
   return this.value === (this.value | 0)
 })
-def_is_int32(ast_unary_prefix, function () {
-  return this.operator == '~' ? this.expr.is_number() : this.operator == '+' ? this.expr.is_int32() : false
+def_is_int32(ast_unary_prefix, function (comp) {
+  return this.operator == '~' ? this.expr.is_number(comp) : this.operator == '+' ? this.expr.is_int32(comp) : false
 })
-def_is_int32(ast_binary, function () {
-  return bitwise_binop.has(this.operator)
+def_is_int32(ast_binary, function (comp) {
+  return bitwise_binop.has(this.operator) && (this.left.is_number(comp) || this.right.is_number(comp))
 })
 
 function def_is_string (root, func) {
   root.prototype.is_string = func
 }
 
-def_is_string(tree, return_false)
+def_is_string(ast_tree, return_false)
 def_is_string(ast_string, return_true)
 def_is_string(ast_template_string, return_true)
 def_is_string(ast_unary_prefix, function () {
@@ -9143,7 +9150,7 @@ function is_undefined (root, comp) {
 function is_null_or_undefined (root, comp) {
   let fixed
   return (root instanceof ast_null || is_undefined(root, comp) || (root instanceof ast_symbol_ref
-    && (fixed = root.defined().fixed) instanceof tree && is_nullish(fixed, comp)))
+    && (fixed = root.defined().fixed) instanceof ast_tree && is_nullish(fixed, comp)))
 }
 
 function is_nullish_shortcircuited (root, comp) {
@@ -9159,18 +9166,20 @@ function is_nullish (root, comp) {
   return is_nullish_shortcircuited(root, comp)
 }
 
-function def_has_side_effects (root, func) {
-  root.prototype.has_side_effects = func
+function def_has_side_effects (nodes, func) {
+  for (const node of [].concat(nodes)) {
+    node.prototype.has_side_effects = func
+  }
 }
 
-def_has_side_effects(tree, return_true)
+def_has_side_effects(ast_tree, return_true)
 def_has_side_effects(ast_empty_statement, return_false)
 def_has_side_effects(ast_literal, return_false)
 def_has_side_effects(ast_this, return_false)
 
-function side_effects (list, comp) {
-  for (let i = list.length; --i >= 0;) {
-    if (list[i].has_side_effects(comp)) return true
+function side_effects (listed, comp) {
+  for (let i = listed.length; --i >= 0;) {
+    if (listed[i].has_side_effects(comp)) return true
   }
   return false
 }
@@ -9221,21 +9230,15 @@ def_has_side_effects(ast_declaration, return_false)
 def_has_side_effects(ast_object, function (comp) {
   return side_effects(this.properties, comp)
 })
-def_has_side_effects(ast_object_property, function (comp) {
+def_has_side_effects([ast_key_value, ast_object_property], function (comp) {
   return this.computed_key() && this.key.has_side_effects(comp) || this.value
     && this.value.has_side_effects(comp)
 })
-def_has_side_effects(ast_class_property, function (comp) {
+def_has_side_effects([ast_class_property, ast_private_property], function (comp) {
   return this.computed_key() && this.key.has_side_effects(comp) || this.static && this.value
     && this.value.has_side_effects(comp)
 })
-def_has_side_effects(ast_concise_method, function (comp) {
-  return this.computed_key() && this.key.has_side_effects(comp)
-})
-def_has_side_effects(ast_object_getter, function (comp) {
-  return this.computed_key() && this.key.has_side_effects(comp)
-})
-def_has_side_effects(ast_object_setter, function (comp) {
+def_has_side_effects([ast_concise_method, ast_object_getter, ast_object_setter], function (comp) {
   return this.computed_key() && this.key.has_side_effects(comp)
 })
 def_has_side_effects(ast_array, function (comp) { return side_effects(this.elements, comp) })
@@ -9254,22 +9257,24 @@ def_has_side_effects(ast_sub, function (comp) {
 def_has_side_effects(ast_chain, function (comp) { return this.expr.has_side_effects(comp) })
 def_has_side_effects(ast_sequence, function (comp) { return side_effects(this.exprs, comp) })
 def_has_side_effects(ast_definitions, function (comp) { return side_effects(this.defs, comp) })
-def_has_side_effects(ast_var_def, function () { return this.value })
+def_has_side_effects(ast_var_def, function () { return this.value != null })
 def_has_side_effects(ast_template_segment, return_false)
 def_has_side_effects(ast_template_string, function (comp) { return side_effects(this.segments, comp) })
 
-function any_throw(list, comp) {
-  for (let i = list.length; --i >= 0;) {
-    if (list[i].may_throw(comp)) return true
+function any_throw (listed, comp) {
+  for (let i = listed.length; --i >= 0;) {
+    if (listed[i].may_throw(comp)) return true
   }
   return false
 }
 
-function def_may_throw (root, func) {
-  root.prototype.may_throw = func
+function def_may_throw (nodes, func) {
+  for (const node of [].concat(nodes)) {
+    node.prototype.may_throw = func
+  }
 }
 
-def_may_throw(tree, return_true)
+def_may_throw(ast_tree, return_true)
 def_may_throw(ast_literal, return_false)
 def_may_throw(ast_empty_statement, return_false)
 def_may_throw(ast_lambda, return_false)
@@ -9297,25 +9302,24 @@ def_may_throw(ast_call, function (comp) {
 })
 def_may_throw(ast_case, function (comp) { return this.expr.may_throw(comp) || any_throw(this.body, comp) })
 def_may_throw(ast_conditional, function (comp) {
-  return this.condition.may_throw(comp)
-    || this.consequent.may_throw(comp)
-    || this.alt.may_throw(comp)
+  return this.condition.may_throw(comp) || this.consequent.may_throw(comp) || this.alt.may_throw(comp)
 })
 def_may_throw(ast_definitions, function (comp) { return any_throw(this.defs, comp) })
 def_may_throw(ast_if, function (comp) {
-  return this.condition.may_throw(comp)
-    || this.body && this.body.may_throw(comp)
+  return this.condition.may_throw(comp) || this.body && this.body.may_throw(comp)
     || this.alt && this.alt.may_throw(comp)
 })
 def_may_throw(ast_labeled_statement, function (comp) { return this.body.may_throw(comp) })
 def_may_throw(ast_object, function (comp) { return any_throw(this.properties, comp) })
-def_may_throw(ast_object_property, function (comp) { return this.value ? this.value.may_throw(comp) : false })
-def_may_throw(ast_class_property, function (comp) {
+def_may_throw([ast_key_value, ast_object_property], function (comp) {
+  return this.value ? this.value.may_throw(comp) : false
+})
+def_may_throw([ast_class_property, ast_private_property], function (comp) {
   return (this.computed_key() && this.key.may_throw(comp) || this.static && this.value && this.value.may_throw(comp))
 })
-def_may_throw(ast_concise_method, function (comp) { return this.computed_key() && this.key.may_throw(comp) })
-def_may_throw(ast_object_getter, function (comp) { return this.computed_key() && this.key.may_throw(comp) })
-def_may_throw(ast_object_setter, function (comp) { return this.computed_key() && this.key.may_throw(comp) })
+def_may_throw([ast_concise_method, ast_object_getter, ast_object_setter], function (comp) {
+  return this.computed_key() && this.key.may_throw(comp)
+})
 def_may_throw(ast_return, function (comp) { return this.value && this.value.may_throw(comp) })
 def_may_throw(ast_sequence, function (comp) { return any_throw(this.exprs, comp) })
 def_may_throw(ast_statement, function (comp) { return this.body.may_throw(comp) })
@@ -9381,7 +9385,7 @@ function all_refs_local (scope) {
   return result
 }
 
-def_is_constant(tree, return_false)
+def_is_constant(ast_tree, return_false)
 def_is_constant(ast_literal, return_true)
 def_is_constant(ast_class, function (scope) {
   if (this.extends && !this.extends.constant_expression(scope)) return false
@@ -9398,20 +9402,20 @@ def_is_constant(ast_binary, function () { return this.left.constant_expression()
 def_is_constant(ast_array, function () { return this.elements.every(l => l.constant_expression()) })
 def_is_constant(ast_object, function () { return this.properties.every(l => l.constant_expression()) })
 def_is_constant(ast_object_property, function () {
- return !!(!(this.key instanceof tree) && this.value && this.value.constant_expression())
+ return !!(!(this.key instanceof ast_tree) && this.value && this.value.constant_expression())
 })
 
 function def_may_throw_on_access (root, func) {
   root.prototype._dot_throw = func
 }
 
-tree.prototype.may_throw_on_access = function (comp) {
+ast_tree.prototype.may_throw_on_access = function (comp) {
   return !comp.options['pure_getters'] || this._dot_throw(comp)
 }
 
 function is_strict (comp) { return /strict/.test(comp.options['pure_getters']) }
 
-def_may_throw_on_access(tree, is_strict)
+def_may_throw_on_access(ast_tree, is_strict)
 def_may_throw_on_access(ast_null, return_true)
 def_may_throw_on_access(ast_undefined, return_true)
 def_may_throw_on_access(ast_literal, return_false)
@@ -9466,23 +9470,23 @@ function is_lhs (root, parent) {
 }
 
 function def_negate (root, func) {
-  root.prototype.negate = function (comp, first_in_statement) {
-    return func.call(this, comp, first_in_statement)
+  root.prototype.negate = function (comp, first) {
+    return func.call(this, comp, first)
   }
 }
 
 function basic_negation (expr) { return make_node(ast_unary_prefix, expr, {operator: '!', expr}) }
 
-function best (orig, alt, first_in_statement) {
+function best (orig, alt, first) {
   const negated = basic_negation(orig)
-  if (first_in_statement) {
+  if (first) {
     const stat = make_node(ast_statement, alt, {body: alt})
     return best_of_expression(negated, stat) === stat ? alt : negated
   }
   return best_of_expression(negated, alt)
 }
 
-def_negate(tree, function () { return basic_negation(this) })
+def_negate(ast_tree, function () { return basic_negation(this) })
 def_negate(ast_statement, function () { throw new Error('cannot negate statement') })
 def_negate(ast_function, function () { return basic_negation(this) })
 def_negate(ast_class, function () { return basic_negation(this) })
@@ -9496,13 +9500,13 @@ def_negate(ast_sequence, function (comp) {
   exprs.push(exprs.pop().negate(comp))
   return make_sequence(this, exprs)
 })
-def_negate(ast_conditional, function (comp, first_in_statement) {
+def_negate(ast_conditional, function (comp, first) {
   const self = this.copy()
   self.consequent = self.consequent.negate(comp)
   self.alt = self.alt.negate(comp)
-  return best(this, self, first_in_statement)
+  return best(this, self, first)
 })
-def_negate(ast_binary, function (comp, first_in_statement) {
+def_negate(ast_binary, function (comp, first) {
   const self = this.copy(), op = this.operator
   switch (op) {
     case '==':
@@ -9519,14 +9523,14 @@ def_negate(ast_binary, function (comp, first_in_statement) {
       return self
     case '&&':
       self.operator = '||'
-      self.left = self.left.negate(comp, first_in_statement)
+      self.left = self.left.negate(comp, first)
       self.right = self.right.negate(comp)
-      return best(this, self, first_in_statement)
+      return best(this, self, first)
     case '||':
       self.operator = '&&'
-      self.left = self.left.negate(comp, first_in_statement)
+      self.left = self.left.negate(comp, first)
       self.right = self.right.negate(comp)
-      return best(this, self, first_in_statement)
+      return best(this, self, first)
   }
   return basic_negation(this)
 })
@@ -9535,17 +9539,21 @@ function def_bitwise_negate (root, func) { root.prototype.bitwise_negate = func 
 
 function bitwise_negation (expr) { return make_node(ast_unary_prefix, expr, {operator: '~', expr}) }
 
-def_bitwise_negate(tree, function () { return bitwise_negation(this) })
+def_bitwise_negate(ast_tree, function () { return bitwise_negation(this) })
 def_bitwise_negate(ast_number, function () {
   const neg = ~this.value
   if (neg.toString().length > this.value.toString().length) return bitwise_negation(this)
   return make_node(ast_number, this, {value: neg})
 })
-def_bitwise_negate(ast_unary_prefix, function (in_32_bit_context) {
-  return (this.operator == '~' && (in_32_bit_context || this.expr.is_int32())) ? this.expr : bitwise_negation(this)
+def_bitwise_negate(ast_unary_prefix, function (comp, context) {
+  if (this.operator == '~' && (this.expr.is_int32(comp) || context != null ? context : comp.in_32_bit_context())) {
+    return this.expr
+  } else {
+    bitwise_negation(this)
+  }
 })
 
-tree.prototype.is_call_pure = return_false
+ast_tree.prototype.is_call_pure = return_false
 
 ast_dot.prototype.is_call_pure = return_null
 
@@ -9567,9 +9575,7 @@ function def_aborts (root, func) {
 }
 
 def_aborts(ast_statement, return_null)
-
 def_aborts(ast_jump, return_this)
-
 def_aborts(ast_import, return_null)
 
 function block_aborts () {
@@ -9580,23 +9586,19 @@ function block_aborts () {
 }
 
 def_aborts(ast_block_statement, block_aborts)
-
 def_aborts(ast_switch_branch, block_aborts)
-
 def_aborts(ast_def_class, function () {
   for (const prop of this.properties) {
     if (prop instanceof ast_class_static && prop.aborts()) return prop
   }
   return null
 })
-
 def_aborts(ast_class_static, block_aborts)
-
 def_aborts(ast_if, function () {
   return this.alt && aborts(this.body) && aborts(this.alt) && this
 })
 
-tree.prototype.this = function () {
+ast_tree.prototype.this = function () {
   return observe(this, root => {
     if (root instanceof ast_this) return walk_abort
     if (root !== this && root instanceof ast_scope && !(root instanceof ast_arrow)) return true
@@ -9628,7 +9630,7 @@ function def_find_defs (root, func) {
 }
 
 function to_node (value, orig) {
-  if (value instanceof tree) {
+  if (value instanceof ast_tree) {
     if (!(value instanceof ast_literal)) value = value.copy(true)
     return make_node(value.constructor, orig, value)
   }
@@ -9645,20 +9647,10 @@ function to_node (value, orig) {
   return make_node_from_constant(value, orig)
 }
 
-def_find_defs(tree, func)
-
-def_find_defs(ast_chain, function (comp, suffix) {
-  return this.expr._find_defs(comp, suffix)
-})
-
-def_find_defs(ast_dot, function (comp, suffix) {
-  return this.expr._find_defs(comp, '.' + this.property + suffix)
-})
-
-def_find_defs(ast_declaration, function () {
-  if (!this.global()) return
-})
-
+def_find_defs(ast_tree, func)
+def_find_defs(ast_chain, function (comp, suffix) { return this.expr._find_defs(comp, suffix) })
+def_find_defs(ast_dot, function (comp, suffix) { return this.expr._find_defs(comp, '.' + this.property + suffix) })
+def_find_defs(ast_declaration, function () { if (!this.global()) return })
 def_find_defs(ast_symbol_ref, function (comp, suffix) {
   if (!this.global()) return
   const defines = comp.options['global_defs']
@@ -9749,7 +9741,7 @@ function inline_into_symbolref (self, comp) {
   let single_use = defined.single_use && !(parent instanceof ast_call
     && (parent.is_callee_pure(comp)) || has_annotation(parent, _noinline))
     && !(parent instanceof ast_export && fixed instanceof ast_lambda && fixed.name)
-  if (single_use && fixed instanceof tree) single_use = !fixed.has_side_effects(comp) && !fixed.may_throw(comp)
+  if (single_use && fixed instanceof ast_tree) single_use = !fixed.has_side_effects(comp) && !fixed.may_throw(comp)
   if (fixed instanceof ast_class && defined.scope !== self.scope) return self
   if (single_use && (fixed instanceof ast_lambda || fixed instanceof ast_class)) {
     if (retain_top_func(fixed, comp)) {
@@ -9988,11 +9980,10 @@ function inline_into_call (self, comp) {
   function append_var (decls, exprs, name, value) {
     const defined = name.defined()
     const node_name = name.file + '/' + name.name
-    const already_appended = scope.vars.has(node_name)
-    if (!already_appended) {
+    if (!scope.vars.has(node_name)) {
       scope.vars.set(node_name, defined)
       scope.encl.push(defined)
-      decls.push(make_node(ast_var_def, name, {name: name, value: null}))
+      decls.push(make_node(ast_var_def, name, {name, value: null}))
     }
     const sym = make_node(ast_symbol_ref, name, name)
     defined.references.push(sym)
@@ -10066,6 +10057,12 @@ function make_sequence (orig, exprs) {
   return make_node(ast_sequence, orig, {exprs: exprs.reduce(merge_sequence, [])})
 }
 
+function make_empty_function (self) {
+  return make_node(ast_function, self, {uses_arguments: false, argnames: [], body: [], gen: false,
+    async: false, variables: new Map(), uses_with: false, uses_eval: false, parent_scope: null, enclosed: [],
+    cname: 0, block_scope: undefined})
+}
+
 function make_node_from_constant (val, orig) {
   switch (typeof val) {
     case 'string':
@@ -10111,7 +10108,7 @@ function get_simple_key (key) {
 
 function read_property (obj, key) {
   key = get_simple_key(key)
-  if (key instanceof tree) return
+  if (key instanceof ast_tree) return
   let value
   if (obj instanceof ast_array) {
     const elements = obj.elements
@@ -10133,7 +10130,7 @@ function has_break_or_continue (loop, parent) {
   let found = false
   const trees = new observes(function (root) {
     if (found || root instanceof ast_scope) return true
-    if (root instanceof ast_loop_control && trees.loopcontrol(root) === loop) return found = true
+    if (root instanceof ast_loop_control && trees.loop_control(root) === loop) return found = true
   })
   if (parent instanceof ast_labeled_statement) trees.push(parent)
   trees.push(loop)
@@ -10223,7 +10220,7 @@ function retain_top_func (fn, comp) {
     && comp.top_retain(fn.name.defined())
 }
 
-class reduces extends observes {
+class compressor extends observes {
   constructor (options, {false_by_default = false, mangle_options = false}) {
     super()
     this.imports = mangle_options.imports
@@ -10306,9 +10303,11 @@ class reduces extends observes {
     }
   }
 
-  in_32_bit_context () {
+  in_32_bit_context (number_operand) {
     for (let i = 0, p, self = this.self(); p = this.parent(i); i++) {
-      if (p instanceof ast_binary && bitwise_binop.has(p.operator)) return true
+      if (p instanceof ast_binary && bitwise_binop.has(p.operator)) {
+        return number_operand ? (self === p.left ? p.right : p.left).is_number(this) : true
+      }
       if (p instanceof ast_unary_prefix) return p.operator == '~'
       if (p instanceof ast_binary && (p.operator == '&&' || p.operator == '||' || p.operator == '??')
         || p instanceof ast_conditional && p.condition !== self || p.tail_node() === self) {
@@ -10385,36 +10384,62 @@ class reduces extends observes {
   }
 }
 
-function def_optimize (root, optimizer) {
-  root.prototype.optimize = function (comp) {
-    const self = this
-    if (has_flag(self, optimized_flag)) return self
-    if (comp.has_directive('use asm')) return self
-    const opt = optimizer(self, comp)
-    set_flag(opt, optimized_flag)
-    return opt
+function is_used_in_expression (ast_tree) {
+  for (let node, op, p = 0, parent; node = ast_tree.parent(p - 1), parent = ast_tree.parent(p); p++) {
+    if (parent instanceof ast_sequence) {
+      if (parent.expressions.indexOf(node) != parent.expressions.length - 1) {
+        return (parent.expressions.length > 2 || parent.expressions.length == 1
+          || !maintain_bind(ast_tree.parent(p + 1), parent, parent.expressions[1]))
+      } else {
+        continue
+      }
+    }
+    if (parent instanceof ast_unary) {
+      op = parent.operator
+      if (op == 'void') return false
+      if (op == 'typeof' || op == '+' || op == '-' || op == '!' || op == '~') continue
+    }
+    if (parent instanceof ast_statement || parent instanceof ast_labeled_statement) return false
+    if (parent instanceof ast_scope) return false
+    return true
   }
+  return true
 }
-
-def_optimize(tree, function (self) { return self })
 
 ast_toplevel.prototype.drop_console = function (options) {
   const is_array = Array.isArray(options)
-  return this.transform(new transforms(function (self) {
-    if (self.type !== 'ast_call') return
+  const transformer = new transforms(function (self) {
+    if (self.type != 'ast_call') return
     const expr = self.expr
     if (!(expr instanceof ast_prop_access)) return
-    if (is_array && options.indexOf(expr.property) === -1) return
-    const name = expr.expr
-    while (name.expr) name = name.expr
-    if (is_undeclared_ref(name) && name.name == 'console') return make_node(ast_undefined, self)
-  }))
+    let depth = 2, name = expr.expr, prop = expr.property
+    if (is_array && !options.includes(prop)) return
+    while (name.expr) {
+      prop = name.property
+      name = name.expr
+      depth++
+    }
+    if (is_undeclared_ref(name) && name.name == 'console') {
+      if (depth == 3 && !['call', 'apply'].includes(prop) && is_used_in_expression(transformer)) {
+        expr.expr = make_empty_function(self)
+        set_flag(expr.expr, squeezed_flag)
+      } else {
+        return make_node(ast_undefined, self)
+      }
+    }
+  })
+  return this.transform(transformer)
 }
-
-tree.prototype.equivalent_to = function (root) {
+ast_tree.prototype.contains_optional = function () {
+  if (this instanceof ast_prop_access || this instanceof ast_call || this instanceof ast_chain) {
+    return this.optional ? true : this.expr.contains_optional()
+  } else {
+    return false
+  }
+}
+ast_tree.prototype.equivalent_to = function (root) {
   return equivalent_to(this, root)
 }
-
 ast_scope.prototype.process_expression = function (insert, comp) {
   const self = this
   const trans = new transforms(function (root) {
@@ -10424,11 +10449,8 @@ ast_scope.prototype.process_expression = function (insert, comp) {
         const value = root.value && root.value.drop(comp, true)
         return value ? make_node(ast_statement, root, {body: value}) : make_node(ast_empty_statement, root)
       }
-      return make_node(ast_statement, root, {
-        body: root.value || make_node(ast_unary_prefix, root, {
-          operator: 'void',
-          expr: make_node(ast_number, root, {value: 0})
-        })
+      return make_node(ast_statement, root, {body: root.value || make_node(ast_unary_prefix, root, {operator: 'void',
+        expr: make_node(ast_number, root, {value: 0})})
       })
     }
     if (root instanceof ast_class || root instanceof ast_lambda && root !== self) return root
@@ -10445,7 +10467,6 @@ ast_scope.prototype.process_expression = function (insert, comp) {
   })
   self.transform(trans)
 }
-
 ast_toplevel.prototype.reset_opt_flags = function (comp) {
   const self = this
   const reduce_vars = comp.options['reduce_vars']
@@ -10465,7 +10486,7 @@ ast_toplevel.prototype.reset_opt_flags = function (comp) {
 
 ast_symbol.prototype.fixed_value = function () {
   const fixed = this.thedef.fixed
-  if (!fixed || fixed instanceof tree) return fixed
+  if (!fixed || fixed instanceof ast_tree) return fixed
   return fixed()
 }
 
@@ -10491,6 +10512,19 @@ ast_symbol_ref.prototype.is_declared = function () {
   return !this.defined().undeclared
 }
 
+function def_optimize (root, optimizer) {
+  root.prototype.optimize = function (comp) {
+    const self = this
+    if (has_flag(self, optimized_flag)) return self
+    if (comp.has_directive('use asm')) return self
+    const opt = optimizer(self, comp)
+    set_flag(opt, optimized_flag)
+    return opt
+  }
+}
+
+def_optimize(ast_tree, function (self) { return self })
+
 const directives = new Set(['use asm', 'use strict'])
 
 def_optimize(ast_directive, function (self, comp) {
@@ -10501,7 +10535,7 @@ def_optimize(ast_directive, function (self, comp) {
 })
 
 def_optimize(ast_labeled_statement, function (self, comp) {
-  if (self.body instanceof ast_break && comp.loopcontrol(self.body) === self.body) {
+  if (self.body instanceof ast_break && comp.loop_control(self.body) === self.body) {
     return make_node(ast_empty_statement, self)
   }
   return self.label.references.length == 0 ? self.body : self
@@ -10554,7 +10588,7 @@ ast_scope.prototype.hoist_properties = function (comp) {
         const assigns = []
         value.properties.forEach(({key, value}) => {
           const scope = hoister.find_scope()
-          const symbol = self.create_symbol(sym.constructor, {source: sym, scope, conflict_scopes: new Set([scope,
+          const symbol = self.create_symbol(sym.constructor, {source: sym, scope, scopes: new Set([scope,
             ...sym.defined().references.map(ref => ref.scope)]), name: sym.name + '_' + key})
           defs.set(String(key), symbol.defined())
           assigns.push(make_node(ast_var_def, root, {name: symbol, value}))
@@ -10592,7 +10626,7 @@ def_optimize(ast_while, function (self, comp) {
 def_optimize(ast_do, function (self, comp) {
   if (!comp.options['loops']) return self
   const cond = self.condition.tail_node().evaluate(comp)
-  if (!(cond instanceof tree)) {
+  if (!(cond instanceof ast_tree)) {
     if (cond) return make_node(ast_for, self, {
       body: make_node(ast_block_statement, self.body, {
         body: [self.body, make_node(ast_statement, self.condition, {body: self.condition})]
@@ -10634,7 +10668,7 @@ function if_break_in_loop (self, comp) {
   return self
 
   function is_break (root) {
-    return root instanceof ast_break && comp.loopcontrol(root) === comp.self()
+    return root instanceof ast_break && comp.loop_control(root) === comp.self()
   }
 
   function drop_it (rest) {
@@ -10657,7 +10691,7 @@ def_optimize(ast_for, function (self, comp) {
   if (comp.options['side_effects'] && self.init) self.init = self.init.drop(comp)
   if (self.condition) {
     let cond = self.condition.evaluate(comp)
-    if (!(cond instanceof tree)) {
+    if (!(cond instanceof ast_tree)) {
       if (cond) {
         self.condition = null
       } else if (!comp.options['dead_code']) {
@@ -10667,7 +10701,7 @@ def_optimize(ast_for, function (self, comp) {
       }
     }
     if (comp.options['dead_code']) {
-      if (cond instanceof tree) cond = self.condition.tail_node().evaluate(comp)
+      if (cond instanceof ast_tree) cond = self.condition.tail_node().evaluate(comp)
       if (!cond) {
         const body = []
         trim_unreachable(comp, self.body, body)
@@ -10688,20 +10722,20 @@ def_optimize(ast_if, function (self, comp) {
   if (is_empty(self.alt)) self.alt = null
   if (!comp.options['conditionals']) return self
   let cond = self.condition.evaluate(comp)
-  if (!comp.options['dead_code'] && !(cond instanceof tree)) {
+  if (!comp.options['dead_code'] && !(cond instanceof ast_tree)) {
     const orig = self.condition
     self.condition = make_node_from_constant(cond, orig)
     self.condition = best_of_expression(self.condition.transform(comp), orig)
   }
   if (comp.options['dead_code']) {
-    if (cond instanceof tree) cond = self.condition.tail_node().evaluate(comp)
+    if (cond instanceof ast_tree) cond = self.condition.tail_node().evaluate(comp)
     if (!cond) {
       const body = []
       trim_unreachable(comp, self.body, body)
       body.push(make_node(ast_statement, self.condition, {body: self.condition}))
       if (self.alt) body.push(self.alt)
       return make_node(ast_block_statement, self, {body}).optimize(comp)
-    } else if (!(cond instanceof tree)) {
+    } else if (!(cond instanceof ast_tree)) {
       const body = []
       body.push(make_node(ast_statement, self.condition, {body: self.condition}))
       body.push(self.body)
@@ -10767,26 +10801,26 @@ def_optimize(ast_if, function (self, comp) {
 def_optimize(ast_switch, function (self, comp) {
   if (!comp.options['switches']) return self
   let value = self.expr.evaluate(comp)
-  if (!(value instanceof tree)) {
+  if (!(value instanceof ast_tree)) {
     const orig = self.expr
     self.expr = make_node_from_constant(value, orig)
     self.expr = best_of_expression(self.expr.transform(comp), orig)
   }
   if (!comp.options['dead_code']) return self
-  if (value instanceof tree) value = self.expr.tail_node().evaluate(comp)
+  if (value instanceof ast_tree) value = self.expr.tail_node().evaluate(comp)
   const decl = [], body = []
   let branch, default_branch, exact_match, expr, i, length, default_index
   for (i = 0, length = self.body.length; i < length && !exact_match; i++) {
     branch = self.body[i]
     if (branch instanceof ast_default) {
       !default_branch ? default_branch = branch : eliminate_branch(branch, body[body.length - 1])
-    } else if (!(value instanceof tree)) {
+    } else if (!(value instanceof ast_tree)) {
       expr = branch.expr.evaluate(comp)
-      if (!(expr instanceof tree) && expr !== value) {
+      if (!(expr instanceof ast_tree) && expr !== value) {
         eliminate_branch(branch, body[body.length - 1])
         continue
       }
-      if (expr instanceof tree) expr = branch.expr.tail_node().evaluate(comp)
+      if (expr instanceof ast_tree && !expr.has_side_effects(comp)) expr = branch.expr.tail_node().evaluate(comp)
       if (expr === value) {
         exact_match = branch
         if (default_branch) {
@@ -10868,7 +10902,6 @@ def_optimize(ast_switch, function (self, comp) {
       }
     }
   }
-
   default_or: if (default_or_exact) {
     let default_index = body.indexOf(default_or_exact)
     let default_body_index = default_index
@@ -10899,7 +10932,6 @@ def_optimize(ast_switch, function (self, comp) {
       body.splice(before, default_index - before)
     }
   }
-
   default_or: if (default_or_exact) {
     let i = body.findIndex(branch => !is_inert_body(branch))
     let case_body
@@ -10931,22 +10963,19 @@ def_optimize(ast_switch, function (self, comp) {
   }
   if (body.length == 2 && default_or_exact && !has_nested_break(self)) {
     let branch = body[0] === default_or_exact ? body[1] : body[0]
-    let exact_exp = default_or_exact.expr && statement(default_or_exact.expr)
+    let exact_expr = default_or_exact.expr && statement(default_or_exact.expr)
     if (aborts(body[0])) {
       let first = body[0]
       if (is_break(first.body[first.body.length - 1], comp)) first.body.pop()
       return make_node(ast_if, self, {condition: make_node(ast_binary, self, {operator: '===', left: self.expr,
-        right: branch.expr}),
-        body: make_node(ast_block_statement, branch, {body: branch.body}),
-        alt: make_node(ast_block_statement, default_or_exact, {
-          body: [].concat(exact_exp || [], default_or_exact.body)
-        })
-      }).optimize(comp)
+        right: branch.expr}), body: make_node(ast_block_statement, branch, {body: branch.body}),
+        alt: make_node(ast_block_statement, default_or_exact,
+        {body: [].concat(exact_expr || [], default_or_exact.body)})}).optimize(comp)
     }
     let operator = '==='
     let consequent = make_node(ast_block_statement, branch, {body: branch.body})
     let always = make_node(ast_block_statement, default_or_exact, {
-      body: [].concat(exact_exp || [], default_or_exact.body)
+      body: [].concat(exact_expr || [], default_or_exact.body)
     })
     if (body[0] === default_or_exact) {
       operator = '!=='
@@ -10954,12 +10983,8 @@ def_optimize(ast_switch, function (self, comp) {
       always = consequent
       consequent = tmp
     }
-    return make_node(ast_block_statement, self, {
-      body: [
-        make_node(ast_if, self, {condition: make_node(ast_binary, self, {operator: operator, left: self.expr,
-          right: branch.expr}), body: consequent, alt: null})
-      ].concat(always)
-    }).optimize(comp)
+    return make_node(ast_block_statement, self, {body: [make_node(ast_if, self, {condition: make_node(ast_binary, self,
+      {operator, left: self.expr, right: branch.expr}), body: consequent, alt: null}), always]}).optimize(comp)
   }
   return self
 
@@ -10977,9 +11002,7 @@ def_optimize(ast_switch, function (self, comp) {
     return branch_block.equivalent_to(prev_block)
   }
 
-  function statement (expr) {
-    return make_node(ast_statement, expr, {body: expr})
-  }
+  function statement (body) { return make_node(ast_statement, body, {body}) }
 
   function has_nested_break (root) {
     let has_break = false
@@ -10996,9 +11019,7 @@ def_optimize(ast_switch, function (self, comp) {
     return has_break
   }
 
-  function is_break (root, stack) {
-    return root instanceof ast_break && stack.loopcontrol(root) === self
-  }
+  function is_break (root, stack) { return root instanceof ast_break && stack.loop_control(root) === self }
 
   function is_inert_body (branch) {
     return !aborts(branch) && !make_node(ast_block_statement, branch, {body: branch.body}).has_side_effects(comp)
@@ -11043,9 +11064,7 @@ def_optimize(ast_var_def, function (self, comp) {
   return self
 })
 
-def_optimize(ast_import, function (self) {
-  return self
-})
+def_optimize(ast_import, function (self) { return self })
 
 def_optimize(ast_call, function (self, comp) {
   const expr = self.expr
@@ -11084,16 +11103,16 @@ def_optimize(ast_call, function (self, comp) {
     }
     self.args.length = last
   }
+  if (expr instanceof ast_dot && expr.expr instanceof ast_symbol_ref && expr.expr.name == 'console'
+    && expr.expr.defined().undeclared && expr.property == 'assert') {
+    const condition = self.args[0]
+    if (condition) {
+      const value = condition.evaluate(comp)
+      if (value === 1 || value === true) return make_node(ast_undefined, self)
+    }
+  }    
   return inline_into_call(self, comp)
 })
-
-tree.prototype.contains_optional = function () {
-  if (this instanceof ast_prop_access || this instanceof ast_call || this instanceof ast_chain) {
-    return this.optional ? true : this.expr.contains_optional()
-  } else {
-    return false
-  }
-}
 
 def_optimize(ast_new, function (self, comp) { return self })
 
@@ -11145,14 +11164,12 @@ ast_unary.prototype.lift_sequences = function (comp) {
   return this
 }
 
-def_optimize(ast_unary_postfix, function (self, comp) {
-  return self.lift_sequences(comp)
-})
+def_optimize(ast_unary_postfix, function (self, comp) { return self.lift_sequences(comp) })
 
 def_optimize(ast_unary_prefix, function (self, comp) {
   let expr = self.expr
   if (self.operator == 'delete' && !(expr instanceof ast_symbol_ref || expr instanceof ast_prop_access
-      || expr instanceof ast_chain || is_identifier_atom(expr))) {
+    || expr instanceof ast_chain || is_identifier_atom(expr))) {
     return make_sequence(self, [expr, make_node(ast_true, self)]).optimize(comp)
   }
   const seq = self.lift_sequences(comp)
@@ -11180,28 +11197,23 @@ def_optimize(ast_unary_prefix, function (self, comp) {
   if (self.operator == '-' && expr instanceof ast_infinity) expr = expr.transform(comp)
   if (expr instanceof ast_binary && (self.operator == '+' || self.operator == '-')
     && (expr.operator == '*' || expr.operator == '/' || expr.operator == '%')) {
-    return make_node(ast_binary, self, {
-      operator: expr.operator,
+    return make_node(ast_binary, self, {operator: expr.operator,
       left: make_node(ast_unary_prefix, expr.left, {operator: self.operator, expr: expr.left}),
       right: expr.right
     })
   }
-
-  if ('evaluate') {
-    if (self.operator == '~' && self.expr instanceof ast_unary_prefix && self.expr.operator == '~'
-      && (comp.in_32_bit_context() || self.expr.expr.is_int32())) {
-      return self.expr.expr
-    }
-    if (self.operator == '~' && expr instanceof ast_binary && expr.operator == '^') {
-      if (expr.left instanceof ast_unary_prefix && expr.left.operator == '~') {
-        expr.left = expr.left.bitwise_negate(true)
-      } else {
-        expr.right = expr.right.bitwise_negate(true)
-      }
-      return expr
-    }
+  if (self.operator == '~' && self.expr instanceof ast_unary_prefix && self.expr.operator == '~'
+    && (comp.in_32_bit_context(false) || self.expr.expr.is_int32(comp))) {
+    return self.expr.expr
   }
-
+  if (self.operator == '~' && expr instanceof ast_binary && expr.operator == '^') {
+    if (expr.left instanceof ast_unary_prefix && expr.left.operator == '~') {
+      expr.left = expr.left.bitwise_negate(comp, true)
+    } else {
+      expr.right = expr.right.bitwise_negate(comp, true)
+    }
+    return expr
+  }
   if (self.operator != '-' || !(expr instanceof ast_number || expr instanceof ast_infinity
     || expr instanceof ast_big_int)) {
     let ev = self.evaluate(comp)
@@ -11284,6 +11296,12 @@ def_optimize(ast_binary, function (self, comp) {
         || self.left.equivalent_to(self.right)) {
         self.operator = self.operator.substr(0, 2)
       }
+      if ((self.left.is_string(comp) && self.right.is_string(comp))
+        || (self.left.is_number(comp) && self.right.is_number(comp))
+        || (self.left.is_bigint(comp) && self.right.is_bigint(comp))
+        || (self.left.is_boolean() && self.right.is_boolean()) || self.left.equivalent_to(self.right)) {
+          self.operator = self.operator.substr(0, 2)
+      }
     case '==':
     case '!=':
       if (!strict_comparison && is_undefined(self.left, comp)) {
@@ -11309,7 +11327,7 @@ def_optimize(ast_binary, function (self, comp) {
       } else if (self.left instanceof ast_symbol_ref && self.right instanceof ast_symbol_ref
         && self.left.defined() === self.right.defined() && is_object(self.left.fixed_value())) {
         return make_node(self.operator[0] == '=' ? ast_true : ast_false, self)
-      } else if (self.left.is_int32() && self.right.is_int32()) {
+      } else if (self.left.is_int32(comp) && self.right.is_int32(comp)) {
         const not = root => make_node(ast_unary_prefix, root, {operator: '!', expr: root})
         const booleanify = (root, truthy) => truthy ? comp.in_boolean_context() ? root : not(not(root)) : not(root)
         if (self.left instanceof ast_number && self.left.value === 0) {
@@ -11321,7 +11339,7 @@ def_optimize(ast_binary, function (self, comp) {
         let and_op, expr, mask
         if ((and_op = self.left instanceof ast_binary ? self.left : self.right instanceof ast_binary ? self.right
           : null) && (mask = and_op === self.left ? self.right : self.left) && and_op.operator == '&'
-          && mask instanceof ast_number && mask.is_int32() && (expr = and_op.left.equivalent_to(mask) ? and_op.right
+          && mask instanceof ast_number && mask.is_int32(comp) && (expr = and_op.left.equivalent_to(mask) ? and_op.right
           : and_op.right.equivalent_to(mask) ? and_op.left : null)) {
           let optimized = booleanify(make_node(ast_binary, self, {operator: '&', left: mask,
             right: make_node(ast_unary_prefix, self, {operator: '~', expr: expr})}), self.operator[0] == '!')
@@ -11378,7 +11396,7 @@ def_optimize(ast_binary, function (self, comp) {
       ll = has_flag(self.left, true_flag) ? true : has_flag(self.left, false_flag) ? false : self.left.evaluate(comp)
       if (!ll) {
         return maintain_bind(comp.parent(), comp.self(), self.left).optimize(comp)
-      } else if (!(ll instanceof tree)) {
+      } else if (!(ll instanceof ast_tree)) {
         return make_sequence(self, [self.left, self.right]).optimize(comp)
       }
       rr = self.right.evaluate(comp)
@@ -11388,7 +11406,7 @@ def_optimize(ast_binary, function (self, comp) {
         } else {
           set_flag(self, false_flag)
         }
-      } else if (!(rr instanceof tree)) {
+      } else if (!(rr instanceof ast_tree)) {
         const parent = comp.parent()
         if (parent.operator == '&&' && parent.left === comp.self() || comp.in_boolean_context()) {
           return self.left.optimize(comp)
@@ -11396,18 +11414,15 @@ def_optimize(ast_binary, function (self, comp) {
       }
       if (self.left.operator == '||') {
         const lr = self.left.right.evaluate(comp)
-        if (!lr) return make_node(ast_conditional, self, {
-          condition: self.left.left,
-          consequent: self.right,
-          alt: self.left.right
-        }).optimize(comp)
+        if (!lr) return make_node(ast_conditional, self, {condition: self.left.left, consequent: self.right,
+          alt: self.left.right}).optimize(comp)
       }
       break
     case '||':
       ll = has_flag(self.left, true_flag) ? true : has_flag(self.left, false_flag) ? false : self.left.evaluate(comp)
       if (!ll) {
         return make_sequence(self, [self.left, self.right]).optimize(comp)
-      } else if (!(ll instanceof tree)) {
+      } else if (!(ll instanceof ast_tree)) {
         return maintain_bind(comp.parent(), comp.self(), self.left).optimize(comp)
       }
       rr = self.right.evaluate(comp)
@@ -11416,7 +11431,7 @@ def_optimize(ast_binary, function (self, comp) {
         if (parent.operator == '||' && parent.left === comp.self() || comp.in_boolean_context()) {
           return self.left.optimize(comp)
         }
-      } else if (!(rr instanceof tree)) {
+      } else if (!(rr instanceof ast_tree)) {
         if (comp.in_boolean_context()) {
           return make_sequence(self, [self.left, make_node(ast_true, self)]).optimize(comp)
         } else {
@@ -11425,7 +11440,7 @@ def_optimize(ast_binary, function (self, comp) {
       }
       if (self.left.operator == '&&') {
         const lr = self.left.right.evaluate(comp)
-        if (lr && !(lr instanceof tree)) {
+        if (lr && !(lr instanceof ast_tree)) {
           return make_node(ast_conditional, self, {condition: self.left.left, consequent: self.left.right,
             alt: self.right}).optimize(comp)
         }
@@ -11434,10 +11449,10 @@ def_optimize(ast_binary, function (self, comp) {
     case '??':
       if (is_nullish(self.left, comp)) return self.right
       ll = self.left.evaluate(comp)
-      if (!(ll instanceof tree)) return ll == null ? self.right : self.left
+      if (!(ll instanceof ast_tree)) return ll == null ? self.right : self.left
       if (comp.in_boolean_context()) {
         rr = self.right.evaluate(comp)
-        if (!(rr instanceof tree) && !rr) return self.left
+        if (!(rr instanceof ast_tree) && !rr) return self.left
       }
   }
   let associative = true
@@ -11458,12 +11473,13 @@ def_optimize(ast_binary, function (self, comp) {
             {operator: '+', left: self.left.left, right: lr}), right: self.right.right})
         }
       }
-      if (self.right instanceof ast_unary_prefix && self.right.operator == '-' && self.left.is_number(comp)) {
+      if (self.right instanceof ast_unary_prefix && self.right.operator == '-'
+        && (self.left.is_number_or_bigint(comp))) {
         self = make_node(ast_binary, self, {operator: '-', left: self.left, right: self.right.expr})
         break
       }
       if (self.left instanceof ast_unary_prefix && self.left.operator == '-' && reversible()
-        && self.right.is_number(comp)) {
+        && (self.right.is_number_or_bigint(comp))) {
         self = make_node(ast_binary, self, {operator: '-', left: self.right, right: self.left.expr})
         break
       }
@@ -11495,7 +11511,7 @@ def_optimize(ast_binary, function (self, comp) {
     case '&':
     case '|':
     case '^':
-      if (self.left.is_number(comp) && self.right.is_number(comp) && reversible()
+      if ((self.left.is_number_or_bigint(comp) && self.right.is_number_or_bigint(comp)) && reversible()
         && !(self.left instanceof ast_binary && self.left.operator != self.operator
         && precedence[self.left.operator] >= precedence[self.operator])) {
         const reversed = make_node(ast_binary, self, {operator: self.operator, left: self.right, right: self.left})
@@ -11505,7 +11521,7 @@ def_optimize(ast_binary, function (self, comp) {
           self = best_of(comp, self, reversed)
         }
       }
-      if (associative && self.is_number(comp)) {
+      if (associative && (self.is_number_or_bigint(comp))) {
         if (self.right instanceof ast_binary && self.right.operator == self.operator) {
           self = make_node(ast_binary, self, {operator: self.operator,
             left: make_node(ast_binary, self.left, {operator: self.operator, left: self.left, right: self.right.left,
@@ -11555,12 +11571,20 @@ def_optimize(ast_binary, function (self, comp) {
         }
       }
     }
-    const same_operands = self.left.equivalent_to(right) && !self.left.has_side_effects(comp)
-    if (same_operands) {
+    if (self.left.equivalent_to(right) && !self.left.has_side_effects(comp)) {
       if (self.operator == '^') return make_node(ast_number, self, {value: 0})
       if (self.operator == '|' || self.operator == '&') {
         self.left = make_node(ast_number, self, {value: 0})
         self.operator = '|'
+      }
+      if ((self.operator == '|' || self.operator == '&') && self.left.equivalent_to(self.right)
+        && !self.left.has_side_effects(comp) && comp.in_32_bit_context(true)) {
+          self.left = make_node(ast_number, self, {value: 0})
+          self.operator = '|'
+      }
+      if (self.operator == '^' && self.left instanceof ast_unary_prefix && self.left.operator == '~'
+        || self.right instanceof ast_unary_prefix && self.right.operator == '~') {
+        self = make_node(ast_binary, self, {operator: '^', left: self.left.expr, right: self.right.expr})
       }
     }
     if ((self.operator == '<<' || self.operator == '>>') && right instanceof ast_number && right.value === 0) {
@@ -11569,28 +11593,18 @@ def_optimize(ast_binary, function (self, comp) {
     const zero_side = self.right instanceof ast_number && self.right.value === 0 ? self.right
       : self.left instanceof ast_number && self.left.value === 0 ? self.left : null
     const non_zero_side = zero_side && (zero_side === self.right ? self.left : self.right)
-    if (zero_side && (self.operator == '|' || self.operator == '^')
-      && (non_zero_side.is_int32() || comp.in_32_bit_context())) return non_zero_side
-    if (zero_side && self.operator == '&' && !non_zero_side.has_side_effects(comp)) return zero_side
-    const is_full_mask = root => root instanceof ast_number && root.value === -1 || root instanceof ast_unary_prefix
-      && (root.operator == '-' && root.expr instanceof ast_number && root.expr.value === 1 || root.operator == '~'
-        && root.expr instanceof ast_number && root.expr.value === 0)
+    if (zero_side && (self.operator == '|' || self.operator == '^') && (non_zero_side.is_int32(comp)
+      || comp.in_32_bit_context(true))) return non_zero_side
+    if (zero_side && self.operator == '&' && !non_zero_side.has_side_effects(comp)
+      && non_zero_side.is_int32(comp)) return zero_side
+    const is_full_mask = root => root instanceof ast_number && root.value == -1 || root instanceof ast_unary_prefix
+      && (root.operator == '-' && root.expr instanceof ast_number && root.expr.value == 1 || root.operator == '~'
+      && root.expr instanceof ast_number && root.expr.value === 0)
     const full_mask = is_full_mask(self.right) ? self.right : is_full_mask(self.left) ? self.left : null
-    const non_full_mask = full_mask && (full_mask === self.right ? self.left : self.right)
-    switch (self.operator) {
-      case '|':
-        if (full_mask && !non_full_mask.has_side_effects(comp)) return full_mask
-        break
-      case '&':
-        if (full_mask && (non_full_mask.is_int32() || comp.in_32_bit_context())) return non_full_mask
-        break
-      case '^':
-        if (full_mask) return non_full_mask.bitwise_negate(comp.in_32_bit_context())
-        if (self.left instanceof ast_unary_prefix && self.left.operator == '~'
-          && self.right instanceof ast_unary_prefix && self.right.operator == '~') {
-          self = make_node(ast_binary, self, {operator: '^', left: self.left.expr, right: self.right.expr})
-        }
-        break
+    const other_side = (full_mask == self.right ? self.left : self.right)
+    if (full_mask && (other_side.is_int32(comp) || comp.in_32_bit_context(true))) {
+      if (self.operator == '&') return other_side
+      if (self.operator == '^') return other_side.bitwise_negate(comp)
     }
   }
   if (self.right instanceof ast_binary && self.right.operator == self.operator && (lazy_op.has(self.operator)
@@ -11668,11 +11682,8 @@ def_optimize(ast_assign, function (self, comp) {
         if (is_reachable(defined.scope, [defined])) break
         if (self.operator == '=') return self.right
         defined.fixed = false
-        return make_node(ast_binary, self, {
-          operator: self.operator.slice(0, -1),
-          left: self.left,
-          right: self.right
-        }).optimize(comp)
+        return make_node(ast_binary, self, {operator: self.operator.slice(0, -1), left: self.left,
+          right: self.right}).optimize(comp)
       }
     } while (parent instanceof ast_binary && parent.right === root || parent instanceof ast_sequence
       && parent.tail_node() === root)
@@ -11714,9 +11725,7 @@ def_optimize(ast_default_assign, function (self, comp) {
   let right = self.right.evaluate(comp), lambda, iife
   if (right === undefined) {
     if ((lambda = comp.parent()) instanceof ast_lambda ? (comp.options['keep_fargs'] === false
-        || (iife = comp.parent(1)).type == 'ast_call' && iife.expr === lambda) : true) {
-      self = self.left
-    }
+      || (iife = comp.parent(1)).type == 'ast_call' && iife.expr === lambda) : true) self = self.left
   } else if (right !== self.right) {
     right = make_node_from_constant(right, self.right)
     self.right = best_of_expression(right, self.right)
@@ -11732,9 +11741,7 @@ function is_nullish_check (check, check_subject, comp) {
     || (nullish_side = is_nullish(check.right, comp) && check.right))
     && (nullish_side === check.left ? check.right : check.left).equivalent_to(check_subject)) return true
   if (check instanceof ast_binary && check.operator == '||') {
-    let null_cmp
-    let undefined_cmp
-
+    let null_cmp, undefined_cmp
     function find_comparison (cmp) {
       if (!(cmp instanceof ast_binary && (cmp.operator == '===' || cmp.operator == '=='))) return false
       let found = 0, defined_side
@@ -11883,7 +11890,6 @@ def_optimize(ast_conditional, function (self, comp) {
     left: booleanize(self.condition.negate(comp)), right: self.consequent})
   if (is_false(self.alt)) return make_node(ast_binary, self, {operator: '&&',
     left: booleanize(self.condition), right: self.consequent})
-
   return self
 })
 
@@ -11927,13 +11933,12 @@ function optimize_template (self) {
   }
   return self
 }
-
 def_optimize(ast_template_string, function (self, comp) {
   if (comp.parent() instanceof ast_prefixed_template) return optimize_template(self)
   const segments = []
   for (let i = 0, inners, j, len1 = self.segments.length, len2, result, segment; i < len1; i++) {
     segment = self.segments[i]
-    if (segment instanceof tree) {
+    if (segment instanceof ast_tree) {
       result = segment.evaluate(comp)
       if (result !== segment && (result + '').length <= segment.size() + '${}'.length) {
         segments[segments.length - 1].value = segments[segments.length - 1].value + result + self.segments[++i].value
@@ -11953,8 +11958,8 @@ def_optimize(ast_template_string, function (self, comp) {
   }
   self.segments = segments
   if (segments.length == 1) return make_node(ast_string, self, segments[0])
-  if (segments.length == 3 && segments[1] instanceof tree
-    && (segments[1].is_string(comp) || segments[1].is_number(comp) || is_nullish(segments[1], comp))) {
+  if (segments.length == 3 && segments[1] instanceof ast_tree && (segments[1].is_string(comp)
+    || segments[1].is_number_or_bigint(comp) || is_nullish(segments[1], comp))) {
     if (segments[2].value == '') {
       return make_node(ast_binary, self, {operator: '+', left: make_node(ast_string, self, {value: segments[0].value}),
         right: segments[1]})
@@ -11978,8 +11983,7 @@ function safe_to_flatten (value, comp) {
 }
 
 ast_prop_access.prototype.flatten_object = function (key, comp) {
-  if (!comp.options['properties']) return
-  if (key == '__proto__') return
+  if (!comp.options['properties'] || key == '__proto__' || this instanceof ast_dot_hash) return
   const expr = this.expr
   if (expr instanceof ast_object) {
     const props = expr.properties
@@ -11989,13 +11993,12 @@ ast_prop_access.prototype.flatten_object = function (key, comp) {
         if (!props.every(p => (p instanceof ast_key_value || p instanceof ast_concise_method && !p.gen)
           && !p.computed_key())) return
         if (!safe_to_flatten(prop.value, comp)) return
-        return make_node(ast_sub, this, {
-          expr: make_node(ast_array, expr, {
+        return make_node(ast_sub, this, {expr: make_node(ast_array, expr, {
             elements: props.map(function (prop) {
               v = prop.value
               if (v instanceof ast_accessor) v = make_node(ast_function, v, v)
               k = prop.key
-              if (k instanceof tree && !(k instanceof ast_symbol_method)) return make_sequence(prop, [k, v])
+              if (k instanceof ast_tree && !(k instanceof ast_symbol_method)) return make_sequence(prop, [k, v])
               return v
             })
           }),
@@ -12028,7 +12031,6 @@ def_optimize(ast_sub, function (self, comp) {
       }
     }
   }
-
   opt_arguments: if (comp.options['arguments'] && expr instanceof ast_symbol_ref
     && expr.name == 'arguments' && expr.defined().orig.length == 1
     && (fn = expr.scope) instanceof ast_lambda && fn.uses_args
@@ -12069,7 +12071,6 @@ def_optimize(ast_sub, function (self, comp) {
     && expr instanceof ast_array) {
     const elements = expr.elements
     let index = prop.get_value(), result = elements[index]
-
     safe_flatten: if (safe_to_flatten(result, comp)) {
       const values = []
       let flatten = true
@@ -12099,20 +12100,17 @@ def_optimize(ast_sub, function (self, comp) {
     }
   }
   let ev = self.evaluate(comp)
-  if (ev !== self) {
-    ev = make_node_from_constant(ev, self).optimize(comp)
-    return best_of(comp, ev, self)
-  }
+  if (ev !== self) return best_of(comp, make_node_from_constant(ev, self).optimize(comp), self)
   return self
 })
 
 def_optimize(ast_chain, function (self, comp) {
   if (is_nullish(self.expr, comp)) {
-    let parent = comp.parent()
+    const parent = comp.parent()
     if (parent instanceof ast_unary_prefix && parent.operator == 'delete') return make_node_from_constant(0, self)
     return make_node(ast_undefined, self)
   }
-  return self
+  return self.expr instanceof ast_prop_access || self.expr instanceof ast_call ? self : self.expr
 })
 
 def_optimize(ast_dot, function (self, comp) {
@@ -12189,9 +12187,7 @@ def_optimize(ast_return, function (self, comp) {
 
 def_optimize(ast_arrow, opt_lambda)
 
-def_optimize(ast_function, function (self, comp) {
-  return opt_lambda(self, comp)
-})
+def_optimize(ast_function, function (self, comp) { return opt_lambda(self, comp) })
 
 def_optimize(ast_class, function (self) {
   for (let i = 0, length = self.properties.length; i < length; i++) {
@@ -12231,6 +12227,7 @@ def_optimize(ast_destructure, function (self, comp) {
     }
     return true
   }
+
   if (comp.options['pure_getters'] == true && comp.options['unused'] && !self.is_array
     && Array.isArray(self.names) && !is_destructure_export_decl(comp)
     && !(self.names[self.names.length - 1] instanceof ast_spread)) {
@@ -12328,7 +12325,7 @@ function build (input, output, options={}) {
   let toplevel = options.parse.toplevel
   options.mangle.imports = toplevel.imports
   toplevel = toplevel.wrap_enclose()
-  toplevel = new reduces(options.reduce, {mangle_options: options.mangle}).reduce(toplevel)
+  toplevel = new compressor(options.reduce, {mangle_options: options.mangle}).reduce(toplevel)
   toplevel.figure_out_scope(options.mangle)
   toplevel.compute_char_frequency(options.mangle)
   toplevel.mangle_names(options.mangle)
@@ -12337,7 +12334,10 @@ function build (input, output, options={}) {
   toplevel.print(stream)
   const result = {}
   result.code = stream.get()
-  if (output && result.code) fs.writeFileSync(output, result.code)
+  if (output && result.code) {
+    fs.mkdirSync(output.split('/').slice(0, -1).join('/'), {recursive: true})
+    fs.writeFileSync(output, result.code)
+  }
   console.log('bundled', result)
 }
 
