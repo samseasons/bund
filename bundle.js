@@ -6,12 +6,6 @@ function func () {}
 
 function get_false () { return false }
 
-function get_null () { return }
-
-function get_this () { return this }
-
-function get_true () { return true }
-
 class ast_tree {
   constructor (properties) {
     this.func('ast_tree', ['start', 'end', 'file'], properties)
@@ -60,6 +54,8 @@ function transform (array, trees) {
   }
   return t
 }
+
+function get_true () { return true }
 
 function left_length (array) { return array.length && array.length - 1 }
 
@@ -2549,6 +2545,8 @@ ast_toplevel.prototype.mangle_names = function (options) {
   to_mangle.forEach(defined => defined.mangle(options))
   block_scopes = null
 }
+
+function get_this () { return this }
 
 ast_tree.prototype.tail_node = get_this
 
@@ -6835,8 +6833,8 @@ function trim (nodes, comp, first) {
 }
 
 ast_tree.prototype.drop = get_this
-ast_literal.prototype.drop = get_null
-ast_this.prototype.drop = get_null
+ast_literal.prototype.drop = get_false
+ast_this.prototype.drop = get_false
 ast_call.prototype.drop = function (comp, first) {
   if (is_nullish_shortcircuited(this, comp)) return this.expr.drop(comp, first)
   if (!this.is_callee_pure(comp)) {
@@ -6856,9 +6854,9 @@ ast_call.prototype.drop = function (comp, first) {
   const args = trim(this.args, comp, first)
   return args && make_sequence(this, args)
 }
-ast_accessor.prototype.drop = get_null
-ast_function.prototype.drop = get_null
-ast_arrow.prototype.drop = get_null
+ast_accessor.prototype.drop = get_false
+ast_function.prototype.drop = get_false
+ast_arrow.prototype.drop = get_false
 ast_class.prototype.drop = function (comp) {
   const with_effects = []
   if (this.self_referential() && this.has_side_effects(comp)) return this
@@ -6981,7 +6979,7 @@ ast_sequence.prototype.drop = function (comp) {
 ast_spread.prototype.drop = function (comp, first) {
   return this.expr.drop(comp, first)
 }
-ast_template_segment.prototype.drop = get_null
+ast_template_segment.prototype.drop = get_false
 ast_template_string.prototype.drop = function (comp) {
   const values = trim(this.segments, comp, first)
   return values && make_sequence(this, values)
@@ -9555,7 +9553,7 @@ def_bitwise_negate(ast_unary_prefix, function (comp, context) {
 
 ast_tree.prototype.is_call_pure = get_false
 
-ast_dot.prototype.is_call_pure = get_null
+ast_dot.prototype.is_call_pure = get_false
 
 ast_call.prototype.is_callee_pure = function (comp) {
   if (comp.options['side_effects'] && has_annotation(this, _pure)) return true
@@ -9574,9 +9572,9 @@ function def_aborts (root, func) {
   root.prototype.aborts = func
 }
 
-def_aborts(ast_statement, get_null)
+def_aborts(ast_statement, get_false)
 def_aborts(ast_jump, get_this)
-def_aborts(ast_import, get_null)
+def_aborts(ast_import, get_false)
 
 function block_aborts () {
   for (let i = 0; i < this.body.length; i++) {
@@ -12302,7 +12300,8 @@ function build (input, output, options={}) {
   options.mangle.toplevel = options.toplevel
   options.mangle = defaults(options.mangle, {'eval': false, 'module': false, 'reserved': []})
   options.parse.toplevel = new ast_toplevel()
-  let imported = [], imports = [input], file, text
+  const imported = []
+  let imports = [input], file, text
   while (imports.length) {
     file = imports[0]
     if (member(file, imported)) {
@@ -12335,7 +12334,8 @@ function build (input, output, options={}) {
   const result = {}
   result.code = stream.get()
   if (output && result.code) {
-    fs.mkdirSync(output.split('/').slice(0, -1).join('/'), {recursive: true})
+    const folder = output.split('/').slice(0, -1).join('/')
+    if (folder) fs.mkdirSync(folder, {recursive: true})
     fs.writeFileSync(output, result.code)
   }
   console.log('bundled', result)
