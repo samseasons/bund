@@ -5,9 +5,9 @@ $port = 1234
 $types = @{
     css = 'text/css';
     html = 'text/html';
+    txt = 'text/plain';
     ico = 'image/x-icon';
-    js = 'application/javascript';
-    json = 'application/json'
+    js = 'application/javascript'
 }
 
 $listener = [System.Net.HttpListener]::new()
