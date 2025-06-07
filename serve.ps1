@@ -5,7 +5,6 @@ $port = 1234
 $types = @{
     css = 'text/css';
     html = 'text/html';
-    txt = 'text/plain';
     ico = 'image/x-icon';
     js = 'application/javascript'
 }
@@ -20,17 +19,13 @@ try {
     while ($listener.IsListening) {
         $context = $listener.GetContext()
         $file = $folder + $context.Request.Url.LocalPath
+        if (!(Test-Path $file -PathType Leaf)) { $file = $folder + '/x.html' }
         $type = [System.IO.Path]::GetExtension($file)
         if ($type) { $type = $types[$type.Substring(1)] }
-        if ($type -and (Test-Path $file -PathType Leaf)) {
-            $content = Get-Content -Path $file
-        } else {
-            $type = 'text/html'
-            $content = Get-Content -Path ($folder + '/x.html')
-        }
+        $content = Get-Content -Path $file
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
         $response = $context.Response
-        $response.ContentType = $type
+        if ($type) { $response.ContentType = $type }
         $output = $response.OutputStream
         $output.Write($bytes, 0, $bytes.Length)
         $output.Close()

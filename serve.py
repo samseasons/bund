@@ -1,37 +1,33 @@
 # python3 serve.py
 
-from http.server import SimpleHTTPRequestHandler as handler
-from socketserver import TCPServer as server
+import socket
 
 folder = 'a'
 port = 1234
 types = {
     'css': 'text/css',
     'html': 'text/html',
-    'txt': 'text/plain',
     'ico': 'image/x-icon',
     'js': 'application/javascript'
 }
 
-class prepare (handler):
-    def do_GET (self):
-        try:
-            ftype = self.path.split('.')[-1]
-            if ftype in types:
-                self.send_response(200)
-                self.send_header('content-type', types[ftype])
-                self.end_headers()
-                with open(folder + self.path, 'rb') as file:
-                    self.wfile.write(file.read())
-                return
-        except:
-            next
-        self.path = folder + '/x.html'
-        return handler.do_GET(self)
-    def log_message (*args):
-        pass
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(('localhost', port))
+server.listen()
 
-server.allow_reuse_address = True
-serve = server(('', port), prepare)
 print('localhost:' + str(port))
-serve.serve_forever()
+
+while True:
+    client = server.accept()[0]
+    try:
+        file = client.recv(1024).decode()[4:].split(' H')[0]
+        ftype = types.get(file.split('.')[-1])
+        if not ftype:
+            file = '/x.html'
+            ftype = 'text/html'
+        with open(folder + file, 'rb') as file:
+            client.sendall(b'HTTP/1.\ncontent-type:' + ftype.encode() + b'\n\n' + file.read())
+    except:
+        next
+    client.close()
