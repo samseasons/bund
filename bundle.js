@@ -12313,8 +12313,8 @@ function build (input, output, options={}) {
         text = ''
       }
       options.parse.toplevel.file = file
-      options.parse.toplevel.imports = imports
       options.parse.toplevel.imported = imported
+      options.parse.toplevel.imports = imports
       options.parse.toplevel.pushed = true
       options.parse.toplevel = parse(text, options.parse)
       imports = options.parse.toplevel.imports

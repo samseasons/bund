@@ -14,7 +14,7 @@ const types = {
 
 function prepare (request, response) {
   let file = folder + request.url
-  file = fs.existsSync(file) && fs.statSync(file).isFile() ? file : folder + '/x.html'
+  if (!(fs.existsSync(file) && fs.lstatSync(file).isFile())) file = folder + '/x.html'
   const type = types[file.split('.').pop()]
   if (type) response.writeHead(200, {'content-type': type})
   fs.createReadStream(file).pipe(response)
