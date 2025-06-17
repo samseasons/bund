@@ -202,6 +202,12 @@ class ast_default_assign extends ast_binary {
   }
 }
 
+function traverse (self, observer) {
+  for (let i = 0, length = self.body.length; i < length; i++) {
+    self.body[i].observe(observer)
+  }
+}
+
 class ast_block extends ast_tree {
   constructor (properties) {
     super()
@@ -415,6 +421,12 @@ class ast_class_expression extends ast_class {
   }
 }
 
+function copy_block_scope (deep) {
+  const copy = this._copy(deep)
+  if (this.blocks) copy.blocks = this.blocks.copy()
+  return copy
+}
+
 class ast_class_static extends ast_scope {
   constructor (properties) {
     super()
@@ -533,6 +545,63 @@ class ast_defun extends ast_lambda {
 ast_defun.prototype.length = function () { return 13 + lambda_length(this) + left_length(this.argnames)
   + left_length(this.body) }
 
+function splice (val) {
+  return {v: val}
+}
+
+function redefine (root) {
+  if (root.orig[0] instanceof ast_symbol_catch && root.scope.is_block_scope()) {
+    return root.scope.get_defun_scope().vars.get(root.file + '/' + root.name)
+  }
+}
+
+class symbol_def {
+  constructor (scope, orig, init) {
+    this.name = orig.name
+    this.file = orig.file
+    this.orig = [orig]
+    this.init = init
+    this.eliminated = 0
+    this.assigns = 0
+    this.scope = scope
+    this.replaced = 0
+    this.global = false
+    this.export = 0
+    this.mangled_name = null
+    this.undeclared = false
+    this.id = symbol_def.next_id++
+    this.chained = false
+    this.direct_access = false
+    this.escaped = 0
+    this.recursive_refs = 0
+    this.references = []
+    this.single_use = false
+    this.fixed = false
+  }
+  fixed_value () {
+    if (!this.fixed || this.fixed instanceof ast_tree) return this.fixed
+    return this.fixed()
+  }
+  unmangleable (options) {
+    if (!options) options = {}
+    return this.global && !options.toplevel || this.undeclared || !options.eval && this.scope.global()
+      || this.orig[0] instanceof ast_symbol_method
+  }
+  mangle (options) {
+    const cache = options.cache && options.cache.properties
+    if (this.global && cache && cache.has(this.name)) {
+      this.mangled_name = cache.get(this.name)
+    } else {
+      if (!this.mangled_name && !this.unmangleable(options)) {
+        const redef = redefine(this)
+        this.mangled_name = redef ? redef.mangled_name || redef.name : this.scope.next_mangled(options, this)
+      }
+      if (this.global && cache) cache.set(this.name, this.mangled_name)
+    }
+  }
+  static next_id = 1
+}
+
 class ast_toplevel extends ast_scope {
   constructor (properties) {
     super()
@@ -540,12 +609,24 @@ class ast_toplevel extends ast_scope {
       'start', 'end', 'file'], properties)
   }
 }
+ast_toplevel.prototype.def_global = function (root) {
+  const globals = this.globals, name = root.name
+  if (globals.has(name)) {
+    return globals.get(name)
+  } else {
+    const global = new symbol_def(this, root)
+    global.undeclared = true
+    global.global = true
+    globals.set(name, global)
+    return global
+  }
+}
 ast_toplevel.prototype.equals = get_true
 ast_toplevel.prototype.length = function () { return left_length(this.body) }
 ast_toplevel.prototype.wrap_enclose = function () {
   const body = this.body
   return parse('(()=>{"$"})()').transform(new transforms(function (root) {
-    if (root instanceof ast_directive && root.value == '$') return _splice(body)
+    if (root instanceof ast_directive && root.value == '$') return splice(body)
   }))
 }
 
@@ -639,6 +720,34 @@ ast_conditional.prototype.observe = function (observer) {
     this.condition.observe(observer)
     this.consequent.observe(observer)
     this.alt.observe(observer)
+  })
+}
+
+class ast_def extends ast_tree {
+  constructor (properties) {
+    super()
+    this.func('ast_def', ['name', 'value', 'start', 'end', 'file'], properties)
+  }
+}
+ast_def.prototype.ascend = function (self, trees) {
+  self.name = self.name.transform(trees)
+  if (self.value) self.value = self.value.transform(trees)
+}
+ast_def.prototype.branch = function (push) {
+  if (this.value) push(this.value)
+  push(this.name)
+}
+ast_def.prototype.declarations_as_names = function () {
+  return this.name instanceof ast_declaration ? [this] : this.name.all_symbols()
+}
+ast_def.prototype.equals = function (other) {
+  return this.value == null ? other.value == null : this.value === other.value
+}
+ast_def.prototype.length = function () { return this.value ? 1 : 0 }
+ast_def.prototype.observe = function (observer) {
+  return observer.observe(this, function () {
+    this.name.observe(observer)
+    if (this.value) this.value.observe(observer)
   })
 }
 
@@ -1060,6 +1169,24 @@ ast_object_property.prototype.observe = function (observer) {
 
 function key_length (key) { return typeof key == 'string' ? key.length : 0 }
 
+function static_length (sttc) { return sttc ? 7 : 0 }
+
+class ast_concise_method extends ast_object_property {
+  constructor (properties) {
+    super()
+    this.func('ast_concise_method', ['quote', 'static', 'gen', 'sync', 'key', 'value', 'anno', 'start', 'end', 'file'],
+      properties)
+  }
+}
+ast_concise_method.prototype.computed_key = function () {
+  return !(this.key instanceof ast_symbol_method)
+}
+ast_concise_method.prototype.equals = function (other) {
+  return this.static === other.static && this.gen === other.gen && this.sync === other.sync
+}
+ast_concise_method.prototype.length = function () { return key_length(this.key) + static_length(this.static)
+  + lambda_length(this) }
+
 class ast_key_value extends ast_object_property {
   constructor (properties) {
     super()
@@ -1073,40 +1200,6 @@ ast_key_value.prototype.equals = function (other) {
   return this.key === other.key
 }
 ast_key_value.prototype.length = function () { return key_length(this.key) + 1 }
-
-class ast_private_setter extends ast_object_property {
-  constructor (properties) {
-    super()
-    this.func('ast_private_setter', ['static', 'key', 'value', 'start', 'end', 'file'], properties)
-  }
-}
-ast_private_setter.prototype.computed_key = get_false
-ast_private_setter.prototype.length = function () { ast_concise_method.prototype.length.call(this) + 4 }
-
-class ast_private_getter extends ast_object_property {
-  constructor (properties) {
-    super()
-    this.func('ast_private_getter', ['static', 'key', 'value', 'start', 'end', 'file'], properties)
-  }
-}
-ast_private_getter.prototype.computed_key = get_false
-ast_private_getter.prototype.length = function () { ast_concise_method.prototype.length.call(this) + 4 }
-
-function static_length (sttc) { return sttc ? 7 : 0 }
-
-class ast_object_setter extends ast_object_property {
-  constructor (properties) {
-    super()
-    this.func('ast_object_setter', ['quote', 'static', 'key', 'value', 'anno', 'start', 'end', 'file'], properties)
-  }
-}
-ast_object_setter.prototype.computed_key = function () {
-  return !(this.key instanceof ast_symbol_method)
-}
-ast_object_setter.prototype.equals = function (other) {
-  return this.static === other.static
-}
-ast_object_setter.prototype.length = function () { return 5 + static_length(this.static) + key_length(this.key) }
 
 class ast_object_getter extends ast_object_property {
   constructor (properties) {
@@ -1122,21 +1215,28 @@ ast_object_getter.prototype.equals = function (other) {
 }
 ast_object_getter.prototype.length = function () { return 5 + static_length(this.static) + key_length(this.key) }
 
-class ast_concise_method extends ast_object_property {
+class ast_object_setter extends ast_object_property {
   constructor (properties) {
     super()
-    this.func('ast_concise_method', ['quote', 'static', 'gen', 'sync', 'key', 'value', 'anno', 'start', 'end', 'file'],
-      properties)
+    this.func('ast_object_setter', ['quote', 'static', 'key', 'value', 'anno', 'start', 'end', 'file'], properties)
   }
 }
-ast_concise_method.prototype.computed_key = function () {
+ast_object_setter.prototype.computed_key = function () {
   return !(this.key instanceof ast_symbol_method)
 }
-ast_concise_method.prototype.equals = function (other) {
-  return this.static === other.static && this.gen === other.gen && this.sync === other.sync
+ast_object_setter.prototype.equals = function (other) {
+  return this.static === other.static
 }
-ast_concise_method.prototype.length = function () { return static_length(this.static) + key_length(this.key)
-  + lambda_length(this) }
+ast_object_setter.prototype.length = function () { return 5 + static_length(this.static) + key_length(this.key) }
+
+class ast_private_getter extends ast_object_property {
+  constructor (properties) {
+    super()
+    this.func('ast_private_getter', ['static', 'key', 'value', 'start', 'end', 'file'], properties)
+  }
+}
+ast_private_getter.prototype.computed_key = get_false
+ast_private_getter.prototype.length = function () { ast_concise_method.prototype.length.call(this) + 4 }
 
 class ast_private_method extends ast_object_property {
   constructor (properties) {
@@ -1150,6 +1250,15 @@ ast_private_method.prototype.equals = function (other) {
   return this.static === other.static && this.gen === other.gen && this.async === other.async
 }
 ast_private_method.prototype.length = function () { ast_concise_method.prototype.length.call(this) + 1 }
+
+class ast_private_setter extends ast_object_property {
+  constructor (properties) {
+    super()
+    this.func('ast_private_setter', ['static', 'key', 'value', 'start', 'end', 'file'], properties)
+  }
+}
+ast_private_setter.prototype.computed_key = get_false
+ast_private_setter.prototype.length = function () { ast_concise_method.prototype.length.call(this) + 4 }
 
 class ast_symbol extends ast_tree {
   constructor (properties) {
@@ -1905,62 +2014,71 @@ ast_if.prototype.observe = function (observer) {
 class ast_try extends ast_tree {
   constructor (properties) {
     super()
-    this.func('ast_try', ['body', 'bcatch', 'bfinally', 'start', 'end', 'file'], properties)
+    this.func('ast_try', ['body', 'catch', 'finally', 'start', 'end', 'file'], properties)
   }
 }
 ast_try.prototype.ascend = function (self, trees) {
   self.body = self.body.transform(trees)
-  if (self.bcatch) self.bcatch = self.bcatch.transform(trees)
-  if (self.bfinally) self.bfinally = self.bfinally.transform(trees)
+  if (self.catch) self.catch = self.catch.transform(trees)
+  if (self.finally) self.finally = self.finally.transform(trees)
 }
 ast_try.prototype.branch = function (push) {
-  if (this.bfinally) push(this.bfinally)
-  if (this.bcatch) push(this.bcatch)
+  if (this.finally) push(this.finally)
+  if (this.catch) push(this.catch)
   push(this.body)
 }
 ast_try.prototype.equals = function (other) {
-  return this.body === other.body && (this.bcatch == null ? other.bcatch == null : this.bcatch === other.bcatch)
-    && (this.bfinally == null ? other.bfinally == null : this.bfinally === other.bfinally)
+  return this.body === other.body && (this.catch == null ? other.catch == null : this.catch === other.catch)
+    && (this.finally == null ? other.finally == null : this.finally === other.finally)
 }
 ast_try.prototype.length = () => 3
 ast_try.prototype.observe = function (observer) {
   return observer.observe(this, function () {
     this.body.observe(observer)
-    if (this.bcatch) this.bcatch.observe(observer)
-    if (this.bfinally) this.bfinally.observe(observer)
-  })
-}
-
-class ast_var_def extends ast_tree {
-  constructor (properties) {
-    super()
-    this.func('ast_var_def', ['name', 'value', 'start', 'end', 'file'], properties)
-  }
-}
-ast_var_def.prototype.ascend = function (self, trees) {
-  self.name = self.name.transform(trees)
-  if (self.value) self.value = self.value.transform(trees)
-}
-ast_var_def.prototype.branch = function (push) {
-  if (this.value) push(this.value)
-  push(this.name)
-}
-ast_var_def.prototype.declarations_as_names = function () {
-  return this.name instanceof ast_declaration ? [this] : this.name.all_symbols()
-}
-ast_var_def.prototype.equals = function (other) {
-  return this.value == null ? other.value == null : this.value === other.value
-}
-ast_var_def.prototype.length = function () { return this.value ? 1 : 0 }
-ast_var_def.prototype.observe = function (observer) {
-  return observer.observe(this, function () {
-    this.name.observe(observer)
-    if (this.value) this.value.observe(observer)
+    if (this.catch) this.catch.observe(observer)
+    if (this.finally) this.finally.observe(observer)
   })
 }
 
 function def_length (root, func) {
   root.prototype.len = func
+}
+
+function walk_parent (root, cb, initial_stack) {
+  const to_visit = [root]
+  const push = to_visit.push.bind(to_visit)
+  const stack = initial_stack ? initial_stack.slice() : []
+  const parent_pop_indices = []
+  let current
+  const info = {
+    parent: (n = 0) => {
+      if (n == -1) return current
+      if (initial_stack && n >= stack.length) {
+        n -= stack.length
+        return initial_stack[initial_stack.length - (n + 1)]
+      }
+      return stack[stack.length - (1 + n)]
+    }
+  }
+  while (to_visit.length) {
+    current = to_visit.pop()
+    while (parent_pop_indices.length && to_visit.length == parent_pop_indices[parent_pop_indices.length - 1]) {
+      stack.pop()
+      parent_pop_indices.pop()
+    }
+    const result = cb(current, info)
+    if (result) {
+      if (result === walk_abort) return true
+      continue
+    }
+    const visit_length = to_visit.length
+    current.branch(push)
+    if (to_visit.length > visit_length) {
+      stack.push(current)
+      parent_pop_indices.push(visit_length - 1)
+    }
+  }
+  return false
 }
 
 def_length(ast_tree, function (node, stack) {
@@ -1978,64 +2096,7 @@ def_length(ast_tree, function (node, stack) {
 const dont_mangle = 1, want_mangle = 2, walk_abort = Symbol('abort walk')
 let block_scopes
 
-function redefine (root) {
-  if (root.orig[0] instanceof ast_symbol_catch && root.scope.is_block_scope()) {
-    return root.scope.get_defun_scope().vars.get(root.file + '/' + root.name)
-  }
-}
-
-class symbol_def {
-  constructor (scope, orig, init) {
-    this.name = orig.name
-    this.file = orig.file
-    this.orig = [orig]
-    this.init = init
-    this.eliminated = 0
-    this.assigns = 0
-    this.scope = scope
-    this.replaced = 0
-    this.global = false
-    this.export = 0
-    this.mangled_name = null
-    this.undeclared = false
-    this.id = symbol_def.next_id++
-    this.chained = false
-    this.direct_access = false
-    this.escaped = 0
-    this.recursive_refs = 0
-    this.references = []
-    this.single_use = false
-    this.fixed = false
-  }
-  fixed_value () {
-    if (!this.fixed || this.fixed instanceof ast_tree) return this.fixed
-    return this.fixed()
-  }
-  unmangleable (options) {
-    if (!options) options = {}
-    return this.global && !options.toplevel || this.undeclared || !options.eval && this.scope.global()
-      || this.orig[0] instanceof ast_symbol_method
-  }
-  mangle (options) {
-    const cache = options.cache && options.cache.properties
-    if (this.global && cache && cache.has(this.name)) {
-      this.mangled_name = cache.get(this.name)
-    } else {
-      if (!this.mangled_name && !this.unmangleable(options)) {
-        const redef = redefine(this)
-        this.mangled_name = redef ? redef.mangled_name || redef.name : this.scope.next_mangled(options, this)
-      }
-      if (this.global && cache) cache.set(this.name, this.mangled_name)
-    }
-  }
-  static next_id = 1
-}
-
-function member (name, array) { return array.includes(name) }
-
 function owns (obj, prop) { return Object.prototype.hasOwnProperty.call(obj, prop) }
-
-function chars (string) { return string.split('') }
 
 function defaults (args, defs) {
   if (args === true) args = {}
@@ -2054,6 +2115,8 @@ function make_node (ctor, orig, properties) {
   }
   return new ctor(properties)
 }
+
+function member (name, array) { return array.includes(name) }
 
 function push_uniq (array, el) {
   if (!member(el, array)) array.push(el)
@@ -2095,6 +2158,8 @@ function make_set (words) {
   return new Set(words.sort())
 }
 
+function chars (string) { return string.split('') }
+
 function map_add (map, key, value) {
   map.has(key) ? map.get(key).push(value) : map.set(key, [value])
 }
@@ -2114,7 +2179,7 @@ function source_regex (source) {
 }
 
 function sort_regex_flags (flags) {
-  const existing_flags = new Set(flags.split(''))
+  const existing_flags = new Set(chars(flags))
   let outflags = ''
   for (const flag of all_flags) {
     if (existing_flags.has(flag)) {
@@ -2134,26 +2199,23 @@ function set_annotation (root, annotation) {
   root.anno |= annotation
 }
 
-function _splice (val) {
-  return {v: val}
-}
-
-function copy_block_scope (deep) {
-  const copy = this._copy(deep)
-  if (this.blocks) copy.blocks = this.blocks.copy()
-  return copy
-}
-
-function traverse (self, observer) {
-  for (let i = 0, length = self.body.length; i < length; i++) {
-    self.body[i].observe(observer)
-  }
-}
-
 ast_scope.prototype.figure_out_scope = function (options, {parents = undefined, toplevel = this} = {}) {
   options = defaults(options, {'cache': null, 'module': false})
   if (!(toplevel instanceof ast_toplevel)) throw new Error('bad toplevel scope')
   let scope = this.parents = parents, labels = new Map(), defun, destructure
+  function mark_export (defined, level) {
+    if (destructure) {
+      let i = 0
+      do { level++ } while (trees.parent(i++) !== destructure)
+    }
+    const root = trees.parent(level)
+    if (defined.export = root instanceof ast_export ? dont_mangle : 0) {
+      const exported = root.defined
+      if ((exported instanceof ast_defun || exported instanceof ast_def_class) && root.is_default) {
+        defined.export = want_mangle
+      }
+    }
+  }
   let trees = new observes((root, ascend) => {
     if (root.is_block_scope()) {
       const save_scope = scope
@@ -2247,19 +2309,6 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = undefined, 
     }
   })
   this.observe(trees)
-  function mark_export (defined, level) {
-    if (destructure) {
-      let i = 0
-      do { level++ } while (trees.parent(i++) !== destructure)
-    }
-    const root = trees.parent(level)
-    if (defined.export = root instanceof ast_export ? dont_mangle : 0) {
-      const exported = root.defined
-      if ((exported instanceof ast_defun || exported instanceof ast_def_class) && root.is_default) {
-        defined.export = want_mangle
-      }
-    }
-  }
   const is_toplevel = this instanceof ast_toplevel
   if (is_toplevel) this.globals = new Map()
   trees = new observes(root => {
@@ -2302,18 +2351,6 @@ ast_scope.prototype.figure_out_scope = function (options, {parents = undefined, 
   this.observe(trees)
 }
 
-ast_toplevel.prototype.def_global = function (root) {
-  const globals = this.globals, name = root.name
-  if (globals.has(name)) {
-    return globals.get(name)
-  } else {
-    const global = new symbol_def(this, root)
-    global.undeclared = true
-    global.global = true
-    globals.set(name, global)
-    return global
-  }
-}
 ast_scope.prototype.init_scope_vars = function (parents) {
   this.vars = new Map()
   this.withs = false
@@ -2329,6 +2366,21 @@ ast_scope.prototype.conflicting_def = function (name, file) {
 ast_scope.prototype.conflicting_def_shallow = function (name, file) {
   return this.encl.find(defined => defined.name === name) || this.vars.has(file + '/' + name)
 }
+
+function observe (root, cb, to_visit = [root]) {
+  const push = to_visit.push.bind(to_visit)
+  while (to_visit.length) {
+    const root = to_visit.pop()
+    const result = cb(root, to_visit)
+    if (result) {
+      if (result === walk_abort) return true
+      continue
+    }
+    root.branch(push)
+  }
+  return false
+}
+
 ast_scope.prototype.add_child_scope = function (scope) {
   if (scope.parents === this) return
   scope.parents = this
@@ -2453,8 +2505,7 @@ function next_mangled (scope, options) {
   const ext = scope.encl, nth = options.nth
   out: while (true) {
     const m = nth.get(++scope.cname)
-    if (all_reserved_words.has(m)) continue
-    if (options.reserved.has(m)) continue
+    if (all_reserved_words.has(m) || options.reserved.has(m)) continue
     for (let i = ext.length; --i >= 0;) {
       const defined = ext[i]
       const name = defined.mangled_name || (defined.unmangleable(options) && defined.name)
@@ -2462,14 +2513,6 @@ function next_mangled (scope, options) {
     }
     return m
   }
-}
-
-ast_scope.prototype.next_mangled = function (options) { return next_mangled(this, options) }
-ast_toplevel.prototype.next_mangled = function (options) {
-  const names = this.mangled_names
-  let name
-  do { name = next_mangled(this, options) } while (names && names.has(name))
-  return name
 }
 
 ast_function.prototype.next_mangled = function (options, defined) {
@@ -2482,12 +2525,21 @@ ast_function.prototype.next_mangled = function (options, defined) {
   }
 }
 
+ast_scope.prototype.next_mangled = function (options) { return next_mangled(this, options) }
+
+ast_toplevel.prototype.next_mangled = function (options) {
+  const names = this.mangled_names
+  let name
+  do { name = next_mangled(this, options) } while (names && names.has(name))
+  return name
+}
+
+ast_label.prototype.unmangleable = get_false
+
 ast_symbol.prototype.unmangleable = function (options) {
   const defined = this.defined()
   return !defined || defined.unmangleable(options)
 }
-
-ast_label.prototype.unmangleable = get_false
 
 ast_symbol.prototype.unreferenced = function () {
   return !this.defined().references.length && !this.scope.global()
@@ -2565,33 +2617,6 @@ function skip_string (root) {
   }
 }
 
-ast_toplevel.prototype.compute_char_frequency = function (options) {
-  options = format_mangler_options(options)
-  const nth = base54
-  if (!nth.reset || !nth.consider || !nth.sort) return
-  nth.reset()
-  try {
-    ast_tree.prototype.print = function (stream, force_parens) {
-      this._print(stream, force_parens)
-      if (this instanceof ast_symbol && !this.unmangleable(options)) {
-        nth.consider(this.name, -1)
-      } else if (options.properties) {
-        if (this instanceof ast_dot_hash) {
-          nth.consider('#' + this.property, -1)
-        } else if (this instanceof ast_dot) {
-          nth.consider(this.property, -1)
-        } else if (this instanceof ast_sub) {
-          skip_string(this.property)
-        }
-      }
-    }
-    nth.consider(this.print_to_string(), 1)
-  } finally {
-    ast_tree.prototype.print = ast_tree.prototype._print
-  }
-  nth.sort()
-}
-
 const base54 = (() => {
   const base = 54, leading = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$_'.split('')
   let chars, frequency = new Map()
@@ -2627,55 +2652,31 @@ const base54 = (() => {
   return {get, consider, reset, sort}
 })()
 
-function observe (root, cb, to_visit = [root]) {
-  const push = to_visit.push.bind(to_visit)
-  while (to_visit.length) {
-    const root = to_visit.pop()
-    const result = cb(root, to_visit)
-    if (result) {
-      if (result === walk_abort) return true
-      continue
-    }
-    root.branch(push)
-  }
-  return false
-}
-
-function walk_parent (root, cb, initial_stack) {
-  const to_visit = [root]
-  const push = to_visit.push.bind(to_visit)
-  const stack = initial_stack ? initial_stack.slice() : []
-  const parent_pop_indices = []
-  let current
-  const info = {
-    parent: (n = 0) => {
-      if (n == -1) return current
-      if (initial_stack && n >= stack.length) {
-        n -= stack.length
-        return initial_stack[initial_stack.length - (n + 1)]
+ast_toplevel.prototype.compute_char_frequency = function (options) {
+  options = format_mangler_options(options)
+  const nth = base54
+  if (!nth.reset || !nth.consider || !nth.sort) return
+  nth.reset()
+  try {
+    ast_tree.prototype.print = function (stream, force_parens) {
+      this._print(stream, force_parens)
+      if (this instanceof ast_symbol && !this.unmangleable(options)) {
+        nth.consider(this.name, -1)
+      } else if (options.properties) {
+        if (this instanceof ast_dot_hash) {
+          nth.consider('#' + this.property, -1)
+        } else if (this instanceof ast_dot) {
+          nth.consider(this.property, -1)
+        } else if (this instanceof ast_sub) {
+          skip_string(this.property)
+        }
       }
-      return stack[stack.length - (1 + n)]
     }
+    nth.consider(this.print_to_string(), 1)
+  } finally {
+    ast_tree.prototype.print = ast_tree.prototype._print
   }
-  while (to_visit.length) {
-    current = to_visit.pop()
-    while (parent_pop_indices.length && to_visit.length == parent_pop_indices[parent_pop_indices.length - 1]) {
-      stack.pop()
-      parent_pop_indices.pop()
-    }
-    const result = cb(current, info)
-    if (result) {
-      if (result === walk_abort) return true
-      continue
-    }
-    const visit_length = to_visit.length
-    current.branch(push)
-    if (to_visit.length > visit_length) {
-      stack.push(current)
-      parent_pop_indices.push(visit_length - 1)
-    }
-  }
-  return false
+  nth.sort()
 }
 
 class observes {
@@ -2766,29 +2767,6 @@ class transforms extends observes {
   }
 }
 
-function mangle_props (ast, options) {
-  let cprivate = -1
-  const nth = base54, private_cache = new Map()
-
-  function mangle_private(name) {
-    let mangled = private_cache.get(name)
-    if (!mangled) {
-      mangled = nth.get(++cprivate)
-      private_cache.set(name, mangled)
-    }
-    return mangled
-  }
-
-  return ast.transform(new transforms(function (root) {
-    if (root instanceof ast_private_property || root instanceof ast_private_method
-      || root instanceof ast_private_getter || root instanceof ast_private_setter || root instanceof ast_private_in) {
-      root.key.name = mangle_private(root.key.name)
-    } else if (root instanceof ast_dot_hash) {
-      root.property = mangle_private(root.property)
-    }
-  }))
-}
-
 const _pure = 1
 const _inline = 2
 const _noinline = 4
@@ -2824,6 +2802,10 @@ const unicode = {
   ustart: /[$A-Z_a-z\xAA\xB5\xBA\xC0-\xD6\xD8-\xF6\xF8-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u02EC\u02EE\u0370-\u0374\u0376\u0377\u037A-\u037D\u037F\u0386\u0388-\u038A\u038C\u038E-\u03A1\u03A3-\u03F5\u03F7-\u0481\u048A-\u052F\u0531-\u0556\u0559\u0561-\u0587\u05D0-\u05EA\u05F0-\u05F2\u0620-\u064A\u066E\u066F\u0671-\u06D3\u06D5\u06E5\u06E6\u06EE\u06EF\u06FA-\u06FC\u06FF\u0710\u0712-\u072F\u074D-\u07A5\u07B1\u07CA-\u07EA\u07F4\u07F5\u07FA\u0800-\u0815\u081A\u0824\u0828\u0840-\u0858\u08A0-\u08B4\u0904-\u0939\u093D\u0950\u0958-\u0961\u0971-\u0980\u0985-\u098C\u098F\u0990\u0993-\u09A8\u09AA-\u09B0\u09B2\u09B6-\u09B9\u09BD\u09CE\u09DC\u09DD\u09DF-\u09E1\u09F0\u09F1\u0A05-\u0A0A\u0A0F\u0A10\u0A13-\u0A28\u0A2A-\u0A30\u0A32\u0A33\u0A35\u0A36\u0A38\u0A39\u0A59-\u0A5C\u0A5E\u0A72-\u0A74\u0A85-\u0A8D\u0A8F-\u0A91\u0A93-\u0AA8\u0AAA-\u0AB0\u0AB2\u0AB3\u0AB5-\u0AB9\u0ABD\u0AD0\u0AE0\u0AE1\u0AF9\u0B05-\u0B0C\u0B0F\u0B10\u0B13-\u0B28\u0B2A-\u0B30\u0B32\u0B33\u0B35-\u0B39\u0B3D\u0B5C\u0B5D\u0B5F-\u0B61\u0B71\u0B83\u0B85-\u0B8A\u0B8E-\u0B90\u0B92-\u0B95\u0B99\u0B9A\u0B9C\u0B9E\u0B9F\u0BA3\u0BA4\u0BA8-\u0BAA\u0BAE-\u0BB9\u0BD0\u0C05-\u0C0C\u0C0E-\u0C10\u0C12-\u0C28\u0C2A-\u0C39\u0C3D\u0C58-\u0C5A\u0C60\u0C61\u0C85-\u0C8C\u0C8E-\u0C90\u0C92-\u0CA8\u0CAA-\u0CB3\u0CB5-\u0CB9\u0CBD\u0CDE\u0CE0\u0CE1\u0CF1\u0CF2\u0D05-\u0D0C\u0D0E-\u0D10\u0D12-\u0D3A\u0D3D\u0D4E\u0D5F-\u0D61\u0D7A-\u0D7F\u0D85-\u0D96\u0D9A-\u0DB1\u0DB3-\u0DBB\u0DBD\u0DC0-\u0DC6\u0E01-\u0E30\u0E32\u0E33\u0E40-\u0E46\u0E81\u0E82\u0E84\u0E87\u0E88\u0E8A\u0E8D\u0E94-\u0E97\u0E99-\u0E9F\u0EA1-\u0EA3\u0EA5\u0EA7\u0EAA\u0EAB\u0EAD-\u0EB0\u0EB2\u0EB3\u0EBD\u0EC0-\u0EC4\u0EC6\u0EDC-\u0EDF\u0F00\u0F40-\u0F47\u0F49-\u0F6C\u0F88-\u0F8C\u1000-\u102A\u103F\u1050-\u1055\u105A-\u105D\u1061\u1065\u1066\u106E-\u1070\u1075-\u1081\u108E\u10A0-\u10C5\u10C7\u10CD\u10D0-\u10FA\u10FC-\u1248\u124A-\u124D\u1250-\u1256\u1258\u125A-\u125D\u1260-\u1288\u128A-\u128D\u1290-\u12B0\u12B2-\u12B5\u12B8-\u12BE\u12C0\u12C2-\u12C5\u12C8-\u12D6\u12D8-\u1310\u1312-\u1315\u1318-\u135A\u1380-\u138F\u13A0-\u13F5\u13F8-\u13FD\u1401-\u166C\u166F-\u167F\u1681-\u169A\u16A0-\u16EA\u16EE-\u16F8\u1700-\u170C\u170E-\u1711\u1720-\u1731\u1740-\u1751\u1760-\u176C\u176E-\u1770\u1780-\u17B3\u17D7\u17DC\u1820-\u1877\u1880-\u18A8\u18AA\u18B0-\u18F5\u1900-\u191E\u1950-\u196D\u1970-\u1974\u1980-\u19AB\u19B0-\u19C9\u1A00-\u1A16\u1A20-\u1A54\u1AA7\u1B05-\u1B33\u1B45-\u1B4B\u1B83-\u1BA0\u1BAE\u1BAF\u1BBA-\u1BE5\u1C00-\u1C23\u1C4D-\u1C4F\u1C5A-\u1C7D\u1CE9-\u1CEC\u1CEE-\u1CF1\u1CF5\u1CF6\u1D00-\u1DBF\u1E00-\u1F15\u1F18-\u1F1D\u1F20-\u1F45\u1F48-\u1F4D\u1F50-\u1F57\u1F59\u1F5B\u1F5D\u1F5F-\u1F7D\u1F80-\u1FB4\u1FB6-\u1FBC\u1FBE\u1FC2-\u1FC4\u1FC6-\u1FCC\u1FD0-\u1FD3\u1FD6-\u1FDB\u1FE0-\u1FEC\u1FF2-\u1FF4\u1FF6-\u1FFC\u2071\u207F\u2090-\u209C\u2102\u2107\u210A-\u2113\u2115\u2118-\u211D\u2124\u2126\u2128\u212A-\u2139\u213C-\u213F\u2145-\u2149\u214E\u2160-\u2188\u2C00-\u2C2E\u2C30-\u2C5E\u2C60-\u2CE4\u2CEB-\u2CEE\u2CF2\u2CF3\u2D00-\u2D25\u2D27\u2D2D\u2D30-\u2D67\u2D6F\u2D80-\u2D96\u2DA0-\u2DA6\u2DA8-\u2DAE\u2DB0-\u2DB6\u2DB8-\u2DBE\u2DC0-\u2DC6\u2DC8-\u2DCE\u2DD0-\u2DD6\u2DD8-\u2DDE\u3005-\u3007\u3021-\u3029\u3031-\u3035\u3038-\u303C\u3041-\u3096\u309B-\u309F\u30A1-\u30FA\u30FC-\u30FF\u3105-\u312D\u3131-\u318E\u31A0-\u31BA\u31F0-\u31FF\u3400-\u4DB5\u4E00-\u9FD5\uA000-\uA48C\uA4D0-\uA4FD\uA500-\uA60C\uA610-\uA61F\uA62A\uA62B\uA640-\uA66E\uA67F-\uA69D\uA6A0-\uA6EF\uA717-\uA71F\uA722-\uA788\uA78B-\uA7AD\uA7B0-\uA7B7\uA7F7-\uA801\uA803-\uA805\uA807-\uA80A\uA80C-\uA822\uA840-\uA873\uA882-\uA8B3\uA8F2-\uA8F7\uA8FB\uA8FD\uA90A-\uA925\uA930-\uA946\uA960-\uA97C\uA984-\uA9B2\uA9CF\uA9E0-\uA9E4\uA9E6-\uA9EF\uA9FA-\uA9FE\uAA00-\uAA28\uAA40-\uAA42\uAA44-\uAA4B\uAA60-\uAA76\uAA7A\uAA7E-\uAAAF\uAAB1\uAAB5\uAAB6\uAAB9-\uAABD\uAAC0\uAAC2\uAADB-\uAADD\uAAE0-\uAAEA\uAAF2-\uAAF4\uAB01-\uAB06\uAB09-\uAB0E\uAB11-\uAB16\uAB20-\uAB26\uAB28-\uAB2E\uAB30-\uAB5A\uAB5C-\uAB65\uAB70-\uABE2\uAC00-\uD7A3\uD7B0-\uD7C6\uD7CB-\uD7FB\uF900-\uFA6D\uFA70-\uFAD9\uFB00-\uFB06\uFB13-\uFB17\uFB1D\uFB1F-\uFB28\uFB2A-\uFB36\uFB38-\uFB3C\uFB3E\uFB40\uFB41\uFB43\uFB44\uFB46-\uFBB1\uFBD3-\uFD3D\uFD50-\uFD8F\uFD92-\uFDC7\uFDF0-\uFDFB\uFE70-\uFE74\uFE76-\uFEFC\uFF21-\uFF3A\uFF41-\uFF5A\uFF66-\uFFBE\uFFC2-\uFFC7\uFFCA-\uFFCF\uFFD2-\uFFD7\uFFDA-\uFFDC]|\uD800[\uDC00-\uDC0B\uDC0D-\uDC26\uDC28-\uDC3A\uDC3C\uDC3D\uDC3F-\uDC4D\uDC50-\uDC5D\uDC80-\uDCFA\uDD40-\uDD74\uDE80-\uDE9C\uDEA0-\uDED0\uDF00-\uDF1F\uDF30-\uDF4A\uDF50-\uDF75\uDF80-\uDF9D\uDFA0-\uDFC3\uDFC8-\uDFCF\uDFD1-\uDFD5]|\uD801[\uDC00-\uDC9D\uDD00-\uDD27\uDD30-\uDD63\uDE00-\uDF36\uDF40-\uDF55\uDF60-\uDF67]|\uD802[\uDC00-\uDC05\uDC08\uDC0A-\uDC35\uDC37\uDC38\uDC3C\uDC3F-\uDC55\uDC60-\uDC76\uDC80-\uDC9E\uDCE0-\uDCF2\uDCF4\uDCF5\uDD00-\uDD15\uDD20-\uDD39\uDD80-\uDDB7\uDDBE\uDDBF\uDE00\uDE10-\uDE13\uDE15-\uDE17\uDE19-\uDE33\uDE60-\uDE7C\uDE80-\uDE9C\uDEC0-\uDEC7\uDEC9-\uDEE4\uDF00-\uDF35\uDF40-\uDF55\uDF60-\uDF72\uDF80-\uDF91]|\uD803[\uDC00-\uDC48\uDC80-\uDCB2\uDCC0-\uDCF2]|\uD804[\uDC03-\uDC37\uDC83-\uDCAF\uDCD0-\uDCE8\uDD03-\uDD26\uDD50-\uDD72\uDD76\uDD83-\uDDB2\uDDC1-\uDDC4\uDDDA\uDDDC\uDE00-\uDE11\uDE13-\uDE2B\uDE80-\uDE86\uDE88\uDE8A-\uDE8D\uDE8F-\uDE9D\uDE9F-\uDEA8\uDEB0-\uDEDE\uDF05-\uDF0C\uDF0F\uDF10\uDF13-\uDF28\uDF2A-\uDF30\uDF32\uDF33\uDF35-\uDF39\uDF3D\uDF50\uDF5D-\uDF61]|\uD805[\uDC80-\uDCAF\uDCC4\uDCC5\uDCC7\uDD80-\uDDAE\uDDD8-\uDDDB\uDE00-\uDE2F\uDE44\uDE80-\uDEAA\uDF00-\uDF19]|\uD806[\uDCA0-\uDCDF\uDCFF\uDEC0-\uDEF8]|\uD808[\uDC00-\uDF99]|\uD809[\uDC00-\uDC6E\uDC80-\uDD43]|[\uD80C\uD840-\uD868\uD86A-\uD86C\uD86F-\uD872][\uDC00-\uDFFF]|\uD80D[\uDC00-\uDC2E]|\uD811[\uDC00-\uDE46]|\uD81A[\uDC00-\uDE38\uDE40-\uDE5E\uDED0-\uDEED\uDF00-\uDF2F\uDF40-\uDF43\uDF63-\uDF77\uDF7D-\uDF8F]|\uD81B[\uDF00-\uDF44\uDF50\uDF93-\uDF9F]|\uD82C[\uDC00\uDC01]|\uD82F[\uDC00-\uDC6A\uDC70-\uDC7C\uDC80-\uDC88\uDC90-\uDC99]|\uD835[\uDC00-\uDC54\uDC56-\uDC9C\uDC9E\uDC9F\uDCA2\uDCA5\uDCA6\uDCA9-\uDCAC\uDCAE-\uDCB9\uDCBB\uDCBD-\uDCC3\uDCC5-\uDD05\uDD07-\uDD0A\uDD0D-\uDD14\uDD16-\uDD1C\uDD1E-\uDD39\uDD3B-\uDD3E\uDD40-\uDD44\uDD46\uDD4A-\uDD50\uDD52-\uDEA5\uDEA8-\uDEC0\uDEC2-\uDEDA\uDEDC-\uDEFA\uDEFC-\uDF14\uDF16-\uDF34\uDF36-\uDF4E\uDF50-\uDF6E\uDF70-\uDF88\uDF8A-\uDFA8\uDFAA-\uDFC2\uDFC4-\uDFCB]|\uD83A[\uDC00-\uDCC4]|\uD83B[\uDE00-\uDE03\uDE05-\uDE1F\uDE21\uDE22\uDE24\uDE27\uDE29-\uDE32\uDE34-\uDE37\uDE39\uDE3B\uDE42\uDE47\uDE49\uDE4B\uDE4D-\uDE4F\uDE51\uDE52\uDE54\uDE57\uDE59\uDE5B\uDE5D\uDE5F\uDE61\uDE62\uDE64\uDE67-\uDE6A\uDE6C-\uDE72\uDE74-\uDE77\uDE79-\uDE7C\uDE7E\uDE80-\uDE89\uDE8B-\uDE9B\uDEA1-\uDEA3\uDEA5-\uDEA9\uDEAB-\uDEBB]|\uD869[\uDC00-\uDED6\uDF00-\uDFFF]|\uD86D[\uDC00-\uDF34\uDF40-\uDFFF]|\uD86E[\uDC00-\uDC1D\uDC20-\uDFFF]|\uD873[\uDC00-\uDEA1]|\uD87E[\uDC00-\uDE1D]/,
   ucontinue: /(?:[$0-9A-Z_a-z\xAA\xB5\xB7\xBA\xC0-\xD6\xD8-\xF6\xF8-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u02EC\u02EE\u0300-\u0374\u0376\u0377\u037A-\u037D\u037F\u0386-\u038A\u038C\u038E-\u03A1\u03A3-\u03F5\u03F7-\u0481\u0483-\u0487\u048A-\u052F\u0531-\u0556\u0559\u0561-\u0587\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\u05D0-\u05EA\u05F0-\u05F2\u0610-\u061A\u0620-\u0669\u066E-\u06D3\u06D5-\u06DC\u06DF-\u06E8\u06EA-\u06FC\u06FF\u0710-\u074A\u074D-\u07B1\u07C0-\u07F5\u07FA\u0800-\u082D\u0840-\u085B\u08A0-\u08B4\u08E3-\u0963\u0966-\u096F\u0971-\u0983\u0985-\u098C\u098F\u0990\u0993-\u09A8\u09AA-\u09B0\u09B2\u09B6-\u09B9\u09BC-\u09C4\u09C7\u09C8\u09CB-\u09CE\u09D7\u09DC\u09DD\u09DF-\u09E3\u09E6-\u09F1\u0A01-\u0A03\u0A05-\u0A0A\u0A0F\u0A10\u0A13-\u0A28\u0A2A-\u0A30\u0A32\u0A33\u0A35\u0A36\u0A38\u0A39\u0A3C\u0A3E-\u0A42\u0A47\u0A48\u0A4B-\u0A4D\u0A51\u0A59-\u0A5C\u0A5E\u0A66-\u0A75\u0A81-\u0A83\u0A85-\u0A8D\u0A8F-\u0A91\u0A93-\u0AA8\u0AAA-\u0AB0\u0AB2\u0AB3\u0AB5-\u0AB9\u0ABC-\u0AC5\u0AC7-\u0AC9\u0ACB-\u0ACD\u0AD0\u0AE0-\u0AE3\u0AE6-\u0AEF\u0AF9\u0B01-\u0B03\u0B05-\u0B0C\u0B0F\u0B10\u0B13-\u0B28\u0B2A-\u0B30\u0B32\u0B33\u0B35-\u0B39\u0B3C-\u0B44\u0B47\u0B48\u0B4B-\u0B4D\u0B56\u0B57\u0B5C\u0B5D\u0B5F-\u0B63\u0B66-\u0B6F\u0B71\u0B82\u0B83\u0B85-\u0B8A\u0B8E-\u0B90\u0B92-\u0B95\u0B99\u0B9A\u0B9C\u0B9E\u0B9F\u0BA3\u0BA4\u0BA8-\u0BAA\u0BAE-\u0BB9\u0BBE-\u0BC2\u0BC6-\u0BC8\u0BCA-\u0BCD\u0BD0\u0BD7\u0BE6-\u0BEF\u0C00-\u0C03\u0C05-\u0C0C\u0C0E-\u0C10\u0C12-\u0C28\u0C2A-\u0C39\u0C3D-\u0C44\u0C46-\u0C48\u0C4A-\u0C4D\u0C55\u0C56\u0C58-\u0C5A\u0C60-\u0C63\u0C66-\u0C6F\u0C81-\u0C83\u0C85-\u0C8C\u0C8E-\u0C90\u0C92-\u0CA8\u0CAA-\u0CB3\u0CB5-\u0CB9\u0CBC-\u0CC4\u0CC6-\u0CC8\u0CCA-\u0CCD\u0CD5\u0CD6\u0CDE\u0CE0-\u0CE3\u0CE6-\u0CEF\u0CF1\u0CF2\u0D01-\u0D03\u0D05-\u0D0C\u0D0E-\u0D10\u0D12-\u0D3A\u0D3D-\u0D44\u0D46-\u0D48\u0D4A-\u0D4E\u0D57\u0D5F-\u0D63\u0D66-\u0D6F\u0D7A-\u0D7F\u0D82\u0D83\u0D85-\u0D96\u0D9A-\u0DB1\u0DB3-\u0DBB\u0DBD\u0DC0-\u0DC6\u0DCA\u0DCF-\u0DD4\u0DD6\u0DD8-\u0DDF\u0DE6-\u0DEF\u0DF2\u0DF3\u0E01-\u0E3A\u0E40-\u0E4E\u0E50-\u0E59\u0E81\u0E82\u0E84\u0E87\u0E88\u0E8A\u0E8D\u0E94-\u0E97\u0E99-\u0E9F\u0EA1-\u0EA3\u0EA5\u0EA7\u0EAA\u0EAB\u0EAD-\u0EB9\u0EBB-\u0EBD\u0EC0-\u0EC4\u0EC6\u0EC8-\u0ECD\u0ED0-\u0ED9\u0EDC-\u0EDF\u0F00\u0F18\u0F19\u0F20-\u0F29\u0F35\u0F37\u0F39\u0F3E-\u0F47\u0F49-\u0F6C\u0F71-\u0F84\u0F86-\u0F97\u0F99-\u0FBC\u0FC6\u1000-\u1049\u1050-\u109D\u10A0-\u10C5\u10C7\u10CD\u10D0-\u10FA\u10FC-\u1248\u124A-\u124D\u1250-\u1256\u1258\u125A-\u125D\u1260-\u1288\u128A-\u128D\u1290-\u12B0\u12B2-\u12B5\u12B8-\u12BE\u12C0\u12C2-\u12C5\u12C8-\u12D6\u12D8-\u1310\u1312-\u1315\u1318-\u135A\u135D-\u135F\u1369-\u1371\u1380-\u138F\u13A0-\u13F5\u13F8-\u13FD\u1401-\u166C\u166F-\u167F\u1681-\u169A\u16A0-\u16EA\u16EE-\u16F8\u1700-\u170C\u170E-\u1714\u1720-\u1734\u1740-\u1753\u1760-\u176C\u176E-\u1770\u1772\u1773\u1780-\u17D3\u17D7\u17DC\u17DD\u17E0-\u17E9\u180B-\u180D\u1810-\u1819\u1820-\u1877\u1880-\u18AA\u18B0-\u18F5\u1900-\u191E\u1920-\u192B\u1930-\u193B\u1946-\u196D\u1970-\u1974\u1980-\u19AB\u19B0-\u19C9\u19D0-\u19DA\u1A00-\u1A1B\u1A20-\u1A5E\u1A60-\u1A7C\u1A7F-\u1A89\u1A90-\u1A99\u1AA7\u1AB0-\u1ABD\u1B00-\u1B4B\u1B50-\u1B59\u1B6B-\u1B73\u1B80-\u1BF3\u1C00-\u1C37\u1C40-\u1C49\u1C4D-\u1C7D\u1CD0-\u1CD2\u1CD4-\u1CF6\u1CF8\u1CF9\u1D00-\u1DF5\u1DFC-\u1F15\u1F18-\u1F1D\u1F20-\u1F45\u1F48-\u1F4D\u1F50-\u1F57\u1F59\u1F5B\u1F5D\u1F5F-\u1F7D\u1F80-\u1FB4\u1FB6-\u1FBC\u1FBE\u1FC2-\u1FC4\u1FC6-\u1FCC\u1FD0-\u1FD3\u1FD6-\u1FDB\u1FE0-\u1FEC\u1FF2-\u1FF4\u1FF6-\u1FFC\u200C\u200D\u203F\u2040\u2054\u2071\u207F\u2090-\u209C\u20D0-\u20DC\u20E1\u20E5-\u20F0\u2102\u2107\u210A-\u2113\u2115\u2118-\u211D\u2124\u2126\u2128\u212A-\u2139\u213C-\u213F\u2145-\u2149\u214E\u2160-\u2188\u2C00-\u2C2E\u2C30-\u2C5E\u2C60-\u2CE4\u2CEB-\u2CF3\u2D00-\u2D25\u2D27\u2D2D\u2D30-\u2D67\u2D6F\u2D7F-\u2D96\u2DA0-\u2DA6\u2DA8-\u2DAE\u2DB0-\u2DB6\u2DB8-\u2DBE\u2DC0-\u2DC6\u2DC8-\u2DCE\u2DD0-\u2DD6\u2DD8-\u2DDE\u2DE0-\u2DFF\u3005-\u3007\u3021-\u302F\u3031-\u3035\u3038-\u303C\u3041-\u3096\u3099-\u309F\u30A1-\u30FA\u30FC-\u30FF\u3105-\u312D\u3131-\u318E\u31A0-\u31BA\u31F0-\u31FF\u3400-\u4DB5\u4E00-\u9FD5\uA000-\uA48C\uA4D0-\uA4FD\uA500-\uA60C\uA610-\uA62B\uA640-\uA66F\uA674-\uA67D\uA67F-\uA6F1\uA717-\uA71F\uA722-\uA788\uA78B-\uA7AD\uA7B0-\uA7B7\uA7F7-\uA827\uA840-\uA873\uA880-\uA8C4\uA8D0-\uA8D9\uA8E0-\uA8F7\uA8FB\uA8FD\uA900-\uA92D\uA930-\uA953\uA960-\uA97C\uA980-\uA9C0\uA9CF-\uA9D9\uA9E0-\uA9FE\uAA00-\uAA36\uAA40-\uAA4D\uAA50-\uAA59\uAA60-\uAA76\uAA7A-\uAAC2\uAADB-\uAADD\uAAE0-\uAAEF\uAAF2-\uAAF6\uAB01-\uAB06\uAB09-\uAB0E\uAB11-\uAB16\uAB20-\uAB26\uAB28-\uAB2E\uAB30-\uAB5A\uAB5C-\uAB65\uAB70-\uABEA\uABEC\uABED\uABF0-\uABF9\uAC00-\uD7A3\uD7B0-\uD7C6\uD7CB-\uD7FB\uF900-\uFA6D\uFA70-\uFAD9\uFB00-\uFB06\uFB13-\uFB17\uFB1D-\uFB28\uFB2A-\uFB36\uFB38-\uFB3C\uFB3E\uFB40\uFB41\uFB43\uFB44\uFB46-\uFBB1\uFBD3-\uFD3D\uFD50-\uFD8F\uFD92-\uFDC7\uFDF0-\uFDFB\uFE00-\uFE0F\uFE20-\uFE2F\uFE33\uFE34\uFE4D-\uFE4F\uFE70-\uFE74\uFE76-\uFEFC\uFF10-\uFF19\uFF21-\uFF3A\uFF3F\uFF41-\uFF5A\uFF66-\uFFBE\uFFC2-\uFFC7\uFFCA-\uFFCF\uFFD2-\uFFD7\uFFDA-\uFFDC]|\uD800[\uDC00-\uDC0B\uDC0D-\uDC26\uDC28-\uDC3A\uDC3C\uDC3D\uDC3F-\uDC4D\uDC50-\uDC5D\uDC80-\uDCFA\uDD40-\uDD74\uDDFD\uDE80-\uDE9C\uDEA0-\uDED0\uDEE0\uDF00-\uDF1F\uDF30-\uDF4A\uDF50-\uDF7A\uDF80-\uDF9D\uDFA0-\uDFC3\uDFC8-\uDFCF\uDFD1-\uDFD5]|\uD801[\uDC00-\uDC9D\uDCA0-\uDCA9\uDD00-\uDD27\uDD30-\uDD63\uDE00-\uDF36\uDF40-\uDF55\uDF60-\uDF67]|\uD802[\uDC00-\uDC05\uDC08\uDC0A-\uDC35\uDC37\uDC38\uDC3C\uDC3F-\uDC55\uDC60-\uDC76\uDC80-\uDC9E\uDCE0-\uDCF2\uDCF4\uDCF5\uDD00-\uDD15\uDD20-\uDD39\uDD80-\uDDB7\uDDBE\uDDBF\uDE00-\uDE03\uDE05\uDE06\uDE0C-\uDE13\uDE15-\uDE17\uDE19-\uDE33\uDE38-\uDE3A\uDE3F\uDE60-\uDE7C\uDE80-\uDE9C\uDEC0-\uDEC7\uDEC9-\uDEE6\uDF00-\uDF35\uDF40-\uDF55\uDF60-\uDF72\uDF80-\uDF91]|\uD803[\uDC00-\uDC48\uDC80-\uDCB2\uDCC0-\uDCF2]|\uD804[\uDC00-\uDC46\uDC66-\uDC6F\uDC7F-\uDCBA\uDCD0-\uDCE8\uDCF0-\uDCF9\uDD00-\uDD34\uDD36-\uDD3F\uDD50-\uDD73\uDD76\uDD80-\uDDC4\uDDCA-\uDDCC\uDDD0-\uDDDA\uDDDC\uDE00-\uDE11\uDE13-\uDE37\uDE80-\uDE86\uDE88\uDE8A-\uDE8D\uDE8F-\uDE9D\uDE9F-\uDEA8\uDEB0-\uDEEA\uDEF0-\uDEF9\uDF00-\uDF03\uDF05-\uDF0C\uDF0F\uDF10\uDF13-\uDF28\uDF2A-\uDF30\uDF32\uDF33\uDF35-\uDF39\uDF3C-\uDF44\uDF47\uDF48\uDF4B-\uDF4D\uDF50\uDF57\uDF5D-\uDF63\uDF66-\uDF6C\uDF70-\uDF74]|\uD805[\uDC80-\uDCC5\uDCC7\uDCD0-\uDCD9\uDD80-\uDDB5\uDDB8-\uDDC0\uDDD8-\uDDDD\uDE00-\uDE40\uDE44\uDE50-\uDE59\uDE80-\uDEB7\uDEC0-\uDEC9\uDF00-\uDF19\uDF1D-\uDF2B\uDF30-\uDF39]|\uD806[\uDCA0-\uDCE9\uDCFF\uDEC0-\uDEF8]|\uD808[\uDC00-\uDF99]|\uD809[\uDC00-\uDC6E\uDC80-\uDD43]|[\uD80C\uD840-\uD868\uD86A-\uD86C\uD86F-\uD872][\uDC00-\uDFFF]|\uD80D[\uDC00-\uDC2E]|\uD811[\uDC00-\uDE46]|\uD81A[\uDC00-\uDE38\uDE40-\uDE5E\uDE60-\uDE69\uDED0-\uDEED\uDEF0-\uDEF4\uDF00-\uDF36\uDF40-\uDF43\uDF50-\uDF59\uDF63-\uDF77\uDF7D-\uDF8F]|\uD81B[\uDF00-\uDF44\uDF50-\uDF7E\uDF8F-\uDF9F]|\uD82C[\uDC00\uDC01]|\uD82F[\uDC00-\uDC6A\uDC70-\uDC7C\uDC80-\uDC88\uDC90-\uDC99\uDC9D\uDC9E]|\uD834[\uDD65-\uDD69\uDD6D-\uDD72\uDD7B-\uDD82\uDD85-\uDD8B\uDDAA-\uDDAD\uDE42-\uDE44]|\uD835[\uDC00-\uDC54\uDC56-\uDC9C\uDC9E\uDC9F\uDCA2\uDCA5\uDCA6\uDCA9-\uDCAC\uDCAE-\uDCB9\uDCBB\uDCBD-\uDCC3\uDCC5-\uDD05\uDD07-\uDD0A\uDD0D-\uDD14\uDD16-\uDD1C\uDD1E-\uDD39\uDD3B-\uDD3E\uDD40-\uDD44\uDD46\uDD4A-\uDD50\uDD52-\uDEA5\uDEA8-\uDEC0\uDEC2-\uDEDA\uDEDC-\uDEFA\uDEFC-\uDF14\uDF16-\uDF34\uDF36-\uDF4E\uDF50-\uDF6E\uDF70-\uDF88\uDF8A-\uDFA8\uDFAA-\uDFC2\uDFC4-\uDFCB\uDFCE-\uDFFF]|\uD836[\uDE00-\uDE36\uDE3B-\uDE6C\uDE75\uDE84\uDE9B-\uDE9F\uDEA1-\uDEAF]|\uD83A[\uDC00-\uDCC4\uDCD0-\uDCD6]|\uD83B[\uDE00-\uDE03\uDE05-\uDE1F\uDE21\uDE22\uDE24\uDE27\uDE29-\uDE32\uDE34-\uDE37\uDE39\uDE3B\uDE42\uDE47\uDE49\uDE4B\uDE4D-\uDE4F\uDE51\uDE52\uDE54\uDE57\uDE59\uDE5B\uDE5D\uDE5F\uDE61\uDE62\uDE64\uDE67-\uDE6A\uDE6C-\uDE72\uDE74-\uDE77\uDE79-\uDE7C\uDE7E\uDE80-\uDE89\uDE8B-\uDE9B\uDEA1-\uDEA3\uDEA5-\uDEA9\uDEAB-\uDEBB]|\uD869[\uDC00-\uDED6\uDF00-\uDFFF]|\uD86D[\uDC00-\uDF34\uDF40-\uDFFF]|\uD86E[\uDC00-\uDC1D\uDC20-\uDFFF]|\uD873[\uDC00-\uDEA1]|\uD87E[\uDC00-\uDE1D]|\uDB40[\uDD00-\uDDEF])+/,
 }
+
+function is_surrogate_pair_head (code) { return code >= 0xd800 && code <= 0xdbff }
+
+function is_surrogate_pair_tail (code) { return code >= 0xdc00 && code <= 0xdfff }
 
 function get_full_char (string, pos) {
   if (is_surrogate_pair_head(string.charCodeAt(pos))) {
@@ -2863,10 +2845,6 @@ function from_char_code (code) {
   }
   return String.fromCharCode(code)
 }
-
-function is_surrogate_pair_head (code) { return code >= 0xd800 && code <= 0xdbff }
-
-function is_surrogate_pair_tail (code) { return code >= 0xdc00 && code <= 0xdfff }
 
 function is_digit (code) { return code >= 48 && code <= 57 }
 
@@ -2965,10 +2943,6 @@ class ast_token {
   }
 }
 
-function is_token (token, type, val) {
-  return token.type == type && (val == null || token.value == val)
-}
-
 let latest_raw = '', template_raws = new Map()
 
 function tokenizer (text, file, comments, shebang) {
@@ -2977,13 +2951,6 @@ function tokenizer (text, file, comments, shebang) {
     template_braces: [], comments_before: [], directives: {}, directive_stack: []}
 
   function peek () { return get_full_char(scope.text, scope.pos) }
-
-  function is_option_chain_op () {
-    const must_be_dot = scope.text.charCodeAt(scope.pos + 1) == 46
-    if (!must_be_dot) return false
-    const cannot_be_digit = scope.text.charCodeAt(scope.pos + 2)
-    return cannot_be_digit < 48 || cannot_be_digit > 57
-  }
 
   function next (signal_eof, in_string) {
     let char = get_full_char(scope.text, scope.pos++)
@@ -3126,6 +3093,27 @@ function tokenizer (text, file, comments, shebang) {
 
   function is_octal (char) { return char >= '0' && char <= '7' }
 
+  function read_octal (char) {
+    let p = peek()
+    if (p >= '0' && p <= '7') {
+      char += next(true)
+      if (char[0] <= '3' && (p = peek()) >= '0' && p <= '7') char += next(true)
+    }
+    if (char == '0') return '\0'
+    return String.fromCharCode(parseInt(char, 8))
+  }
+
+  function hex_bytes (n, strict_hex) {
+    let num = 0, digit
+    for (; n > 0; --n) {
+      if (!strict_hex && isNaN(parseInt(peek(), 16))) return parseInt(num, 16) || ''
+      digit = next(true)
+      if (isNaN(parseInt(digit, 16))) pr('bad hex-character pattern in string')
+      num += digit
+    }
+    return parseInt(num, 16)
+  }
+
   function read_escaped_char (in_string, strict_hex, template_string) {
     const char = next(true, in_string)
     switch (char.charCodeAt(0)) {
@@ -3163,27 +3151,6 @@ function tokenizer (text, file, comments, shebang) {
       return read_octal(char, strict_hex)
     }
     return char
-  }
-
-  function read_octal (char) {
-    let p = peek()
-    if (p >= '0' && p <= '7') {
-      char += next(true)
-      if (char[0] <= '3' && (p = peek()) >= '0' && p <= '7') char += next(true)
-    }
-    if (char == '0') return '\0'
-    return String.fromCharCode(parseInt(char, 8))
-  }
-
-  function hex_bytes (n, strict_hex) {
-    let num = 0, digit
-    for (; n > 0; --n) {
-      if (!strict_hex && isNaN(parseInt(peek(), 16))) return parseInt(num, 16) || ''
-      digit = next(true)
-      if (isNaN(parseInt(digit, 16))) pr('bad hex-character pattern in string')
-      num += digit
-    }
-    return parseInt(num, 16)
   }
 
   function read_string () {
@@ -3372,6 +3339,13 @@ function tokenizer (text, file, comments, shebang) {
     return token('punc', '.')
   }
 
+  function is_option_chain_op () {
+    const must_be_dot = scope.text.charCodeAt(scope.pos + 1) == 46
+    if (!must_be_dot) return false
+    const cannot_be_digit = scope.text.charCodeAt(scope.pos + 2)
+    return cannot_be_digit < 48 || cannot_be_digit > 57
+  }
+
   function read_word () {
     const word = read_name()
     if (prev_was_dot) return token('name', word)
@@ -3500,1585 +3474,6 @@ function resolve (file, folder) {
   return file
 }
 
-function parse (text, options) {
-  const comments_before = new WeakMap()
-  options = defaults(options, {'bare_returns': false, 'expr': false, 'file': null,
-    'comments': true, 'module': false, 'shebang': true, 'strict': false, 'toplevel': null})
-  let file = '', imports = {}
-  if (options.toplevel) {
-    if (options.toplevel.file) file = options.toplevel.file
-    if (options.toplevel.imports) imports = options.toplevel.imports
-  }
-  options.file = file
-  const scope = {input: (typeof text == 'string' ? tokenizer(text, file, options.comments, options.shebang) : text),
-    token: null, prev: null, peeked: null, in_function: 0, in_async: -1, in_generator: -1, in_directives: true,
-    in_loop: 0, labels: []}
-  scope.token = next()
-
-  function is (type, value) { return is_token(scope.token, type, value) }
-
-  function peek () { return scope.peeked || (scope.peeked = scope.input()) }
-
-  function next () {
-    scope.prev = scope.token
-    if (!scope.peeked) peek()
-    scope.token = scope.peeked
-    scope.peeked = null
-    scope.in_directives = scope.in_directives && (scope.token.type == 'string' || is('punc', ';'))
-    return scope.token
-  }
-
-  function prev () { return scope.prev }
-
-  function cr (msg, line, col, pos) {
-    const ctx = scope.input.context()
-    js_error(msg, ctx.file, line != null ? line : ctx.tokline, col != null ? col : ctx.tokcol,
-      pos != null ? pos : ctx.tokpos)
-  }
-
-  function tr (token, msg) { cr(msg, token.line, token.col) }
-
-  function unexpected (token) {
-    if (token == null) token = scope.token
-    tr(token, 'unexpected token: ' + token.type + ' (' + token.value + ')')
-  }
-
-  function expect_token (type, val) {
-    if (is(type, val)) return next()
-    tr(scope.token, 'expected ' + type + ' (' + val + ') got ' + scope.token.type + ' (' + scope.token.value + ')')
-  }
-
-  function expect (punc) { return expect_token('punc', punc) }
-
-  function has_newline_before (token) {
-    return token.nlb() || !token.comments_before.every(comment => !comment.nlb())
-  }
-
-  function can_insert_semicolon () {
-    return !options.strict && (is('eof') || is('punc', '}') || has_newline_before(scope.token))
-  }
-
-  function is_in_generator () {
-    return scope.in_generator === scope.in_function
-  }
-
-  function is_in_async () {
-    return scope.in_async === scope.in_function
-  }
-
-  function can_await () {
-    return scope.in_async === scope.in_function
-  }
-
-  function semicolon (optional) {
-    if (is('punc', ';')) {
-      next()
-    } else if (!optional && !can_insert_semicolon()) {
-      unexpected()
-    }
-  }
-
-  function parenthesised () {
-    expect('(')
-    const expr = expression(true)
-    expect(')')
-    return expr
-  }
-
-  function embed_tokens (parser) {
-    return function _embed_tokens_wrapper (...args) {
-      const start = scope.token
-      const expr = parser(...args)
-      expr.start = start
-      expr.end = prev()
-      return expr
-    }
-  }
-
-  function handle_regex () {
-    if (is('operator', '/') || is('operator', '/=')) {
-      scope.peeked = null
-      scope.token = scope.input(scope.token.value.substr(1))
-    }
-  }
-
-  function in_loop (cont) {
-    ++scope.in_loop
-    const result = cont()
-    --scope.in_loop
-    return result
-  }
-
-  const statement = embed_tokens(function statement (is_export_default, is_for_body, is_if_body) {
-    handle_regex()
-    let root, value
-    switch (scope.token.type) {
-      case 'string':
-        if (scope.in_directives) {
-          const token = peek()
-          if (!member('\\', latest_raw) && (is_token(token, 'punc', ';') || is_token(token, 'punc', '}')
-              || has_newline_before(token) || is_token(token, 'eof'))) {
-            scope.input.add_directive(scope.token.value)
-          } else {
-            scope.in_directives = false
-          }
-        }
-        const dir = scope.in_directives, stat = simple_statement()
-        return dir && stat.body instanceof ast_string ? new ast_directive(stat.body) : stat
-      case 'atom':
-      case 'big_int':
-      case 'num':
-      case 'operator':
-      case 'regex':
-      case 'template_head':
-        return simple_statement()
-      case 'name':
-      case 'privatename':
-        if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
-        if (scope.token.value == 'async' && is_token(peek(), 'keyword', 'function')) {
-          next()
-          next()
-          if (is_for_body) cr('functions not allowed as body of loop')
-          return function_(ast_defun, false, true, is_export_default)
-        }
-        if (scope.token.value == 'import' && !is_token(peek(), 'punc', '(') && !is_token(peek(), 'punc', '.')) {
-          next()
-          root = import_statement()
-          semicolon()
-          return root
-        }
-        return is_token(peek(), 'punc', ':') ? labeled_statement() : simple_statement()
-      case 'punc':
-        switch (scope.token.value) {
-          case '{':
-            return new ast_block_statement({start: scope.token, body: block_(), end: prev(), file})
-          case '[':
-          case '(':
-            return simple_statement()
-          case ';':
-            scope.in_directives = false
-            next()
-            return new ast_empty_statement()
-          default:
-            unexpected()
-        }
-      case 'keyword':
-        switch (scope.token.value) {
-          case 'break':
-            next()
-            return break_cont(ast_break)
-          case 'continue':
-            next()
-            return break_cont(ast_continue)
-          case 'debugger':
-            next()
-            semicolon()
-            return new ast_debugger()
-          case 'do':
-            next()
-            const body = in_loop(statement)
-            expect_token('keyword', 'while')
-            const condition = parenthesised()
-            semicolon(true)
-            return new ast_do({body, condition})
-          case 'while':
-            next()
-            return new ast_while({condition: parenthesised(), body: in_loop(function () { return statement(false, true) })})
-          case 'for':
-            next()
-            return for_()
-          case 'class':
-            next()
-            if (is_for_body) cr('classes cannot be body of a loop')
-            if (is_if_body) cr('classes cannot be body of an if')
-            return class_(ast_def_class, is_export_default)
-          case 'function':
-            next()
-            if (is_for_body) cr('functions cannot be body of a loop')
-            return function_(ast_defun, false, false, is_export_default)
-          case 'if':
-            next()
-            return if_()
-          case 'return':
-            if (scope.in_function == 0 && !options.bare_returns) cr('return outside of function')
-            next()
-            value = null
-            if (is('punc', ';')) {
-              next()
-            } else if (!can_insert_semicolon()) {
-              value = expression(true)
-              semicolon()
-            }
-            return new ast_return({value})
-          case 'switch':
-            next()
-            return new ast_switch({expr: parenthesised(), body: in_loop(switch_body_)})
-          case 'throw':
-            next()
-            if (has_newline_before(scope.token)) cr('bad newline after throw')
-            value = expression(true)
-            semicolon()
-            return new ast_throw({value})
-          case 'try':
-            next()
-            return try_()
-          case 'var':
-            next()
-            root = var_()
-            semicolon()
-            return root
-          case 'let':
-            next()
-            root = let_()
-            semicolon()
-            return root
-          case 'const':
-            next()
-            root = const_()
-            semicolon()
-            return root
-          case 'with':
-            next()
-            return new ast_with({expr: parenthesised(), body: statement()})
-          case 'export':
-            if (!is_token(peek(), 'punc', '(')) {
-              next()
-              root = export_statement()
-              if (is('punc', ';')) semicolon()
-              return root
-            }
-        }
-    }
-    unexpected()
-  })
-
-  function labeled_statement () {
-    const label = as_symbol(ast_label)
-    if (label.name == 'await' && is_in_async()) tr(scope.prev, 'await cannot be async function label')
-    if (scope.labels.some(l => l.name === label.name)) cr('duplicate label ' + label.name)
-    expect(':')
-    scope.labels.push(label)
-    const stat = statement()
-    scope.labels.pop()
-    if (!(stat instanceof ast_iteration_statement) && label.references) {
-      label.references.forEach(function (ref) {
-        if (ref instanceof ast_continue) {
-          ref = ref.label.start
-          cr('continue ' + label.name + ' refers to non iter statement', ref.line, ref.col, ref.pos)
-        }
-      })
-    }
-    return new ast_labeled_statement({body: stat, label})
-  }
-
-  function simple_statement (tmp) {
-    return new ast_statement({body: (tmp = expression(true), semicolon(), tmp)})
-  }
-
-  function break_cont (type) {
-    let label = null, ldef
-    if (!can_insert_semicolon()) label = as_symbol(ast_label_ref, true)
-    if (label != null) {
-      ldef = scope.labels.find(l => l.name === label.name)
-      if (!ldef) cr('no label ' + label.name)
-      label.thedef = ldef
-    } else if (scope.in_loop == 0) {
-      cr(type.type + ' not in loop or switch')
-    }
-    semicolon()
-    const stat = new type({label})
-    if (ldef && ldef.references) ldef.references.push(stat)
-    return stat
-  }
-
-  function for_ () {
-    let await_tok = scope.token, init
-    if (await_tok.type == 'name' && await_tok.value == 'await') {
-      if (!can_await()) tr(await_tok, 'bad for await')
-      next()
-    } else {
-      await_tok = false
-    }
-    expect('(')
-    if (!is('punc', ';')) {
-      init = is('keyword', 'var') ? (next(), var_(true)) :
-        is('keyword', 'let') ? (next(), let_(true)) :
-        is('keyword', 'const') ? (next(), const_(true)) : expression(true, true)
-      const is_in = is('operator', 'in'), is_of = is('name', 'of')
-      if (await_tok && !is_of) tr(await_tok, 'bad for await')
-      if (is_in || is_of) {
-        if (init instanceof ast_definitions) {
-          if (init.defs.length > 1) tr(init.start, 'only one variable declaration allowed in for..in loop')
-        } else if (!(is_assignable(init) || (init = to_destructure(init)) instanceof ast_destructure)) {
-          tr(init.start, 'bad left hand side in for..in loop')
-        }
-        next()
-        return is_in ? for_in(init) : for_of(init, !!await_tok)
-      }
-    } else if (await_tok) {
-      tr(await_tok, for_await_error)
-    }
-    return regular_for(init)
-  }
-
-  function regular_for (init) {
-    expect(';')
-    const condition = is('punc', ';') ? null : expression(true)
-    expect(';')
-    const step = is('punc', ')') ? null : expression(true)
-    expect(')')
-    return new ast_for({init, condition, step, body: in_loop(function () { return statement(false, true) })})
-  }
-
-  function for_of (init, is_await) {
-    const name = init instanceof ast_definitions ? init.defs[0].name : null, object = expression(true)
-    expect(')')
-    return new ast_for_of({is_await, init, name, object, body: in_loop(function () { return statement(false, true)})})
-  }
-
-  function for_in (init) {
-    const object = expression(true)
-    expect(')')
-    return new ast_for_in({init, object, body: in_loop(function () { return statement(false, true) })})
-  }
-
-  function arrow_function (start, argnames, sync) {
-    if (has_newline_before(scope.token)) cr('unexpected newline before arrow (=>)')
-    expect_token('arrow', '=>')
-    const body = _function_body(is('punc', '{'), false, sync)
-    const end = body instanceof Array ? (body.length ? body[body.length - 1].end : start) : body.end
-    return new ast_arrow({start, end, file, sync, argnames, body})
-  }
-
-  function function_ (ctor, is_generator, sync, is_export_default) {
-    const in_statement = ctor === ast_defun, gen = is('operator', '*')
-    if (gen) next()
-    const name = is('name') ? as_symbol(in_statement ? ast_symbol_defun: ast_symbol_lambda) : null
-    if (in_statement && !name) is_export_default ? ctor = ast_function : unexpected()
-    if (name && ctor !== ast_accessor && !(name instanceof ast_declaration)) unexpected(prev())
-    const argnames = []
-    const body = _function_body(true, gen || is_generator, sync, name, argnames)
-    return new ctor({start: argnames.start, end: body.end, file, gen, sync, name, argnames, body})
-  }
-
-  class used_parameters {
-    constructor (is_parameter, duplicates_ok = false) {
-      this.is_parameter = is_parameter
-      this.duplicates_ok = duplicates_ok
-      this.parameters = new Set()
-      this.duplicate = null
-      this.default_assign = false
-      this.spread = false
-    }
-    add_parameter (token) {
-      if (this.parameters.has(token.value)) {
-        if (this.duplicate === null) this.duplicate = token
-        this.check_strict()
-      } else {
-        this.parameters.add(token.value)
-        if (this.is_parameter) {
-          switch (token.value) {
-            case 'arguments':
-            case 'eval':
-            case 'yield': break
-            default: if (reserved_words.has(token.value)) unexpected()
-          }
-        }
-      }
-    }
-    mark_default_assign (token) {
-      if (this.default_assign === false) this.default_assign = token
-    }
-    mark_spread (token) {
-      if (this.spread === false) this.spread = token
-    }
-    mark_strict_mode () {
-      this.strict_mode = true
-    }
-    is_strict () {
-      return this.default_assign !== false || this.spread !== false || this.strict_mode
-    }
-    check_strict () {
-      if (this.is_strict() && this.duplicate !== null && !this.duplicates_ok) {
-        tr(this.duplicate, 'Parameter ' + this.duplicate.value + ' was used already')
-      }
-    }
-  }
-
-  function parameters (params) {
-    const used = new used_parameters(true)
-    expect('(')
-    let param
-    while (!is('punc', ')')) {
-      param = parameter(used)
-      params.push(param)
-      if (!is('punc', ')')) expect(',')
-      if (param instanceof ast_spread) break
-    }
-    next()
-  }
-
-  function parameter (used, symbol_type) {
-    let expand = false, param
-    if (used === undefined) used = new used_parameters(true)
-    if (is('expand', '...')) {
-      expand = scope.token
-      used.mark_spread(scope.token)
-      next()
-    }
-    param = binding_element(used, symbol_type)
-    if (is('operator', '=') && expand === false) {
-      used.mark_default_assign(scope.token)
-      next()
-      param = new ast_default_assign({start: param.start, left: param, operator: '=',
-        right: expression(false), end: scope.token, file})
-    }
-
-    if (expand !== false) {
-      if (!is('punc', ')')) unexpected()
-      param = new ast_spread({start: expand, expr: param, end: expand, file})
-    }
-    used.check_strict()
-    return param
-  }
-
-  function binding_element (used, symbol_type) {
-    const elements = [], start = scope.token
-    let first = true, is_expand = false, expand_token
-    if (used === undefined) used = new used_parameters(false, symbol_type === ast_symbol_var)
-    symbol_type = symbol_type === undefined ? ast_symbol_funarg : symbol_type
-    if (is('punc', '[')) {
-      next()
-      while (!is('punc', ']')) {
-        first ? first = false : expect(',')
-        if (is('expand', '...')) {
-          is_expand = true
-          expand_token = scope.token
-          used.mark_spread(scope.token)
-          next()
-        }
-        if (is('punc')) {
-          switch (scope.token.value) {
-            case ',':
-              elements.push(new ast_hole({start: scope.token, end: scope.token, file}))
-              continue
-            case ']':
-              break
-            case '[':
-            case '{':
-              elements.push(binding_element(used, symbol_type))
-              break
-            default:
-              unexpected()
-          }
-        } else if (is('name')) {
-          used.add_parameter(scope.token)
-          elements.push(as_symbol(symbol_type))
-        } else {
-          cr('bad function parameter')
-        }
-        if (is('operator', '=') && is_expand === false) {
-          used.mark_default_assign(scope.token)
-          next()
-          elements[elements.length - 1] = new ast_default_assign({
-            start: elements[elements.length - 1].start, left: elements[elements.length - 1],
-            operator: '=', right: expression(false), end: scope.token, file})
-        }
-        if (is_expand) {
-          if (!is('punc', ']')) cr('rest element must be last element')
-          elements[elements.length - 1] = new ast_spread({
-            start: expand_token, expr: elements[elements.length - 1], end: expand_token, file})
-        }
-      }
-      expect(']')
-      used.check_strict()
-      return new ast_destructure({start, names: elements, is_array: true, end: prev(), file})
-    } else if (is('punc', '{')) {
-      next()
-      while (!is('punc', '}')) {
-        first ? first = false : expect(',')
-        if (is('expand', '...')) {
-          is_expand = true
-          expand_token = scope.token
-          used.mark_spread(scope.token)
-          next()
-        }
-        if (is('name') && (is_token(peek(), 'punc') || is_token(peek(), 'operator'))
-          && member(peek().value, [',', '}', '='])) {
-          used.add_parameter(scope.token)
-          const start = prev(), value = as_symbol(symbol_type)
-          if (is_expand) {
-            elements.push(new ast_spread({start: expand_token, expr: value, end: value.end, file}))
-          } else {
-            elements.push(new ast_key_value({start, key: value.name, value, end: value.end, file}))
-          }
-        } else if (is('punc', '}')) {
-          continue
-        } else {
-          const property_token = scope.token, property = as_property_name()
-          if (property === null) {
-            unexpected(prev())
-          } else if (prev().type == 'name' && !is('punc', ':')) {
-            elements.push(new ast_key_value({start: prev(), key: property,
-              value: new symbol_type({start: prev(), name: property, end: prev(), file}), end: prev(), file}))
-          } else {
-            expect(':')
-            elements.push(new ast_key_value({start: property_token, quote: property_token.quote, key: property,
-              value: binding_element(used, symbol_type), end: prev(), file}))
-          }
-        }
-        if (is_expand) {
-          if (!is('punc', '}')) cr('rest element must be last element')
-        } else if (is('operator', '=')) {
-          used.mark_default_assign(scope.token)
-          next()
-          elements[elements.length - 1].value = new ast_default_assign({
-            start: elements[elements.length - 1].value.start, left: elements[elements.length - 1].value,
-            operator: '=', right: expression(false), end: scope.token, file})
-        }
-      }
-      expect('}')
-      used.check_strict()
-      return new ast_destructure({start, names: elements, is_array: false, end: prev(), file})
-    } else if (is('name')) {
-      used.add_parameter(scope.token)
-      return as_symbol(symbol_type)
-    } else {
-      cr('bad function parameter')
-    }
-  }
-
-  function params_or_seq_ (allow_arrows, maybe_sequence) {
-    const a = []
-    let bad_sequence, spread_token, trailing_comma
-    expect('(')
-    while (!is('punc', ')')) {
-      if (spread_token) unexpected(spread_token)
-      if (is('expand', '...')) {
-        spread_token = scope.token
-        if (maybe_sequence) bad_sequence = scope.token
-        next()
-        a.push(new ast_spread({start: prev(), expr: expression(), end: scope.token, file}))
-      } else {
-        a.push(expression())
-      }
-      if (!is('punc', ')')) {
-        expect(',')
-        if (is('punc', ')')) {
-          trailing_comma = prev()
-          if (maybe_sequence) bad_sequence = trailing_comma
-        }
-      }
-    }
-    expect(')')
-    if (allow_arrows && is('arrow', '=>')) {
-      if (spread_token && trailing_comma) unexpected(trailing_comma)
-    } else if (bad_sequence) {
-      unexpected(bad_sequence)
-    }
-    return a
-  }
-
-  function _function_body (block, generator, sync, name, args) {
-    const loop = scope.in_loop, labels = scope.labels, is_generator = scope.in_generator, is_async = scope.in_async
-    ++scope.in_function
-    if (generator) scope.in_generator = scope.in_function
-    if (sync) scope.in_async = scope.in_function
-    if (args) parameters(args)
-    if (block) scope.in_directives = true
-    scope.in_loop = 0
-    scope.labels = []
-    let a
-    if (block) {
-      scope.input.push_directives_stack()
-      a = block_()
-      if (name) _verify_symbol(name)
-      if (args) args.forEach(_verify_symbol)
-      scope.input.pop_directives_stack()
-    } else {
-      a = [new ast_return({start: scope.token, value: expression(false), end: scope.token, file})]
-    }
-    --scope.in_function
-    scope.in_loop = loop
-    scope.labels = labels
-    scope.in_generator = is_generator
-    scope.in_async = is_async
-    return a
-  }
-
-  function _await_expression () {
-    if (!can_await()) cr('await outside async', scope.prev.line, scope.prev.col, scope.prev.pos)
-    return new ast_await({start: prev(), end: scope.token, file, expr: maybe_unary(true)})
-  }
-
-  function _yield_expression () {
-    if (!is_in_generator()) cr('yield outside generator', scope.prev.line, scope.prev.col, scope.prev.pos)
-    const start = scope.token
-    let has_expression = true, star = false
-    if (can_insert_semicolon() || is('punc') && punc_after_expression.has(scope.token.value) || is('template_cont')) {
-      has_expression = false
-    } else if (is('operator', '*')) {
-      star = true
-      next()
-    }
-    return new ast_yield({start, star, expr: has_expression ? expression() : null, end: prev(), file})
-  }
-
-  function if_ () {
-    const condition = parenthesised(), body = statement(false, false, true)
-    let alt = null
-    if (is('keyword', 'else')) {
-      next()
-      alt = statement(false, false, true)
-    }
-    return new ast_if({condition, body, alt})
-  }
-
-  function block_ () {
-    expect('{')
-    const a = []
-    while (!is('punc', '}')) {
-      if (is('eof')) unexpected()
-      a.push(statement())
-    }
-    next()
-    return a
-  }
-
-  function switch_body_ () {
-    expect('{')
-    const a = []
-    let cur = null, branch = null, tmp
-    while (!is('punc', '}')) {
-      if (is('eof')) unexpected()
-      if (is('keyword', 'case')) {
-        if (branch) branch.end = prev()
-        cur = []
-        branch = new ast_case({start: (tmp = scope.token, next(), tmp), expr: expression(true), body: cur})
-        a.push(branch)
-        expect(':')
-      } else if (is('keyword', 'default')) {
-        if (branch) branch.end = prev()
-        cur = []
-        branch = new ast_default({start: (tmp = scope.token, next(), expect(':'), tmp), body: cur})
-        a.push(branch)
-      } else {
-        if (!cur) unexpected()
-        cur.push(statement())
-      }
-    }
-    if (branch) branch.end = prev()
-    next()
-    return a
-  }
-
-  function try_ () {
-    const body = new ast_try_block({start: scope.token, body: block_(), end: prev(), file})
-    let bcatch, bfinally, start, name
-    if (is('keyword', 'catch')) {
-      start = scope.token
-      next()
-      if (is('punc', '{')) {
-        name = null
-      } else {
-        expect('(')
-        name = parameter(undefined, ast_symbol_catch)
-        expect(')')
-      }
-      bcatch = new ast_catch({start, argname: name, body: block_(), end: prev(), file})
-    }
-    if (is('keyword', 'finally')) {
-      start = scope.token
-      next()
-      bfinally = new ast_finally({start, body: block_(), end: prev(), file})
-    }
-    if (!bcatch && !bfinally) cr('no catch or finally block')
-    return new ast_try({body, bcatch, bfinally})
-  }
-
-  function vardefs (noin, kind) {
-    const defs = []
-    let defined, sym_type
-    while (true) {
-      sym_type = kind == 'var' ? ast_symbol_var : kind == 'const' ? ast_symbol_const
-        : kind == 'let' ? ast_symbol_let : null
-      if (is('punc', '{') || is('punc', '[')) {
-        defined = new ast_var_def({start: scope.token, name: binding_element(undefined, sym_type),
-          value: is('operator', '=') ? (expect_token('operator', '='), expression(false, noin)) : null, end: prev(),
-          file})
-      } else {
-        defined = new ast_var_def({start: scope.token, name: as_symbol(sym_type), value: is('operator', '=')
-          ? (next(), expression(false, noin)) : (!noin && kind == 'const') && cr('no const init'), end: prev(), file})
-        if (defined.name.name == 'import') cr('unexpected import')
-      }
-      defs.push(defined)
-      if (!is('punc', ',')) break
-      next()
-    }
-    return defs
-  }
-
-  function var_ (noin) {
-    return new ast_var({start: prev(), defs: vardefs(noin, 'var'), end: prev(), file})
-  }
-
-  function let_ (noin) {
-    return new ast_let({start: prev(), defs: vardefs(noin, 'let'), end: prev(), file})
-  }
-
-  function const_ (noin) {
-    return new ast_const({start: prev(), defs: vardefs(noin, 'const'), end: prev(), file})
-  }
-
-  function new_ (allow_calls) {
-    const start = scope.token
-    expect_token('operator', 'new')
-    if (is('punc', '.')) {
-      next()
-      expect_token('name', 'target')
-      return subscripts(new ast_new_target({start, end: prev(), file}), allow_calls)
-    }
-    const expr = expr_atom(false)
-    let args
-    if (is('punc', '(')) {
-      next()
-      args = expr_list(')', true)
-    } else {
-      args = []
-    }
-    const call = new ast_new({start, expr, args, end: prev(), file})
-    annotate(call)
-    return subscripts(call, allow_calls)
-  }
-
-  function as_atom_node () {
-    const tok = scope.token
-    let result
-    switch (tok.type) {
-      case 'name':
-        result = _make_symbol(ast_symbol_ref)
-        break
-      case 'num':
-        result = new ast_number({start: tok, end: tok, file, value: tok.value, raw: latest_raw})
-        break
-      case 'big_int':
-        result = new ast_big_int({start: tok, end: tok, file, value: tok.value})
-        break
-      case 'string':
-        result = new ast_string({start: tok, end: tok, file, value: tok.value, quote: tok.quote})
-        annotate(result)
-        break
-      case 'regex':
-        const [_, source, flags] = tok.value.match(/^\/(.*)\/(\w*)$/)
-        result = new ast_reg_exp({start: tok, end: tok, file, value: {source, flags}})
-        break
-      case 'atom':
-        switch (tok.value) {
-          case 'false':
-            result = new ast_false({start: tok, end: tok, file})
-            break
-          case 'true':
-            result = new ast_true({start: tok, end: tok, file})
-            break
-          case 'null':
-            result = new ast_null({start: tok, end: tok, file})
-            break
-        }
-        break
-    }
-    next()
-    return result
-  }
-
-  function to_fun_args (expr, above) {
-    function insert_default (expr, default_value) {
-      if (default_value) return new ast_default_assign({start: expr.start, left: expr, operator: '=', right: default_value,
-        end: default_value.end, file})
-      return expr
-    }
-    if (expr instanceof ast_object) {
-      return insert_default(new ast_destructure({start: expr.start, is_array: false,
-        names: expr.properties.map(prop => to_fun_args(prop)), end: expr.end, file}), above)
-    } else if (expr instanceof ast_key_value) {
-      expr.value = to_fun_args(expr.value)
-      return insert_default(expr, above)
-    } else if (expr instanceof ast_hole) {
-      return expr
-    } else if (expr instanceof ast_destructure) {
-      expr.names = expr.names.map(name => to_fun_args(name))
-      return insert_default(expr, above)
-    } else if (expr instanceof ast_symbol_ref) {
-      return insert_default(new ast_symbol_funarg({name: expr.name, start: expr.start, end: expr.end, file}), above)
-    } else if (expr instanceof ast_spread) {
-      expr.expr = to_fun_args(expr.expr)
-      return insert_default(expr, above)
-    } else if (expr instanceof ast_array) {
-      return insert_default(new ast_destructure({start: expr.start, is_array: true,
-        names: expr.elements.map(el => to_fun_args(el)), end: expr.end, file}), above)
-    } else if (expr instanceof ast_assign) {
-      return insert_default(to_fun_args(expr.left, expr.right), above)
-    } else if (expr instanceof ast_default_assign) {
-      expr.left = to_fun_args(expr.left)
-      return expr
-    } else {
-      cr('bad function parameter', expr.start.line, expr.start.col)
-    }
-  }
-
-  function expr_atom (allow_calls, allow_arrows) {
-    if (is('operator', 'new')) return new_(allow_calls)
-    if (is('name', 'import') && is_token(peek(), 'punc', '.')) return import_meta(allow_calls)
-    const start = scope.token
-    let peeked
-    const async = is('name', 'async') && (peeked = peek()).value != '[' && peeked.type != 'arrow' && as_atom_node()
-    if (is('punc')) {
-      switch (scope.token.value) {
-        case '(':
-          if (async && !allow_calls) break
-          const exprs = params_or_seq_(allow_arrows, !async)
-          if (allow_arrows && is('arrow', '=>')) return arrow_function(start, exprs.map(expr => to_fun_args(expr)), !!async)
-          const expr = async ? new ast_call({expr: async, args: exprs}) : to_expr_or_sequence(start, exprs)
-          if (expr.start) {
-            const outer_comments_before = start.comments_before.length
-            comments_before.set(start, outer_comments_before)
-            expr.start.comments_before.unshift(...start.comments_before)
-            start.comments_before = expr.start.comments_before
-            if (outer_comments_before == 0 && start.comments_before.length > 0) {
-              const comment = start.comments_before[0]
-              if (!comment.nlb()) {
-                comment.set_nlb(start.nlb())
-                start.set_nlb(false)
-              }
-            }
-            start.comments_after = expr.start.comments_after
-          }
-          expr.start = start
-          const end = prev()
-          if (expr.end) {
-            end.comments_before = expr.end.comments_before
-            expr.end.comments_after.push(...end.comments_after)
-            end.comments_after = expr.end.comments_after
-          }
-          expr.end = end
-          if (expr instanceof ast_call) annotate(expr)
-          return subscripts(expr, allow_calls)
-        case '[':
-          return subscripts(array_(), allow_calls)
-        case '{':
-          return subscripts(object_or_destructure(), allow_calls)
-      }
-      if (!async) unexpected()
-    }
-    if (allow_arrows && is('name') && is_token(peek(), 'arrow')) {
-      const param = new ast_symbol_funarg({name: scope.token.value, start, end: start, file})
-      next()
-      return arrow_function(start, [param], !!async)
-    }
-    if (is('keyword', 'function')) {
-      next()
-      const func = function_(ast_function, false, !!async)
-      func.start = start
-      func.end = prev()
-      return subscripts(func, allow_calls)
-    }
-    if (async) return subscripts(async, allow_calls)
-    if (is('keyword', 'class')) {
-      next()
-      const cls = class_(ast_class_expression)
-      cls.start = start
-      cls.end = prev()
-      return subscripts(cls, allow_calls)
-    }
-    if (is('template_head')) return subscripts(template_string(), allow_calls)
-    if (atom_token.has(scope.token.type)) return subscripts(as_atom_node(), allow_calls)
-    unexpected()
-  }
-
-  function template_string () {
-    const segments = [], start = scope.token
-    segments.push(new ast_template_segment({start: scope.token, raw: template_raws.get(scope.token),
-      value: scope.token.value, end: scope.token, file}))
-
-    while (!scope.token.get_template_end()) {
-      next()
-      handle_regex()
-      segments.push(expression(true))
-      segments.push(new ast_template_segment({start: scope.token, raw: template_raws.get(scope.token),
-        value: scope.token.value, end: scope.token, file}))
-    }
-    next()
-
-    return new ast_template_string({start, segments, end: scope.token, file})
-  }
-
-  function expr_list (closing, allow_trailing_comma, allow_empty) {
-    const a = []
-    let first = true
-    while (!is('punc', closing)) {
-      first ? first = false : expect(',')
-      if (allow_trailing_comma && is('punc', closing)) break
-      if (is('punc', ',') && allow_empty) {
-        a.push(new ast_hole({start: scope.token, end: scope.token, file}))
-      } else if (is('expand', '...')) {
-        next()
-        a.push(new ast_spread({start: prev(), expr: expression(), end: scope.token, file}))
-      } else {
-        a.push(expression(false))
-      }
-    }
-    next()
-    return a
-  }
-
-  const array_ = embed_tokens(function () {
-    expect('[')
-    return new ast_array({elements: expr_list(']', !options.strict, true)})
-  })
-
-  const create_accessor = embed_tokens((gen, sync) => {
-    return function_(ast_accessor, gen, sync)
-  })
-
-  const object_or_destructure = embed_tokens(function object_or_destructure () {
-    const properties = []
-    let start = scope.token, first = true
-    expect('{')
-    while (!is('punc', '}')) {
-      first ? first = false : expect(',')
-      if (!options.strict && is('punc', '}')) break
-      start = scope.token
-      if (start.type == 'expand') {
-        next()
-        properties.push(new ast_spread({start, expr: expression(false), end: prev(), file}))
-        continue
-      }
-      if (is('privatename')) cr('private fields are not allowed in an object')
-      const name = as_property_name()
-      let value
-      if (!is('punc', ':')) {
-        const concise = concise_method_or_getset(name, start)
-        if (concise) {
-          properties.push(concise)
-          continue
-        }
-        value = new ast_symbol_ref({start: prev(), name, end: prev(), file})
-      } else if (name === null) {
-        unexpected(prev())
-      } else {
-        next()
-        value = expression(false)
-      }
-      if (is('operator', '=')) {
-        next()
-        value = new ast_assign({start, left: value, operator: '=', right: expression(false), logical: false, end: prev(),
-          file})
-      }
-      properties.push(annotate(new ast_key_value({start, quote: start.quote, key: name, value, end: prev(), file})))
-    }
-    next()
-    return new ast_object({properties})
-  })
-
-  function class_ (kind, is_export_default) {
-    const a = []
-    let start, method, class_name, extends_
-    scope.input.push_directives_stack()
-    if (scope.token.type == 'name' && scope.token.value != 'extends') {
-      class_name = as_symbol(kind === ast_def_class ? ast_symbol_def_class: ast_symbol_class)
-    }
-    if (kind === ast_def_class && !class_name) is_export_default ? kind = ast_class_expression : unexpected()
-    if (scope.token.value == 'extends') {
-      next()
-      extends_ = expression(true)
-    }
-    expect('{')
-    const save_in_class = scope.in_class
-    scope.in_class = true
-    while (is('punc', ';')) next()
-    while (!is('punc', '}')) {
-      start = scope.token
-      method = concise_method_or_getset(as_property_name(), start, true)
-      if (!method) unexpected()
-      a.push(method)
-      while (is('punc', ';')) next()
-    }
-    scope.in_class = save_in_class
-    scope.input.pop_directives_stack()
-    next()
-    return new kind({start, name: class_name, extends: extends_, properties: a, end: prev(), file})
-  }
-
-  function concise_method_or_getset (name, start, is_class) {
-    const get_symbol_ast = (name, symbol = ast_symbol_method) => {
-      if (typeof name == 'string' || typeof name == 'number') {
-        return new symbol({start, name: '' + name, end: prev(), file})
-      } else if (name === null) {
-        unexpected()
-      }
-      return name
-    }
-    const is_not_method_start = () => !is('punc', '(') && !is('punc', ',') && !is('punc', '}') && !is('punc', ';')
-      && !is('operator', '=')
-    let sync, sttc, gen, is_private, accessor_type
-    if (is_class && name == 'static' && is_not_method_start()) {
-      const static_block = class_static_block()
-      if (static_block != null) return static_block
-      sttc = true
-      name = as_property_name()
-    }
-    if (name == 'async' && is_not_method_start()) {
-      sync = true
-      name = as_property_name()
-    }
-    if (prev().type == 'operator' && prev().value == '*') {
-      gen = true
-      name = as_property_name()
-    }
-    if ((name == 'get' || name == 'set') && is_not_method_start()) {
-      accessor_type = name
-      name = as_property_name()
-    }
-    if (prev().type == 'privatename') is_private = true
-    const property_token = prev()
-    if (accessor_type != null) {
-      if (!is_private) {
-        const accessor = accessor_type == 'get' ? ast_object_getter : ast_object_setter
-        name = get_symbol_ast(name)
-        return annotate(new accessor({start, static: sttc, key: name,
-          quote: name instanceof ast_symbol_method ? property_token.quote : undefined,
-          value: create_accessor(), end: prev()}))
-      } else {
-        const accessor = accessor_type == 'get' ? ast_private_getter : ast_private_setter
-        return annotate(new accessor({start, static: sttc, key: get_symbol_ast(name), value: create_accessor(),
-          end: prev()}))
-      }
-    }
-    if (is('punc', '(')) {
-      name = get_symbol_ast(name)
-      const ast_method_variant = is_private ? ast_private_method : ast_concise_method
-      const root = new ast_method_variant({start, static: sttc, gen, sync, key: name,
-        quote: name instanceof ast_symbol_method ? property_token.quote : undefined,
-        value: create_accessor(gen, sync), end: prev(), file})
-      return annotate(root)
-    }
-    if (is_class) {
-      const key = get_symbol_ast(name, ast_symbol_class_property)
-      const quote = key instanceof ast_symbol_class_property ? property_token.quote : undefined
-      const variant = is_private ? ast_private_property : ast_class_property
-      if (is('operator', '=')) {
-        next()
-        return annotate(new variant({start, static: sttc, quote, key, value: expression(false), end: prev(), file}))
-      } else if (is('name') || is('privatename') || is('punc', '[') || is('operator', '*') || is('punc', ';')
-        || is('punc', '}')) {
-        return annotate(new variant({start, static: sttc, quote, key, end: prev(), file}))
-      }
-    }
-  }
-
-  function class_static_block () {
-    if (!is('punc', '{')) return null
-    const start = scope.token
-    const body = []
-    next()
-    while (!is('punc', '}')) body.push(statement())
-    next()
-    return new ast_class_static({start, body, end: prev(), file})
-  }
-
-  function maybe_import_attributes () {
-    if (is('name', 'assert') && !has_newline_before(scope.token)) {
-      next()
-      return object_or_destructure()
-    }
-    return null
-  }
-
-  function import_statement () {
-    const start = prev()
-    let import_name, import_names
-    if (is('name')) import_name = as_symbol(ast_symbol_import)
-    if (is('punc', ',')) next()
-    import_names = map_names(true)
-    if (import_names || import_name) expect_token('name', 'from')
-    const module = scope.token
-    if (module.type != 'string') unexpected()
-    next()
-    const attributes = maybe_import_attributes()
-    const resolved = resolve(file, module.value)
-    if (import_name) {
-      import_name.file = resolved
-      imports[file + '/' + import_name.name] = resolved + '/' + import_name.name
-    }
-    if (import_names) import_names.forEach(i => {
-      i.file = resolved
-      i.foreign_name.file = resolved
-      i.name.file = resolved
-      imports[file + '/' + i.name.name] = resolved + '/' + i.foreign_name.name
-    })
-    return new ast_import({start, import_name, import_names,
-      module: new ast_string({start: module, value: module.value, quote: module.quote, end: module, file}),
-      attributes, end: scope.token, file})
-  }
-
-  function map_name (is_import) {
-    function make_symbol (type, quote) {
-      return new type({name: as_property_name(), quote: quote || undefined, start: prev(), end: prev(), file})
-    }
-    const foreign_type = is_import ? ast_symbol_import_foreign : ast_symbol_export_foreign
-    const type = is_import ? ast_symbol_import : ast_symbol_export
-    const start = scope.token
-    let foreign_name, name
-    is_import ? foreign_name = make_symbol(foreign_type, start.quote) : name = make_symbol(type, start.quote)
-    if (is('name', 'as')) {
-      next()
-      is_import ? name = make_symbol(type) : foreign_name = make_symbol(foreign_type, scope.token.quote)
-    } else if (is_import) {
-      name = new type(foreign_name)
-    } else {
-      foreign_name = new foreign_type(name)
-    }
-    return new ast_name_mapping({start, foreign_name, name, end: prev(), file})
-  }
-
-  function map_name_asterisk (is_import, import_name) {
-    const foreign_type = is_import ? ast_symbol_import_foreign : ast_symbol_export_foreign
-    const type = is_import ? ast_symbol_import: ast_symbol_export
-    const start = scope.token, end = prev()
-    let name, foreign_name
-    is_import ? name = import_name : foreign_name = import_name
-    name = name || new type({start, name: '*', end, file})
-    foreign_name = foreign_name || new foreign_type({start, name: '*', end, file})
-    return new ast_name_mapping({start, foreign_name, name, end, file})
-  }
-
-  function map_names (is_import) {
-    let names
-    if (is('punc', '{')) {
-      next()
-      names = []
-      while (!is('punc', '}')) {
-        names.push(map_name(is_import))
-        if (is('punc', ',')) next()
-      }
-      next()
-    } else if (is('operator', '*')) {
-      let name
-      next()
-      if (is('name', 'as')) {
-        next()
-        name = is_import ? as_symbol(ast_symbol_import) : as_symbol_or_string(ast_symbol_export_foreign)
-      }
-      names = [map_name_asterisk(is_import, name)]
-    }
-    return names
-  }
-
-  function export_statement () {
-    const start = scope.token
-    let is_default, names
-    if (is('keyword', 'default')) {
-      is_default = true
-      next()
-    } else if (names = map_names(false)) {
-      if (is('name', 'from')) {
-        next()
-        const string = scope.token
-        if (string.type != 'string') unexpected()
-        next()
-        const attributes = maybe_import_attributes()
-        return new ast_export({start, attributes, is_default, names, module: new ast_string({start: string,
-          value: string.value, quote: string.quote, end: string, file}), end: prev(), file})
-      } else {
-        return new ast_export({start, is_default, names, end: prev(), file})
-      }
-    }
-    let root, value, defined
-    if (is('punc', '{') || is_default && (is('keyword', 'class') || is('keyword', 'function'))
-      && is_token(peek(), 'punc')) {
-      value = expression(false)
-      semicolon()
-    } else if ((root = statement(is_default)) instanceof ast_definitions && is_default) {
-      unexpected(root.start)
-    } else if (root instanceof ast_definitions || root instanceof ast_defun || root instanceof ast_def_class) {
-      defined = root
-    } else if (root instanceof ast_class_expression || root instanceof ast_function) {
-      value = root
-    } else if (root instanceof ast_statement) {
-      value = root.body
-    } else {
-      unexpected(root.start)
-    }
-    return new ast_export({start, attributes: null, is_default, value, defined, end: prev(), file})
-  }
-
-  function as_property_name () {
-    const tmp = scope.token
-    switch (tmp.type) {
-      case 'punc':
-        if (tmp.value == '[') {
-          next()
-          const expr = expression(false)
-          expect(']')
-          return expr
-        } else {
-          unexpected(tmp)
-        }
-      case 'operator':
-        if (tmp.value == '*') {
-          next()
-          return
-        }
-        if (!member(tmp.value, ['delete', 'in', 'instanceof', 'new', 'typeof', 'void'])) unexpected(tmp)
-      case 'atom':
-      case 'big_int':
-      case 'keyword':
-      case 'name':
-      case 'num':
-      case 'privatename':
-      case 'string':
-        next()
-        return tmp.value
-      default:
-        unexpected(tmp)
-    }
-  }
-
-  function as_name () {
-    const tmp = scope.token
-    if (tmp.type != 'name' && tmp.type != 'privatename') unexpected()
-    next()
-    return tmp.value
-  }
-
-  function _make_symbol (type) {
-    const name = scope.token.value
-    return new (name == 'this' ? ast_this : name == 'super' ? ast_super : type)({
-      name: String(name), start: scope.token, end: scope.token, file})
-  }
-
-  function _verify_symbol (sym) {
-    if (is_in_generator() && sym.name == 'yield') tr(sym.start, 'yield cannot be identifier')
-  }
-
-  function as_symbol (type, noerror) {
-    if (!is('name')) {
-      if (!noerror) cr('expected name')
-      return null
-    }
-    const sym = _make_symbol(type)
-    _verify_symbol(sym)
-    next()
-    return sym
-  }
-
-  function as_symbol_or_string (type) {
-    if (!is('name')) {
-      if (!is('string')) cr('name or string expected')
-      const tok = scope.token
-      const result = new type({start: tok, end: tok, file, name: tok.value, quote: tok.quote})
-      next()
-      return result
-    }
-    const sym = _make_symbol(type)
-    _verify_symbol(sym)
-    next()
-    return sym
-  }
-
-  function annotate (root, before_token = root.start) {
-    const comments = before_token.comments_before
-    const comments_after = comments_before.get(before_token)
-    let i = comments_after != null ? comments_after : comments.length, comment
-    while (--i >= 0) {
-      comment = comments[i]
-      if (/[@#]__/.test(comment.value)) {
-        if (/[@#]__PURE__/.test(comment.value)) {
-          set_annotation(root, _pure)
-          break
-        }
-        if (/[@#]__INLINE__/.test(comment.value)) {
-          set_annotation(root, _inline)
-          break
-        }
-        if (/[@#]__NOINLINE__/.test(comment.value)) {
-          set_annotation(root, _noinline)
-          break
-        }
-        if (/[@#]__KEY__/.test(comment.value)) {
-          set_annotation(root, _key)
-          break
-        }
-        if (/[@#]__MANGLE_PROP__/.test(comment.value)) {
-          set_annotation(root, _mangleprop)
-          break
-        }
-      }
-    }
-    return root
-  }
-
-  function subscripts (expr, allow_calls, is_chain) {
-    const start = expr.start
-    if (is('punc', '.')) {
-      next()
-      if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
-      const ast_dot_variant = is('privatename') ? ast_dot_hash : ast_dot
-      return annotate(subscripts(new ast_dot_variant({start, expr, optional: false, property: as_name(), end: prev(),
-        file}), allow_calls, is_chain))
-    }
-    if (is('punc', '[')) {
-      next()
-      const property = expression(true)
-      expect(']')
-      return annotate(subscripts(new ast_sub({start, expr, optional: false, property, end: prev(), file}), allow_calls,
-       is_chain))
-    }
-    if (allow_calls && is('punc', '(')) {
-      next()
-      const call = new ast_call({start, expr, optional: false, args: call_args(), end: prev(), file})
-      annotate(call)
-      return subscripts(call, true, is_chain)
-    }
-    if (is('punc', '?.')) {
-      next()
-      let chain_contents
-      if (allow_calls && is('punc', '(')) {
-        next()
-        const call = new ast_call({start, optional: true, expr, args: call_args(), end: prev(), file})
-        annotate(call)
-        chain_contents = subscripts(call, true, true)
-      } else if (is('name') || is('privatename')) {
-        if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
-        const ast_dot_variant = is('privatename') ? ast_dot_hash : ast_dot
-        chain_contents = annotate(subscripts(new ast_dot_variant({start, expr, optional: true,
-          property: as_name(), end: prev(), file}), allow_calls, true))
-      } else if (is('punc', '[')) {
-        next()
-        const property = expression(true)
-        expect(']')
-        chain_contents = annotate(subscripts(new ast_sub({start, expr, optional: true, property, end: prev(), file}),
-          allow_calls, true))
-      }
-      if (!chain_contents) unexpected()
-      if (chain_contents instanceof ast_chain) return chain_contents
-      return new ast_chain({start, expr: chain_contents, end: prev(), file})
-    }
-    if (is('template_head')) {
-      if (is_chain) unexpected()
-      return subscripts(new ast_template_prefix({start, prefix: expr,
-        template_string: template_string(), end: prev(), file}), allow_calls)
-    }
-    return expr
-  }
-
-  function call_args () {
-    const args = []
-    while (!is('punc', ')')) {
-      if (is('expand', '...')) {
-        next()
-        args.push(new ast_spread({start: prev(), expr: expression(false), end: prev(), file}))
-      } else {
-        args.push(expression(false))
-      }
-      if (!is('punc', ')')) expect(',')
-    }
-    next()
-    return args
-  }
-
-  function maybe_unary (allow_calls, allow_arrows) {
-    const start = scope.token
-    if (start.type == 'name' && start.value == 'await' && can_await()) {
-      next()
-      return _await_expression()
-    }
-    if (is('operator') && unary_prefix.has(start.value)) {
-      next()
-      handle_regex()
-      const expr = make_unary(ast_unary_prefix, start, maybe_unary(allow_calls))
-      expr.start = start
-      expr.end = prev()
-      return expr
-    }
-    let val = expr_atom(allow_calls, allow_arrows)
-    while (is('operator') && unary_postfix.has(scope.token.value) && !has_newline_before(scope.token)) {
-      if (val instanceof ast_arrow) unexpected()
-      val = make_unary(ast_unary_postfix, scope.token, val)
-      val.start = start
-      val.end = scope.token
-      next()
-    }
-    return val
-  }
-
-  function make_unary (ctor, token, expr) {
-    const operator = token.value
-    switch (operator) {
-      case '++':
-      case '--':
-        if (!is_assignable(expr)) cr('bad use of ' + operator + ' operator', token.line, token.col, token.pos)
-        break
-      case 'delete':
-        break
-    }
-    return new ctor({operator, expr})
-  }
-
-  function expr_op (left, min_prec, noin) {
-    let operator = is('operator') ? scope.token.value : null
-    if (operator == 'in' && noin) operator = null
-    if (operator == '**' && left instanceof ast_unary_prefix && !is_token(left.start, 'punc', '(')
-      && left.operator != '--' && left.operator != '++') unexpected(left.start)
-    const prec = operator != null ? precedence[operator] : null
-    if (prec != null && (prec > min_prec || (operator == '**' && min_prec === prec))) {
-      next()
-      const right = expr_ops(noin, prec, true)
-      return expr_op(new ast_binary({start: left.start, left, operator, right, end: right.end, file}), min_prec, noin)
-    }
-    return left
-  }
-
-  function expr_ops (noin, min_prec, allow_calls, allow_arrows) {
-    if (!noin && min_prec < precedence['in'] && is('privatename')) {
-      if (!scope.in_class) cr('private field')
-      const start = scope.token
-      const key = new ast_symbol_private_property({start, name: start.value, end: start, file})
-      next()
-      expect_token('operator', 'in')
-      return expr_op(new ast_private_in({start, key, value: expr_ops(noin, precedence['in'], true), end: prev(),
-        file}), 0, noin)
-    } else {
-      return expr_op(maybe_unary(allow_calls, allow_arrows), min_prec, noin)
-    }
-  }
-
-  function maybe_conditional (noin) {
-    const start = scope.token, expr = expr_ops(noin, 0, true, true)
-    if (is('operator', '?')) {
-      next()
-      const consequent = expression(false)
-      expect(':')
-      return new ast_conditional({start, condition: expr, consequent,
-        alt: expression(false, noin), end: prev(), file})
-    }
-    return expr
-  }
-
-  function is_assignable (expr) {
-    return expr instanceof ast_prop_access || expr instanceof ast_symbol_ref
-  }
-
-  function to_destructure (root) {
-    if (root instanceof ast_object) {
-      root = new ast_destructure({start: root.start, names: root.properties.map(to_destructure), is_array: false,
-        end: root.end, file})
-    } else if (root instanceof ast_array) {
-      const names = []
-      for (let i = 0, length = root.elements.length; i < length; i++) {
-        if (root.elements[i] instanceof ast_spread) {
-          if (i + 1 != root.elements.length) tr(root.elements[i].start, 'spread must be last element')
-          root.elements[i].expr = to_destructure(root.elements[i].expr)
-        }
-        names.push(to_destructure(root.elements[i]))
-      }
-      root = new ast_destructure({start: root.start, names, is_array: true, end: root.end, file})
-    } else if (root instanceof ast_object_property) {
-      root.value = to_destructure(root.value)
-    } else if (root instanceof ast_assign) {
-      root = new ast_default_assign({start: root.start, left: root.left, operator: '=',
-        right: root.right, end: root.end, file})
-    }
-    return root
-  }
-
-  function maybe_assign (noin) {
-    handle_regex()
-    let start = scope.token
-    if (start.type == 'name' && start.value == 'yield') {
-      if (is_in_generator()) {
-        next()
-        return _yield_expression()
-      }
-    }
-    let left = maybe_conditional(noin), val = scope.token.value
-    if (is('operator') && assign.has(val)) {
-      if (is_assignable(left) || (left = to_destructure(left)) instanceof ast_destructure) {
-        next()
-        return new ast_assign({start, left, operator: val, right: maybe_assign(noin),
-          logical: logical_assign.has(val), end: prev(), file})
-      }
-      cr('bad assign')
-    }
-    return left
-  }
-
-  function to_expr_or_sequence (start, exprs) {
-    if (exprs.length === 1) {
-      return exprs[0]
-    } else if (exprs.length > 1) {
-      return new ast_sequence({start, exprs: exprs, end: peek(), file})
-    } else {
-      cr('bad parenthesized expr')
-    }
-  }
-
-  function expression (commas, noin) {
-    const exprs = [], start = scope.token
-    while (true) {
-      exprs.push(maybe_assign(noin))
-      if (!commas || !is('punc', ',')) break
-      next()
-      commas = true
-    }
-    return to_expr_or_sequence(start, exprs)
-  }
-
-  if (options.expr) return expression(true)
-
-  function parse_toplevel () {
-    const body = [], start = scope.token
-    scope.input.push_directives_stack()
-    let file = '', imports = [], imported = [], toplevel, resolved
-    if (options.toplevel) {
-      file = options.toplevel.file
-      imports = options.toplevel.imports
-      imported = options.toplevel.imported
-    }
-    while (!is('eof')) {
-      const sta = statement()
-      sta.file = file
-      if (sta instanceof ast_import) {
-        resolved = resolve(file, sta.module.value)
-        if (!member(resolved, imported) && !member(resolved, imports)) {
-          imports.unshift(resolved)
-          toplevel = options.toplevel
-          if (toplevel) {
-            toplevel.imports = imports
-            toplevel.pushed = false
-          }
-          return toplevel
-        }
-      }
-      body.push(sta)
-    }
-    scope.input.pop_directives_stack()
-    const end = prev()
-    toplevel = options.toplevel
-    if (toplevel) {
-      toplevel.imports = imports
-      if (!toplevel.body) toplevel.body = []
-      toplevel.body = toplevel.body.concat(body)
-      toplevel.end = end
-    } else {
-      toplevel = new ast_toplevel({start, body, end, file})
-      toplevel.imports = imports
-    }
-    template_raws = new Map()
-    return toplevel
-  }
-  return parse_toplevel()
-}
-
 const code_line_break = 10
 const code_space = 32
 const r_annotation = /[@#]__(PURE|INLINE|NOINLINE)__/
@@ -5159,503 +3554,6 @@ class rope {
   }
 }
 
-function output_stream (options) {
-  const readonly = !options
-  options = defaults(options, {'ascii_only': false, 'beautify': false, 'braces': false,
-    'comments': 'some', 'indent_level': 4, 'indent_start': 0, 'inline_script': true, 'keep_numbers': false,
-    'keep_quoted_props': false, 'max_line_len': false, 'preamble': null, 'preserve_annotations': false,
-    'quote_keys': false, 'quote_style': 0, 'semicolons': true, 'shebang': true, 'shorthand': undefined,
-    'source_map': null, 'webkit': false, 'width': 80, 'wrap_iife': false, 'wrap_func_args': true,
-    '_destroy_ast': false})
-  if (options.shorthand === undefined) options.shorthand = true
-  let comment_filter = get_false
-  if (options.comments) {
-    let comments = options.comments
-    if (typeof options.comments == 'string' && /^\/.*\/[a-zA-Z]*$/.test(options.comments)) {
-      const regex_pos = options.comments.lastIndexOf('/')
-      comments = new RegExp(options.comments.substr(1, regex_pos - 1), options.comments.substr(regex_pos + 1))
-    }
-    if (comments instanceof RegExp) {
-      comment_filter = function (comment) {
-        return comment.type != 'comment5' && comments.test(comment.value)
-      }
-    } else if (typeof comments == 'function') {
-      comment_filter = function (comment) {
-        return comment.type != 'comment5' && comments(this, comment)
-      }
-    } else if (comments == 'some') {
-      comment_filter = is_some_comments
-    } else {
-      comment_filter = get_true
-    }
-  }
-
-  if (options.preserve_annotations) {
-    let prev_comment_filter = comment_filter
-    comment_filter = function (comment) {
-      return r_annotation.test(comment.value) || prev_comment_filter.apply(this, arguments)
-    }
-  }
-
-  const outp = new rope()
-
-  let indentation = 0, current_col = 0, current_pos = 0, current_line = 1
-  let printed_comments = new Set()
-
-  const to_utf8 = options.ascii_only ? function (string, identifier = false, regex = false) {
-    if (!regex) {
-      string = string.replace(/[\ud800-\udbff][\udc00-\udfff]/g, function (char) {
-        return '\\u{' + get_full_char_code(char, 0).toString(16) + '}'
-      })
-    }
-    return string.replace(/[\u0000-\u001f\u007f-\uffff]/g, function (char) {
-      const code = char.charCodeAt(0).toString(16)
-      if (code.length <= 2 && !identifier) {
-        while (code.length < 2) code = '0' + code
-        return '\\x' + code
-      } else {
-        while (code.length < 4) code = '0' + code
-        return '\\u' + code
-      }
-    })
-  } : function (string) {
-    return string.replace(/[\ud800-\udbff][\udc00-\udfff]|([\ud800-\udbff]|[\udc00-\udfff])/g, function (match, lone) {
-      if (lone) return '\\u' + lone.charCodeAt(0).toString(16)
-      return match
-    })
-  }
-
-  function make_string (string, quote) {
-    let dq = 0, sq = 0
-    string = string.replace(/[\\\b\f\n\r\v\t\x22\x27\u2028\u2029\0\ufeff]/g,
-      function (s, i) {
-      switch (s) {
-        case '"':
-          ++dq
-          return '"'
-        case "'":
-          ++sq
-          return "'"
-        case '\\': return '\\\\'
-        case '\n': return '\\n'
-        case '\r': return '\\r'
-        case '\t': return '\\t'
-        case '\b': return '\\b'
-        case '\f': return '\\f'
-        case '\x0B': return '\\v'
-        case '\u2028': return '\\u2028'
-        case '\u2029': return '\\u2029'
-        case '\ufeff': return '\\ufeff'
-        case '\0': return /[0-9]/.test(get_full_char(string, i + 1)) ? '\\x00' : '\\0'
-      }
-      return s
-    })
-
-    function single_quote () { return "'" + string.replace(/\x27/g, "\\'") + "'" }
-
-    function quote_double () { return '"' + string.replace(/\x22/g, '\\"') + '"' }
-
-    function quote_template () { return '`' + string.replace(/`/g, "\\`") + '`' }
-
-    string = to_utf8(string)
-    if (quote == '`') return quote_template()
-    switch (options.quote_style) {
-      case 1: return single_quote()
-      case 2: return quote_double()
-      case 3: return quote == '"' ? quote_double() : single_quote()
-      default: return dq > sq ? single_quote() : quote_double()
-    }
-  }
-
-  function encode_string (string, quote) {
-    let result = make_string(string, quote)
-    if (options.inline_script) {
-      result = result.replace(/<\x2f(script)([>\/\t\n\f\r ])/gi, '<\\/$1$2')
-      result = result.replace(/\x3c!--/g, '\\x3c!--')
-      result = result.replace(/--\x3e/g, '--\\x3e')
-    }
-    return result
-  }
-
-  function make_name (name) {
-    return to_utf8(name.toString(), true)
-  }
-
-  let might_add_newline = 0, newline_insert = -1, last = ''
-  let mappings = options.source_map && [], mapping_name, mapping_token
-  let has_parens, might_need_space, might_need_semicolon, need_newline_indented, need_space
-
-  const do_add_mapping = mappings ? function () {
-    mappings.forEach(function (mapping) {
-      try {
-        let { name, token } = mapping
-        if (name !== false) {
-          if (token.type == 'name' || token.type == 'privatename') {
-            name = token.value
-          } else if (name instanceof ast_symbol) {
-            name = token.type == 'string' ? token.value : name.name
-          }
-        }
-        options.source_map.add(
-          mapping.token.file,
-          mapping.line, mapping.col,
-          mapping.token.line, mapping.token.col,
-          is_basic_identifier_string(name) ? name : undefined
-        )
-      } catch {}
-    })
-    mappings = []
-  } : func
-
-  const ensure_line_len = options.max_line_len ? function () {
-    if (current_col > options.max_line_len) {
-      if (might_add_newline) {
-        outp.insertAt('\n', might_add_newline)
-        const len_after_newline = outp.length() - might_add_newline - 1
-        if (mappings) {
-          const delta = len_after_newline - current_col
-          mappings.forEach(function (mapping) {
-            mapping.line++
-            mapping.col += delta
-          })
-        }
-        current_line++
-        current_pos++
-        current_col = len_after_newline
-      }
-    }
-    if (might_add_newline) {
-      might_add_newline = 0
-      do_add_mapping()
-    }
-  } : func
-
-  const require_semicolon = make_set('( [ + * / - , . `')
-
-  function print (string) {
-    string = String(string)
-    const char = get_full_char(string, 0)
-    if (need_newline_indented && char) {
-      need_newline_indented = false
-      if (char != '\n') {
-        print('\n')
-        indent()
-      }
-    }
-    if (need_space && char) {
-      need_space = false
-      if (!/[\s;})]/.test(char)) space()
-    }
-    newline_insert = -1
-    const prev = last.charAt(last.length - 1)
-    if (might_need_semicolon) {
-      might_need_semicolon = false
-      if (prev == ':' && char == '}' || (!char || !member(char, ';}')) && prev != ';') {
-        if (options.semicolons || require_semicolon.has(char)) {
-          outp.append(';')
-          current_col++
-          current_pos++
-        } else {
-          ensure_line_len()
-          if (current_col > 0) {
-            outp.append('\n')
-            current_pos++
-            current_line++
-            current_col = 0
-          }
-          if (/^\s+$/.test(string)) might_need_semicolon = true
-        }
-        if (!options.beautify) might_need_space = false
-      }
-    }
-
-    if (might_need_space) {
-      if ((is_identifier_char(prev) && (is_identifier_char(char) || char == '\\'))
-        || (char == '/' && char == prev) || ((char == '+' || char == '-') && char == last)) {
-        outp.append(' ')
-        current_col++
-        current_pos++
-      }
-      might_need_space = false
-    }
-
-    if (mapping_token) {
-      mappings.push({token: mapping_token, name: mapping_name, line: current_line, col: current_col})
-      mapping_token = false
-      if (!might_add_newline) do_add_mapping()
-    }
-
-    outp.append(string)
-    has_parens = string[string.length - 1] == '('
-    current_pos += string.length
-    const a = string.split(/\r?\n/), n = a.length - 1
-    current_line += n
-    current_col += a[0].length
-    if (n > 0) {
-      ensure_line_len()
-      current_col = a[n].length
-    }
-    last = string
-  }
-
-  const indent_level = options.indent_level
-
-  function star () { print('*') }
-
-  const space = options.beautify ? function () { print(' ') } : function () { might_need_space = true }
-
-  const redent = options.beautify ? function () { indentation += indent_level } : func
-
-  const undent = options.beautify ? function () { indentation -= indent_level } : func
-
-  const indent = options.beautify ? function (level=0) {
-    indentation += level * indent_level
-    print(' '.repeat(options.indent_start + indentation))
-  } : func
-
-  const with_indent = options.beautify ? function (col, cont) {
-    if (col === true) col = next_indent()
-    const save_indentation = indentation
-    indentation = col
-    const result = cont()
-    indentation = save_indentation
-    return result
-  } : function (col, cont) { return cont() }
-
-  const newline = options.beautify ? function () {
-    if (newline_insert < 0) return print('\n')
-    if (outp.charAt(newline_insert) != '\n') {
-      outp.insertAt('\n', newline_insert)
-      current_pos++
-      current_line++
-    }
-    newline_insert++
-  } : options.max_line_len ? function () {
-    ensure_line_len()
-    might_add_newline = outp.length()
-  } : func
-
-  const semicolon = options.beautify ? function () { print(';') } : function () { might_need_semicolon = true }
-
-  function force_semicolon () {
-    might_need_semicolon = false
-    print(';')
-  }
-
-  function next_indent () { return indentation + options.indent_level }
-
-  function with_block (cont) {
-    let result
-    print('{')
-    with_indent(next_indent(), function () { result = cont() })
-    print('}')
-    return result
-  }
-
-  function with_parens (cont) {
-    print('(')
-    const result = cont()
-    print(')')
-    return result
-  }
-
-  function with_square (cont) {
-    print('[')
-    const result = cont()
-    print(']')
-    return result
-  }
-
-  function comma () {
-    print(',')
-    space()
-  }
-
-  function colon () {
-    print(':')
-    space()
-  }
-
-  const add_mapping = mappings ? function (token, name) {
-    mapping_token = token
-    mapping_name = name
-  } : func
-
-  function get () {
-    if (might_add_newline) ensure_line_len()
-    return outp.toString()
-  }
-
-  function filter_comment (comment) {
-    if (!options.preserve_annotations) comment = comment.replace(r_annotation, ' ')
-    if (/^\s*$/.test(comment)) return ''
-    return comment.replace(/(<\s*\/\s*)(script)/i, '<\\/$2')
-  }
-
-  function prepend_comments (root) {
-    const start = root.start
-    if (!start) return
-    const self = this
-    const printed_comments = self.printed_comments
-    const keyword_with_value = root instanceof ast_exit && root.value
-      || (root instanceof ast_await || root instanceof ast_yield) && root.expr
-    if (start.comments_before && printed_comments.has(start.comments_before)) {
-      if (keyword_with_value) {
-        start.comments_before = []
-      } else {
-        return
-      }
-    }
-    let comments = start.comments_before
-    if (!comments) {
-      comments = start.comments_before = []
-    } else if (comments.length) {
-      printed_comments.add(comments)
-    }
-    if (keyword_with_value) {
-      let trees = new observes(function (root) {
-        const parent = trees.parent()
-        if (parent instanceof ast_exit || parent instanceof ast_await || parent instanceof ast_yield
-          || parent instanceof ast_binary && parent.left === root || parent instanceof ast_call && parent.expr === root
-          || parent instanceof ast_conditional && parent.condition === root
-          || parent instanceof ast_dot && parent.expr === root
-          || parent instanceof ast_sequence && parent.exprs[0] === root
-          || parent instanceof ast_sub && parent.expr === root || parent instanceof ast_unary_postfix) {
-          if (!root.start) return
-          const text = root.start.comments_before
-          if (text && !printed_comments.has(text)) {
-            if (text.length) printed_comments.add(text)
-            comments = comments.concat(text)
-          }
-        } else {
-          return true
-        }
-      })
-      trees.push(root)
-      keyword_with_value.observe(trees)
-    }
-
-    if (current_pos == 0) {
-      if (comments.length > 0 && options.shebang && comments[0].type == 'comment5'
-        && !printed_comments.has(comments[0])) {
-        print('#!' + comments.shift().value + '\n')
-        indent()
-      }
-      const preamble = options.preamble
-      if (preamble) {
-        print(preamble.replace(/\r\n?|[\n\u2028\u2029]|\s*$/g, '\n'))
-      }
-    }
-
-    comments = comments.filter(comment_filter, root).filter(c => !printed_comments.has(c))
-    if (comments.length == 0) return
-    const has_nlb = outp.has_nlb()
-    comments.forEach(function (c, i) {
-      if (c.length) printed_comments.add(c)
-      if (!has_nlb) {
-        if (c.nlb()) {
-          print('\n')
-          indent()
-          has_nlb = true
-        } else if (i > 0) {
-          space()
-        }
-      }
-      if (/comment[134]/.test(c.type)) {
-        const value = filter_comment(c.value)
-        if (value) {
-          print('//' + value + '\n')
-          indent()
-        }
-        has_nlb = true
-      } else if (c.type == 'comment2') {
-        const value = filter_comment(c.value)
-        if (value) print('/*' + value + '*/')
-        has_nlb = false
-      }
-    })
-    if (!has_nlb) {
-      if (start.nlb()) {
-        print('\n')
-        indent()
-      } else {
-        space()
-      }
-    }
-  }
-
-  function append_comments (root, tail) {
-    const token = root.end
-    if (!token) return
-    const self = this, printed = self.printed_comments, comments = token[tail ? 'comments_before' : 'comments_after']
-    if (!comments || printed.has(comments)) return
-    if (!(root instanceof ast_state || comments.every(c => !/comment[134]/.test(c.type)))) return
-    if (comments.length) printed.add(comments)
-    const insert = outp.length()
-    comments.filter(comment_filter, root).forEach(function (c, i) {
-      if (printed.has(c)) return
-      if (c.length) printed.add(c)
-      need_space = false
-      if (need_newline_indented) {
-        print('\n')
-        indent()
-        need_newline_indented = false
-      } else if (c.nlb() && (i > 0 || !outp.has_nlb())) {
-        print('\n')
-        indent()
-      } else if (i > 0 || !tail) {
-        space()
-      }
-      if (/comment[134]/.test(c.type)) {
-        const value = filter_comment(c.value)
-        if (value) print('//' + value)
-        need_newline_indented = true
-      } else if (c.type == 'comment2') {
-        const value = filter_comment(c.value)
-        if (value) print('/*' + value + '*/')
-        need_space = true
-      }
-    })
-    if (outp.length() > insert) newline_insert = insert
-  }
-
-  function gc_scope (scope) {
-    if (options['_destroy_ast']) {
-      scope.body.length = 0
-      scope.argnames.length = 0
-    }
-  }
-
-  function print_string (string, quote, escape_directive) {
-    const encoded = encode_string(string, quote)
-    if (escape_directive === true && !member('\\', encoded)) {
-      if (!outp.expect_directive()) force_semicolon()
-      force_semicolon()
-    }
-    print(encoded)
-  }
-
-  function print_template_chars (string) {
-    const encoded = encode_string(string, '`').replace(/\${/g, '\\${')
-    return print(encoded.substr(1, encoded.length - 2))
-  }
-
-  const stack = []
-  return {get, toString: get, indent, undent, redent, in_directive: false, use_asm: null, active_scope: null,
-    indentation: function () { return indentation }, current_width: function () { return current_col - indentation },
-    should_break: function () { return options.width && this.current_width() >= options.width },
-    has_parens: function () { return has_parens }, last: function () { return last },
-    newline, print, star, space, comma, colon, semicolon, force_semicolon, to_utf8,
-    print_name: function (name) { print(make_name(name)) },
-    print_string, print_template_chars, encode_string, next_indent, with_indent,
-    with_block, with_parens, with_square, add_mapping, options, gc_scope, printed_comments,
-    prepend_comments: readonly ? func : prepend_comments,
-    append_comments: readonly || comment_filter === get_false ? func : append_comments,
-    line: function () { return current_line}, col: function () { return current_col },
-    pos: function () { return current_pos }, push_node: function (root) { stack.push(root) },
-    pop_node: function () { return stack.pop() }, parent: function (n) { return stack[stack.length - 2 - (n || 0)]}}
-}
-
 function def_parens (root, func) {
   root.prototype.needs_parens = func
 }
@@ -5698,7 +3596,7 @@ def_parens(ast_await, function (output) {
 def_parens(ast_sequence, function (output) {
   const p = output.parent()
   return p instanceof ast_call || p instanceof ast_unary || p instanceof ast_binary
-    || p instanceof ast_var_def || p instanceof ast_prop_access || p instanceof ast_array
+    || p instanceof ast_def || p instanceof ast_prop_access || p instanceof ast_array
     || p instanceof ast_object_property || p instanceof ast_conditional || p instanceof ast_arrow
     || p instanceof ast_default_assign || p instanceof ast_spread || p instanceof ast_for_of && this === p.object
     || p instanceof ast_yield  || p instanceof ast_export})
@@ -5771,6 +3669,42 @@ def_parens(ast_new, function (output) {
   if (this.args.length === 0 && (p instanceof ast_prop_access || p instanceof ast_call && p.expr === this
     || p instanceof ast_template_prefix && p.prefix === this)) return true
 })
+
+function lowercase (num) {
+  return num.toString(16).toLowerCase()
+}
+
+function best_string (a) {
+  let best = a[0], length = best.length, i = 1, j = a.length
+  for (; i < j; ++i) {
+    if (a[i].length < length) {
+      best = a[i]
+      length = best.length
+    }
+  }
+  return best
+}
+
+function make_num (num) {
+  const string = num.toString(10).replace(/^0\./, '.').replace('e+', 'e')
+  const strings = [string]
+  if (Math.floor(num) == num) {
+    num < 0 ? strings.push('-0x' + lowercase(-num)) : strings.push('0x' + lowercase(num))
+  }
+  let match, length, digits
+  if (match = /^\.0+/.exec(string)) {
+    length = match[0].length
+    digits = string.slice(length)
+    strings.push(digits + 'e-' + (digits.length + length - 1))
+  } else if (match = /0+$/.exec(string)) {
+    length = match[0].length
+    strings.push(string.slice(0, -length) + 'e' + length)
+  } else if (match = /^(\d)\.(\d+)e(-?\d+)$/.exec(string)) {
+    strings.push(match[1] + match[2] + 'e' + (match[3] - match[2].length))
+  }
+  return best_string(strings)
+}
+
 def_parens(ast_number, function (output) {
   const p = output.parent()
   if (p instanceof ast_prop_access && p.expr === this) {
@@ -5778,7 +3712,6 @@ def_parens(ast_number, function (output) {
     if (value < 0 || /^0/.test(make_num(value))) return true
   }
 })
-
 def_parens(ast_big_int, function (output) {
   const p = output.parent()
   if (p instanceof ast_prop_access && p.expr === this) {
@@ -5786,7 +3719,6 @@ def_parens(ast_big_int, function (output) {
     if (value.startsWith('-')) return true
   }
 })
-
 def_parens(ast_assign, function (output) {
   const p = output.parent()
   if (p instanceof ast_unary) return true
@@ -5796,990 +3728,7 @@ def_parens(ast_assign, function (output) {
   if (p instanceof ast_prop_access && p.expr === this) return true
   if (this instanceof ast_assign && this.left instanceof ast_destructure && this.left.is_array === false) return true
 })
-
 def_parens(ast_conditional, ast_assign.prototype.needs_parens)
-
-function def_print (nodetype, generator) {
-  nodetype.prototype.codegen = generator
-}
-
-function output_js () {
-  ast_tree.prototype.print = function (output, force_parens) {
-    const self = this, generator = self.codegen
-    if (self instanceof ast_scope) {
-      output.active_scope = self
-    } else if (!output.use_asm && self instanceof ast_directive && self.value == 'use asm') {
-      output.use_asm = output.active_scope
-    }
-
-    function generate () {
-      output.prepend_comments(self)
-      self.add_source_map(output)
-      generator(self, output)
-      output.append_comments(self)
-    }
-
-    output.push_node(self)
-    force_parens || self.needs_parens(output) ? output.with_parens(generate) : generate()
-    output.pop_node()
-    if (self === output.use_asm) output.use_asm = null
-  }
-  ast_tree.prototype._print = ast_tree.prototype.print
-  ast_tree.prototype.print_to_string = function (options) {
-    const output = output_stream(options)
-    this.print(output)
-    return output.get()
-  }
-  def_print(ast_directive, function (self, output) {
-    output.print_string(self.value, self.quote)
-    output.semicolon()
-  })
-  def_print(ast_spread, function (self, output) {
-    output.print('...')
-    self.expr.print(output)
-  })
-  def_print(ast_destructure, function (self, output) {
-    output.print(self.is_array ? '[' : '{')
-    const length = self.names.length
-    self.names.forEach(function (name, i) {
-      if (i > 0) output.comma()
-      name.print(output)
-      if (i == length - 1 && name instanceof ast_hole) output.comma()
-    })
-    output.print(self.is_array ? ']' : '}')
-  })
-  def_print(ast_debugger, function (self, output) {
-    output.print('debugger')
-    output.semicolon()
-  })
-
-  function display_body (body, is_toplevel, output, allow_directives) {
-    const last = body.length - 1
-    output.in_directive = allow_directives
-    body.forEach(function (statement, i) {
-      if (output.in_directive === true && !(statement instanceof ast_directive
-        || statement instanceof ast_empty_statement
-        || (statement instanceof ast_statement && statement.body instanceof ast_string))) {
-        output.in_directive = false
-      }
-      if (!(statement instanceof ast_empty_statement)) {
-        statement.print(output)
-        if (!(i == last && is_toplevel)) {
-          output.newline()
-          if (is_toplevel) output.newline()
-        }
-      }
-      if (output.in_directive === true && statement instanceof ast_statement && statement.body instanceof ast_string) {
-        output.in_directive = false
-      }
-    })
-    output.in_directive = false
-  }
-  ast_statement_with_body.prototype._do_print_body = function (output) {
-    print_maybe_braced_body(this.body, output)
-  }
-  def_print(ast_state, function (self, output) {
-    self.body.print(output)
-    output.semicolon()
-  })
-  def_print(ast_toplevel, function (self, output) {
-    display_body(self.body, true, output, true)
-    output.print('')
-  })
-  def_print(ast_labeled_statement, function (self, output) {
-    self.label.print(output)
-    output.colon()
-    self.body.print(output)
-  })
-  def_print(ast_statement, function (self, output) {
-    self.body.print(output)
-    output.semicolon()
-  })
-
-  function print_braced_empty(self, output) {
-    output.print('{')
-    output.with_indent(output.next_indent(), function () {
-      output.append_comments(self, true)
-    })
-    output.add_mapping(self.end)
-    output.print('}')
-  }
-
-  function print_braced (self, output, allow_directives) {
-    if (self.body.length > 0) {
-      output.with_block(function () {
-        display_body(self.body, false, output, allow_directives)
-        output.add_mapping(self.end)
-      })
-    } else {
-      print_braced_empty(self, output)
-    }
-  }
-
-  def_print(ast_block_statement, function (self, output) {
-    print_braced(self, output)
-  })
-  def_print(ast_empty_statement, function (self, output) {
-    output.semicolon()
-  })
-  def_print(ast_do, function (self, output) {
-    output.print('do')
-    output.space()
-    make_block(self.body, output)
-    output.space()
-    output.print('while')
-    output.space()
-    output.with_parens(function () { self.condition.print(output) })
-    output.semicolon()
-  })
-  def_print(ast_while, function (self, output) {
-    output.print('while')
-    output.space()
-    output.with_parens(function () { self.condition.print(output) })
-    output.space()
-    self._do_print_body(output)
-  })
-  def_print(ast_for, function (self, output) {
-    output.print('for')
-    output.space()
-    output.with_parens(function () {
-      if (self.init) {
-        self.init instanceof ast_definitions ? self.init.print(output) : parenthesize(self.init, output, true)
-        output.print(';')
-        output.space()
-      } else {
-        output.print(';')
-      }
-      if (self.condition) {
-        self.condition.print(output)
-        output.print(';')
-        output.space()
-      } else {
-        output.print(';')
-      }
-      if (self.step) self.step.print(output)
-    })
-    output.space()
-    self._do_print_body(output)
-  })
-  def_print(ast_for_in, function (self, output) {
-    output.print('for')
-    if (self.is_await) {
-      output.space()
-      output.print('await')
-    }
-    output.space()
-    output.with_parens(function () {
-      self.init.print(output)
-      output.space()
-      output.print(self instanceof ast_for_of ? 'of' : 'in')
-      output.space()
-      self.object.print(output)
-    })
-    output.space()
-    self._do_print_body(output)
-  })
-  def_print(ast_with, function (self, output) {
-    output.print('with')
-    output.space()
-    output.with_parens(function () {
-      self.expr.print(output)
-    })
-    output.space()
-    self._do_print_body(output)
-  })
-  ast_lambda.prototype._do_print = function (output, nokeyword) {
-    const self = this
-    if (!nokeyword) {
-      if (self.sync) {
-        output.print('async')
-        output.space()
-      }
-      output.print('function')
-      if (self.gen) output.star()
-      if (self.name) output.space()
-    }
-    if (self.name instanceof ast_symbol) {
-      self.name.print(output)
-    } else if (nokeyword && self.name instanceof ast_tree) {
-      output.with_square(function () { self.name.print(output) })
-    }
-    output.with_parens(function () {
-      self.argnames.forEach(function (arg, i) {
-        if (i) output.comma()
-        arg.print(output)
-      })
-    })
-    output.space()
-    print_braced(self, output, true)
-  }
-  def_print(ast_lambda, function (self, output) {
-    self._do_print(output)
-    output.gc_scope(self)
-  })
-  def_print(ast_template_prefix, function (self, output) {
-    const tag = self.prefix
-    const parenthesize_tag = tag instanceof ast_lambda || tag instanceof ast_binary || tag instanceof ast_conditional
-      || tag instanceof ast_sequence || tag instanceof ast_unary
-      || tag instanceof ast_dot && tag.expr instanceof ast_object
-    if (parenthesize_tag) output.print('(')
-    self.prefix.print(output)
-    if (parenthesize_tag) output.print(')')
-    self.template_string.print(output)
-  })
-  def_print(ast_template_string, function (self, output) {
-    const is_tagged = output.parent() instanceof ast_template_prefix
-    output.print('`')
-    for (let i = 0, length = self.segments.length; i < length; i++) {
-      if (!(self.segments[i] instanceof ast_template_segment)) {
-        output.print('${')
-        self.segments[i].print(output)
-        output.print('}')
-      } else if (is_tagged) {
-        output.print(self.segments[i].raw)
-      } else {
-        output.print_template_chars(self.segments[i].value)
-      }
-    }
-    output.print('`')
-  })
-  def_print(ast_template_segment, function (self, output) {
-    output.print_template_chars(self.value)
-  })
-  ast_arrow.prototype._do_print = function (output) {
-    const self = this, parent = output.parent()
-    const needs_parens = (parent instanceof ast_binary && !(parent instanceof ast_assign)
-      && !(parent instanceof ast_default_assign)) || parent instanceof ast_unary
-      || (parent instanceof ast_call && self === parent.expr)
-    if (needs_parens) output.print('(')
-    if (self.sync) {
-      output.print('async')
-      output.space()
-    }
-    if (self.argnames.length === 1 && self.argnames[0] instanceof ast_symbol) {
-      self.argnames[0].print(output)
-    } else {
-      output.with_parens(function () {
-        self.argnames.forEach(function (arg, i) {
-          if (i) output.comma()
-          arg.print(output)
-        })
-      })
-    }
-    output.space()
-    output.print('=>')
-    output.space()
-    const first_statement = self.body[0]
-    if (self.body.length === 1 && first_statement instanceof ast_return) {
-      const returned = first_statement.value
-      if (!returned) {
-        output.print('{}')
-      } else if (left_is_object(returned)) {
-        output.print('(')
-        returned.print(output)
-        output.print(')')
-      } else {
-        returned.print(output)
-      }
-    } else {
-      print_braced(self, output)
-    }
-    if (needs_parens) { output.print(')') }
-    output.gc_scope(self)
-  }
-  ast_exit.prototype._do_print = function (output, kind) {
-    output.print(kind)
-    if (this.value) {
-      output.space()
-      const comments = this.value.start.comments_before
-      if (comments && comments.length && !output.printed_comments.has(comments)) {
-        output.print('(')
-        this.value.print(output)
-        output.print(')')
-      } else {
-        this.value.print(output)
-      }
-    }
-    output.semicolon()
-  }
-  def_print(ast_return, function (self, output) {
-    self._do_print(output, 'return')
-  })
-  def_print(ast_throw, function (self, output) {
-    self._do_print(output, 'throw')
-  })
-  def_print(ast_yield, function (self, output) {
-    const star = self.star ? '*' : ''
-    output.print('yield' + star)
-    if (self.expr) {
-      output.space()
-      self.expr.print(output)
-    }
-  })
-  def_print(ast_await, function (self, output) {
-    output.print('await')
-    output.space()
-    const expr = self.expr
-    const parentheses = !(expr instanceof ast_call || expr instanceof ast_symbol_ref || expr instanceof ast_prop_access
-      || expr instanceof ast_unary || expr instanceof ast_literal || expr instanceof ast_await
-      || expr instanceof ast_object)
-    if (parentheses) output.print('(')
-    self.expr.print(output)
-    if (parentheses) output.print(')')
-  })
-  ast_loop_control.prototype._do_print = function (output, kind) {
-    output.print(kind)
-    if (this.label) {
-      output.space()
-      this.label.print(output)
-    }
-    output.semicolon()
-  }
-  def_print(ast_break, function (self, output) {
-    self._do_print(output, 'break')
-  })
-  def_print(ast_continue, function (self, output) {
-    self._do_print(output, 'continue')
-  })
-
-  function make_then (self, output) {
-    let body = self.body
-    if (output.options['braces'] || body instanceof ast_do) return make_block(body, output)
-    if (!body) return output.force_semicolon()
-    while (true) {
-      if (body instanceof ast_if) {
-        if (!body.alt) {
-          make_block(self.body, output)
-          return
-        }
-        body = body.alt
-      } else if (body instanceof ast_statement_with_body) {
-        body = body.body
-      } else {
-        break
-      }
-    }
-    print_maybe_braced_body(self.body, output)
-  }
-
-  def_print(ast_if, function (self, output) {
-    output.print('if')
-    output.space()
-    output.with_parens(function () { self.condition.print(output) })
-    output.space()
-    if (self.alt) {
-      make_then(self, output)
-      output.space()
-      output.print('else')
-      output.space()
-      if (self.alt instanceof ast_if) {
-        self.alt.print(output)
-      } else {
-        print_maybe_braced_body(self.alt, output)
-      }
-    } else {
-      self._do_print_body(output)
-    }
-  })
-  def_print(ast_switch, function (self, output) {
-    output.print('switch')
-    output.space()
-    output.with_parens(function () {
-      self.expr.print(output)
-    })
-    output.space()
-    const last = self.body.length - 1
-    if (last < 0) {
-      print_braced_empty(self, output)
-    } else {
-      output.with_block(function () {
-        self.body.forEach(function (branch, i) {
-          output.indent(true)
-          branch.print(output)
-          if (i < last && branch.body.length > 0) output.newline()
-        })
-      })
-    }
-  })
-  ast_switch_branch.prototype._do_print_body = function (output) {
-    output.newline()
-    this.body.forEach(function (statement) {
-      output.indent()
-      statement.print(output)
-      output.newline()
-    })
-  }
-  def_print(ast_default, function (self, output) {
-    output.print('default:')
-    self._do_print_body(output)
-  })
-  def_print(ast_case, function (self, output) {
-    output.print('case')
-    output.space()
-    self.expr.print(output)
-    output.print(':')
-    self._do_print_body(output)
-  })
-  def_print(ast_try, function (self, output) {
-    output.print('try')
-    output.space()
-    self.body.print(output)
-    if (self.bcatch) {
-      output.space()
-      self.bcatch.print(output)
-    }
-    if (self.bfinally) {
-      output.space()
-      self.bfinally.print(output)
-    }
-  })
-  def_print(ast_try_block, function (self, output) {
-    print_braced(self, output)
-  })
-  def_print(ast_catch, function (self, output) {
-    output.print('catch')
-    if (self.argname) {
-      output.space()
-      output.with_parens(function () {
-        self.argname.print(output)
-      })
-    }
-    output.space()
-    print_braced(self, output)
-  })
-  def_print(ast_finally, function (self, output) {
-    output.print('finally')
-    output.space()
-    print_braced(self, output)
-  })
-  ast_definitions.prototype._do_print = function (output, kind) {
-    output.print(kind)
-    output.space()
-    this.defs.forEach(function (defined, i) {
-      if (i) output.comma()
-      defined.print(output)
-    })
-    const p = output.parent()
-    const in_for = p instanceof ast_for || p instanceof ast_for_in
-    if (!in_for || p && p.init !== this) output.semicolon()
-  }
-  def_print(ast_let, function (self, output) {
-    self._do_print(output, 'let')
-  })
-  def_print(ast_var, function (self, output) {
-    self._do_print(output, 'var')
-  })
-  def_print(ast_const, function (self, output) {
-    self._do_print(output, 'const')
-  })
-  def_print(ast_import, function (self, output) {})
-  def_print(ast_name_mapping, function (self, output) {
-    const is_import = output.parent() instanceof ast_import, defined = self.name.defined(), foreign = self.foreign_name
-    const different_names = (defined && defined.mangled_name || self.name.name) !== foreign.name
-    if (!different_names && foreign.name == '*' && foreign.quote != self.name.quote) different_names = true
-    const is_name = foreign.quote == null
-    if (different_names) {
-      if (is_import) {
-        is_name ? output.print(foreign.name) : output.print_string(foreign.name, foreign.quote)
-      } else {
-        self.name.quote == null ? self.name.print(output) : output.print_string(self.name.name, self.name.quote)
-      }
-      output.space()
-      output.print('as')
-      output.space()
-      if (is_import) {
-        self.name.print(output)
-      } else {
-        is_name ? output.print(foreign.name) : output.print_string(foreign.name, foreign.quote)
-      }
-    } else {
-      self.name.quote == null ? self.name.print(output) : output.print_string(self.name.name, self.name.quote)
-    }
-  })
-  def_print(ast_export, function (self, output) {
-    if (self.names) {
-      if (self.names.length == 1 && self.names[0].name.name == '*' && !self.names[0].name.quote) {
-        self.names[0].print(output)
-      } else {
-        output.print('{')
-        self.names.forEach(function (name_export, i) {
-          output.space()
-          name_export.print(output)
-          if (i < self.names.length - 1) output.print(',')
-        })
-        output.space()
-        output.print('}')
-      }
-    } else if (self.value) {
-      self.value.print(output)
-    } else if (self.defined) {
-      self.defined.print(output)
-      if (self.defined instanceof ast_definitions) return
-    }
-    if (self.module) {
-      output.space()
-      output.print('from')
-      output.space()
-      self.module.print(output)
-    }
-    if (self.attributes) {
-      output.print('with')
-      self.attributes.print(output)
-    }
-    if (self.value && !(self.value instanceof ast_defun
-      || self.value instanceof ast_function || self.value instanceof ast_class)
-      || self.module || self.names) {
-      output.semicolon()
-    }
-  })
-  function parenthesize (root, output, noin) {
-    let parens = false
-    if (noin) parens = observe(root, root => {
-      if (root instanceof ast_scope && !(root instanceof ast_arrow)) return true
-      if (root instanceof ast_binary && root.operator == 'in' || root instanceof ast_private_in) return walk_abort
-    })
-    root.print(output, parens)
-  }
-  def_print(ast_var_def, function (self, output) {
-    self.name.print(output)
-    if (self.value) {
-      output.space()
-      output.print('=')
-      output.space()
-      const p = output.parent(1)
-      const noin = p instanceof ast_for || p instanceof ast_for_in
-      parenthesize(self.value, output, noin)
-    }
-  })
-  def_print(ast_call, function (self, output) {
-    self.expr.print(output)
-    if (self instanceof ast_new && self.args.length === 0) return
-    if (self.expr instanceof ast_call || self.expr instanceof ast_lambda) output.add_mapping(self.start)
-    if (self.optional) output.print('?.')
-    output.with_parens(function () {
-      self.args.forEach(function (expr, i) {
-        if (i) output.comma()
-        expr.print(output)
-      })
-    })
-  })
-  def_print(ast_new, function (self, output) {
-    output.print('new')
-    output.space()
-    ast_call.prototype.codegen(self, output)
-  })
-  ast_sequence.prototype._do_print = function (output) {
-    this.exprs.forEach(function (root, index) {
-      if (index > 0) {
-        output.comma()
-        if (output.should_break()) {
-          output.newline()
-          output.indent()
-        }
-      }
-      root.print(output)
-    })
-  }
-  def_print(ast_sequence, function (self, output) {
-    const p = output.parent()
-    if (p instanceof ast_state) {
-      output.with_indent(output.next_indent(), function () { self._do_print(output) })
-    } else {
-      self._do_print(output)
-    }
-  })
-  def_print(ast_dot, function (self, output) {
-    const expr = self.expr
-    expr.print(output)
-    const prop = self.property
-    const print_computed = all_reserved_words.has(prop) ? false : !is_identifier_string(prop, true)
-    if (self.optional) output.print('?.')
-    if (print_computed) {
-      output.print('[')
-      output.add_mapping(self.end)
-      output.print_string(prop)
-      output.print(']')
-    } else {
-      if (expr instanceof ast_number && expr.get_value() >= 0 && !/[xa-f.)]/i.test(output.last())) output.print('.')
-      if (!self.optional) output.print('.')
-      output.add_mapping(self.end)
-      output.print_name(prop)
-    }
-  })
-  def_print(ast_dot_hash, function (self, output) {
-    const expr = self.expr
-    expr.print(output)
-    const prop = self.property
-    if (self.optional) output.print('?')
-    output.print('.#')
-    output.add_mapping(self.end)
-    output.print_name(prop)
-  })
-  def_print(ast_sub, function (self, output) {
-    self.expr.print(output)
-    if (self.optional) output.print('?.')
-    output.print('[')
-    self.property.print(output)
-    output.print(']')
-  })
-  def_print(ast_chain, function (self, output) {
-    self.expr.print(output)
-  })
-  def_print(ast_unary_prefix, function (self, output) {
-    const op = self.operator
-    if (op == '--' && output.last().endsWith('!')) output.print(' ')
-    output.print(op)
-    if (/^[a-z]/i.test(op) || (/[+-]$/.test(op) && self.expr instanceof ast_unary_prefix
-        && /^[+-]/.test(self.expr.operator))) output.space()
-    self.expr.print(output)
-  })
-  def_print(ast_unary_postfix, function (self, output) {
-    self.expr.print(output)
-    output.print(self.operator)
-  })
-  def_print(ast_binary, function (self, output) {
-    const op = self.operator
-    self.left.print(output)
-    output.space()
-    output.print(op)
-    output.space()
-    self.right.print(output)
-  })
-  def_print(ast_conditional, function (self, output) {
-    self.condition.print(output)
-    output.space()
-    output.print('?')
-    output.space()
-    self.consequent.print(output)
-    output.space()
-    output.colon()
-    self.alt.print(output)
-  })
-  def_print(ast_array, function (self, output) {
-    output.with_square(function () {
-      const a = self.elements, length = a.length
-      if (length > 0) output.space()
-      a.forEach(function (expr, i) {
-        if (i) output.comma()
-        expr.print(output)
-        if (i == length - 1 && expr instanceof ast_hole) output.comma()
-      })
-      if (length > 0) output.space()
-    })
-  })
-  def_print(ast_object, function (self, output) {
-    if (self.properties.length > 0) output.with_block(function () {
-      self.properties.forEach(function (prop, i) {
-        if (i) {
-          output.print(',')
-          output.newline()
-        }
-        output.indent()
-        prop.print(output)
-      })
-    })
-    else {
-      print_braced_empty(self, output)
-    }
-  })
-  def_print(ast_class, function (self, output) {
-    output.print('class')
-    output.space()
-    if (self.name) {
-      self.name.print(output)
-      output.space()
-    }
-    if (self.extends) {
-      const parens = (!(self.extends instanceof ast_symbol_ref)
-        && !(self.extends instanceof ast_prop_access)
-        && !(self.extends instanceof ast_class_expression)
-        && !(self.extends instanceof ast_function)
-      )
-      output.print('extends')
-      parens ? output.print('(') : output.space()
-      self.extends.print(output)
-      parens ? output.print(')') : output.space()
-    }
-    if (self.properties.length > 0) {
-      output.with_block(function () {
-        self.properties.forEach(function (prop, i) {
-          if (i) output.newline()
-          output.indent()
-          prop.print(output)
-        })
-        output.newline()
-      })
-    } else {
-      output.print('{}')
-    }
-  })
-  def_print(ast_new_target, function (self, output) {
-    output.print('new.target')
-  })
-
-  function print_property_name (key, quote, output) {
-    if (output.options['quote_keys']) {
-      output.print_string(key)
-      return false
-    }
-    if ('' + +key == key && key >= 0) {
-      if (output.options['keep_numbers']) {
-        output.print(key)
-        return false
-      }
-      output.print(make_num(key))
-      return false
-    }
-    const print_string = all_reserved_words.has(key) ? false : !is_identifier_string(key, true)
-    if (print_string || (quote && output.options['keep_quoted_props'])) {
-      output.print_string(key, quote)
-      return false
-    }
-    output.print_name(key)
-    return true
-  }
-
-  def_print(ast_key_value, function (self, output) {
-    function get_name (self) {
-      const defined = self.defined()
-      return defined ? defined.mangled_name || defined.name : self.name
-    }
-    const try_shorthand = output.options['shorthand'] && !(self.key instanceof ast_tree)
-    if (try_shorthand && self.value instanceof ast_symbol && get_name(self.value) === self.key
-      && !all_reserved_words.has(self.key)) {
-      const was_shorthand = print_property_name(self.key, self.quote, output)
-      if (!was_shorthand) {
-        output.colon()
-        self.value.print(output)
-      }
-    } else if (try_shorthand && self.value instanceof ast_default_assign
-      && self.value.left instanceof ast_symbol
-      && get_name(self.value.left) === self.key) {
-      const was_shorthand = print_property_name(self.key, self.quote, output)
-      if (!was_shorthand) {
-        output.colon()
-        self.value.left.print(output)
-      }
-      output.space()
-      output.print('=')
-      output.space()
-      self.value.right.print(output)
-    } else {
-      if (!(self.key instanceof ast_tree)) {
-        print_property_name(self.key, self.quote, output)
-      } else {
-        output.with_square(function () { self.key.print(output) })
-      }
-      output.colon()
-      self.value.print(output)
-    }
-  })
-  def_print(ast_private_property, (self, output) => {
-    if (self.static) {
-      output.print('static')
-      output.space()
-    }
-    output.print('#')
-    print_property_name(self.key.name, self.quote, output)
-    if (self.value) {
-      output.print('=')
-      self.value.print(output)
-    }
-    output.semicolon()
-  })
-  def_print(ast_class_property, (self, output) => {
-    if (self.static) {
-      output.print('static')
-      output.space()
-    }
-    if (self.key instanceof ast_symbol_class_property) {
-      print_property_name(self.key.name, self.quote, output)
-    } else {
-      output.print('[')
-      self.key.print(output)
-      output.print(']')
-    }
-    if (self.value) {
-      output.print('=')
-      self.value.print(output)
-    }
-    output.semicolon()
-  })
-  ast_object_property.prototype._print_getter_setter = function (type, is_private, output) {
-    const self = this
-    if (self.static) {
-      output.print('static')
-      output.space()
-    }
-    if (type) {
-      output.print(type)
-      output.space()
-    }
-    if (self.key instanceof ast_symbol_method) {
-      if (is_private) output.print('#')
-      print_property_name(self.key.name, self.quote, output)
-      self.key.add_source_map(output)
-    } else {
-      output.with_square(function () {
-        self.key.print(output)
-      })
-    }
-    self.value._do_print(output, true)
-  }
-  def_print(ast_object_setter, function (self, output) {
-    self._print_getter_setter('set', false, output)
-  })
-  def_print(ast_object_getter, function (self, output) {
-    self._print_getter_setter('get', false, output)
-  })
-  def_print(ast_private_setter, function (self, output) {
-    self._print_getter_setter('set', true, output)
-  })
-  def_print(ast_private_getter, function (self, output) {
-    self._print_getter_setter('get', true, output)
-  })
-
-  function print_method (self, is_private, output) {
-    let type
-    if (self.gen && self.sync) {
-      type = 'async*'
-    } else if (self.gen) {
-      type = '*'
-    } else if (self.sync) {
-      type = 'async'
-    }
-    self._print_getter_setter(type, is_private, output)
-  }
-
-  def_print(ast_concise_method, function (self, output) {
-    print_method(self, false, output)
-  })
-  def_print(ast_private_method, function (self, output) {
-    print_method(self, true, output)
-  })
-  def_print(ast_private_in, function (self, output) {
-    self.key.print(output)
-    output.space()
-    output.print('in')
-    output.space()
-    self.value.print(output)
-  })
-  def_print(ast_symbol_private_property, function (self, output) {
-    output.print('#' + self.name)
-  })
-  def_print(ast_class_static, function (self, output) {
-    output.print('static')
-    output.space()
-    print_braced(self, output)
-  })
-  ast_symbol.prototype._do_print = function (output) {
-    const defined = this.defined()
-    output.print_name(defined ? defined.mangled_name || defined.name : this.name)
-  }
-  def_print(ast_symbol, function (self, output) {
-    self._do_print(output)
-  })
-  def_print(ast_hole, func)
-  def_print(ast_this, function (self, output) {
-    output.print('this')
-  })
-  def_print(ast_super, function (self, output) {
-    output.print('super')
-  })
-  def_print(ast_literal, function (self, output) {
-    output.print(self.get_value())
-  })
-  def_print(ast_string, function (self, output) {
-    output.print_string(self.get_value(), self.quote, output.in_directive)
-  })
-  def_print(ast_number, function (self, output) {
-    if ((output.options['keep_numbers'] || output.use_asm) && self.raw) {
-      output.print(self.raw)
-    } else {
-      output.print(make_num(self.get_value()))
-    }
-  })
-  def_print(ast_big_int, function (self, output) {
-    output.print(self.get_value() + 'n')
-  })
-
-  const r_slash_script = /(<\s*\/\s*script)/i, r_starts_with_script = /^\s*script/i
-  const replace_slash = (_, script) => script.replace('/', '\\/')
-
-  def_print(ast_reg_exp, function (self, output) {
-    let { source, flags } = self.get_value()
-    source = source_regex(source)
-    flags = flags ? sort_regex_flags(flags) : ''
-    source = source.replace(r_slash_script, replace_slash)
-    if (r_starts_with_script.test(source) && output.last().endsWith('<')) output.print(' ')
-    output.print(output.to_utf8(`/${source}/${flags}`, false, true))
-    const parent = output.parent()
-    if (parent instanceof ast_binary && /^\w/.test(parent.operator) && parent.left === self) output.print(' ')
-  })
-
-  function print_maybe_braced_body (stat, output) {
-    if (output.options['braces']) {
-      make_block(stat, output)
-    } else {
-      if (!stat || stat instanceof ast_empty_statement) {
-        output.force_semicolon()
-      } else if (stat instanceof ast_let || stat instanceof ast_const || stat instanceof ast_class) {
-        make_block(stat, output)
-      } else {
-        stat.print(output)
-      }
-    }
-  }
-
-  function best_of (a) {
-    let best = a[0], length = best.length, i = 1, j = a.length
-    for (; i < j; ++i) {
-      if (a[i].length < length) {
-        best = a[i]
-        length = best.length
-      }
-    }
-    return best
-  }
-
-  function lowercase (num) {
-    return num.toString(16).toLowerCase()
-  }
-
-  function make_num (num) {
-    const string = num.toString(10).replace(/^0\./, '.').replace('e+', 'e')
-    const strings = [string]
-    if (Math.floor(num) == num) {
-      num < 0 ? strings.push('-0x' + lowercase(-num)) : strings.push('0x' + lowercase(num))
-    }
-    let match, length, digits
-    if (match = /^\.0+/.exec(string)) {
-      length = match[0].length
-      digits = string.slice(length)
-      strings.push(digits + 'e-' + (digits.length + length - 1))
-    } else if (match = /0+$/.exec(string)) {
-      length = match[0].length
-      strings.push(string.slice(0, -length) + 'e' + length)
-    } else if (match = /^(\d)\.(\d+)e(-?\d+)$/.exec(string)) {
-      strings.push(match[1] + match[2] + 'e' + (match[3] - match[2].length))
-    }
-    return best_of(strings)
-  }
-
-  function make_block (statement, output) {
-    if (!statement || statement instanceof ast_empty_statement) {
-      output.print('{}')
-    } else if (statement instanceof ast_block_statement) {
-      statement.print(output)
-    } else {
-      output.with_block(function () {
-        output.indent()
-        statement.print(output)
-        output.newline()
-      })
-    }
-  }
-}
 
 function defmap (nodetype, generator) {
   nodetype.forEach(function (nodetype) {
@@ -6816,6 +3765,8 @@ function def_drop (nodes, func) {
   }
 }
 
+ast_tree.prototype.drop = get_this
+
 function trim (nodes, comp, first) {
   const length = nodes.length
   if (!length) return null
@@ -6832,7 +3783,50 @@ function trim (nodes, comp, first) {
   return changed ? result.length ? result : null : nodes
 }
 
-ast_tree.prototype.drop = get_this
+function is_undefined (root, comp) {
+  return (has_flag(root, undefined_flag) || root instanceof ast_undefined || root instanceof ast_unary_prefix
+    && root.operator == 'void' && !root.expr.has_side_effects(comp))
+}
+
+function is_null_or_undefined (root, comp) {
+  let fixed
+  return (root instanceof ast_null || is_undefined(root, comp) || (root instanceof ast_symbol_ref
+    && (fixed = root.defined().fixed) instanceof ast_tree && is_nullish(fixed, comp)))
+}
+
+function is_nullish_shortcircuited (root, comp) {
+  if (root instanceof ast_prop_access || root instanceof ast_call) {
+    return (root.optional && is_null_or_undefined(root.expr, comp)) || is_nullish_shortcircuited(root.expr, comp)
+  }
+  if (root instanceof ast_chain) return is_nullish_shortcircuited(root.expr, comp)
+  return false
+}
+
+function is_nullish (root, comp) {
+  if (is_null_or_undefined(root, comp)) return true
+  return is_nullish_shortcircuited(root, comp)
+}
+
+function merge_sequence (array, root) {
+  root instanceof ast_sequence ? array.push(...root.exprs) : array.push(root)
+  return array
+}
+
+function make_sequence (orig, exprs) {
+  if (exprs.length == 1) return exprs[0]
+  if (exprs.length == 0) throw new Error('sequence length zero')
+  return make_node(ast_sequence, orig, {exprs: exprs.reduce(merge_sequence, [])})
+}
+
+function is_func_expr (root) {
+  return root instanceof ast_arrow || root instanceof ast_function
+}
+
+function is_iife_call (root) {
+  if (root.type != 'ast_call') return false
+  return root.expr instanceof ast_function || is_iife_call(root.expr)
+}
+
 ast_literal.prototype.drop = get_false
 ast_this.prototype.drop = get_false
 ast_call.prototype.drop = function (comp, first) {
@@ -6985,6 +3979,28 @@ ast_template_string.prototype.drop = function (comp) {
   return values && make_sequence(this, values)
 }
 
+function evictable (root) {
+  return !(root instanceof ast_def_class || root instanceof ast_defun || root instanceof ast_let
+    || root instanceof ast_const || root instanceof ast_export || root instanceof ast_import)
+}
+
+function maintain_bind (parent, orig, val) {
+  if (parent instanceof ast_unary_prefix && parent.operator == 'delete' || parent instanceof ast_call
+    && parent.expr === orig && (val instanceof ast_chain || val instanceof ast_prop_access
+    || val instanceof ast_symbol_ref && val.name == 'eval')) {
+    return make_sequence(orig, [make_node(ast_number, orig, {value: 0}), val])
+  } else {
+    return val
+  }
+}
+
+function is_empty (thing) {
+  if (thing === null) return true
+  if (thing instanceof ast_empty_statement) return true
+  if (thing instanceof ast_block_statement) return thing.body.length == 0
+  return false
+}
+
 const r_keep_assign = /keep_assign/
 
 ast_scope.prototype.drop_unused = function (comp) {
@@ -7009,6 +4025,44 @@ ast_scope.prototype.drop_unused = function (comp) {
   }
   const var_defs_by_id = new Map(), initializations = new Map()
   let scope = this
+
+  function scan_ref_scoped (root, ascend) {
+    let node_def
+    const sym = assign_as_unused(root)
+    const node_name = sym ? sym.file + '/' + sym.name : ''
+    if (sym instanceof ast_symbol_ref && !ref_of(root.left, ast_symbol_block)
+      && self.vars.get(node_name) === (node_def = sym.defined())) {
+      if (root instanceof ast_assign) {
+        root.right.observe(trees)
+        if (!node_def.chained && root.left.fixed_value() === root.right) fixed_ids.set(node_def.id, root)
+      }
+      return true
+    }
+    if (root instanceof ast_symbol_ref) {
+      node_def = root.defined()
+      if (!in_use_ids.has(node_def.id)) {
+        in_use_ids.set(node_def.id, node_def)
+        if (node_def.orig[0] instanceof ast_symbol_catch) {
+          const node_name = node_def.file + '/' + node_def.name
+          const redef = node_def.scope.is_block_scope() && node_def.scope.get_defun_scope().vars.get(node_name)
+          if (redef) in_use_ids.set(redef.id, redef)
+        }
+      }
+      return true
+    }
+    if (root instanceof ast_class) {
+      ascend()
+      return true
+    }
+    if (root instanceof ast_scope && !(root instanceof ast_class_static)) {
+      const save_scope = scope
+      scope = root
+      ascend()
+      scope = save_scope
+      return true
+    }
+  }
+
   let trees = new observes(function (root, ascend) {
     if (root instanceof ast_lambda && root.uses_args) {
       root.argnames.forEach(function (argname) {
@@ -7188,7 +4242,7 @@ ast_scope.prototype.drop_unused = function (comp) {
           case 1:
             return body[0]
           default:
-            return listed ? _splice(body) : make_node(ast_block_statement, root, {body})
+            return listed ? splice(body) : make_node(ast_block_statement, root, {body})
         }
       }
       if (root instanceof ast_for) {
@@ -7204,7 +4258,7 @@ ast_scope.prototype.drop_unused = function (comp) {
         } else if (is_empty(root.init)) {
           root.init = null
         }
-        return !block ? root : listed ? _splice(block.body) : block
+        return !block ? root : listed ? splice(block.body) : block
       }
       if (root instanceof ast_labeled_statement
         && root.body instanceof ast_for) {
@@ -7213,13 +4267,13 @@ ast_scope.prototype.drop_unused = function (comp) {
           const block = root.body
           root.body = block.body.pop()
           block.body.push(root)
-          return listed ? _splice(block.body) : block
+          return listed ? splice(block.body) : block
         }
         return root
       }
       if (root instanceof ast_block_statement) {
         ascend(root, this)
-        if (listed && root.body.every(evictable)) return _splice(root.body)
+        if (listed && root.body.every(evictable)) return splice(root.body)
         return root
       }
       if (root instanceof ast_scope && !(root instanceof ast_class_static)) {
@@ -7231,45 +4285,7 @@ ast_scope.prototype.drop_unused = function (comp) {
       }
     }
   )
-
   self.transform(transformer)
-
-  function scan_ref_scoped (root, ascend) {
-    let node_def
-    const sym = assign_as_unused(root)
-    const node_name = sym ? sym.file + '/' + sym.name : ''
-    if (sym instanceof ast_symbol_ref && !ref_of(root.left, ast_symbol_block)
-      && self.vars.get(node_name) === (node_def = sym.defined())) {
-      if (root instanceof ast_assign) {
-        root.right.observe(trees)
-        if (!node_def.chained && root.left.fixed_value() === root.right) fixed_ids.set(node_def.id, root)
-      }
-      return true
-    }
-    if (root instanceof ast_symbol_ref) {
-      node_def = root.defined()
-      if (!in_use_ids.has(node_def.id)) {
-        in_use_ids.set(node_def.id, node_def)
-        if (node_def.orig[0] instanceof ast_symbol_catch) {
-          const node_name = node_def.file + '/' + node_def.name
-          const redef = node_def.scope.is_block_scope() && node_def.scope.get_defun_scope().vars.get(node_name)
-          if (redef) in_use_ids.set(redef.id, redef)
-        }
-      }
-      return true
-    }
-    if (root instanceof ast_class) {
-      ascend()
-      return true
-    }
-    if (root instanceof ast_scope && !(root instanceof ast_class_static)) {
-      const save_scope = scope
-      scope = root
-      ascend()
-      scope = save_scope
-      return true
-    }
-  }
 }
 
 function loop_body (x) {
@@ -7302,7 +4318,7 @@ function remove_initializers (var_statement) {
       decls.push(defined)
     } else {
       defined.declarations_as_names().forEach(name => {
-        decls.push(make_node(ast_var_def, defined, {
+        decls.push(make_node(ast_def, defined, {
           name,
           value: null
         }))
@@ -7321,7 +4337,7 @@ function trim_unreachable (comp, stat, target) {
     }
     if (root instanceof ast_defun) {
       target.push(root === stat ? root : make_node(ast_var, root, {
-        defs: [make_node(ast_var_def, root, {name: make_node(ast_symbol_var, root.name, root.name), value: null})]
+        defs: [make_node(ast_def, root, {name: make_node(ast_symbol_var, root.name, root.name), value: null})]
       }))
       return true
     }
@@ -7333,23 +4349,107 @@ function trim_unreachable (comp, stat, target) {
   })
 }
 
+function make_node_from_constant (val, orig) {
+  switch (typeof val) {
+    case 'string':
+      return make_node(ast_string, orig, {value: val})
+    case 'number':
+      if (isNaN(val)) return make_node(ast_nan, orig)
+      if (isFinite(val)) return 1 / val < 0 ? make_node(ast_unary_prefix, orig, {operator: '-', expr:
+        make_node(ast_number, orig, {value: -val})}) : make_node(ast_number, orig, {value: val})
+      return val < 0 ? make_node(ast_unary_prefix, orig, {operator: '-', expr: make_node(ast_infinity, orig)})
+        : make_node(ast_infinity, orig)
+    case 'bigint':
+      return make_node(ast_big_int, orig, {value: val.toString()})
+    case 'boolean':
+      return make_node(val ? ast_true : ast_false, orig)
+    case 'undefined':
+      return make_node(ast_undefined, orig)
+    default:
+      if (val === null) return make_node(ast_null, orig, {value: null})
+      if (val instanceof RegExp) return make_node(ast_reg_exp, orig, {value: {source: source_regex(val.source),
+        flags: val.flags}})
+      throw new Error('type ' + {type: typeof val})
+  }
+}
+
+function get_simple_key (key) {
+  if (key instanceof ast_literal) return key.get_value()
+  if (key instanceof ast_unary_prefix && key.operator == 'void' && key.expr instanceof ast_literal) return
+  return key
+}
+
+function read_property (obj, key) {
+  key = get_simple_key(key)
+  if (key instanceof ast_tree) return
+  let value
+  if (obj instanceof ast_array) {
+    const elements = obj.elements
+    if (key == 'length') return make_node_from_constant(elements.length, obj)
+    if (typeof key == 'number' && key in elements) value = elements[key]
+  } else if (obj instanceof ast_object) {
+    key = '' + key
+    const properties = obj.properties
+    for (let i = properties.length, prop; --i >= 0;) {
+      prop = properties[i]
+      if (!(prop instanceof ast_key_value)) return
+      if (!value && prop.key === key) value = prop.value
+    }
+  }
+  return value instanceof ast_symbol_ref && value.fixed_value() || value
+}
+
+function is_lhs (root, parent) {
+  if (parent instanceof ast_unary && unary_side_effects.has(parent.operator)) return parent.expr
+  if (parent instanceof ast_assign && parent.left === root) return root
+  if (parent instanceof ast_for_in && parent.init === root) return root
+}
+
+function is_modified (comp, trees, root, value, level, immutable) {
+  const parent = trees.parent(level)
+  const lhs = is_lhs(root, parent)
+  if (lhs) return lhs
+  if (!immutable && parent instanceof ast_call && parent.expr === root
+    && !(value instanceof ast_arrow) && !(value instanceof ast_class) && !parent.is_callee_pure(comp)
+    && (!(value instanceof ast_function) || !(parent instanceof ast_new) && value.this())) {
+    return true
+  }
+  if (parent instanceof ast_array) return is_modified(comp, trees, parent, parent, level + 1)
+  if (parent instanceof ast_key_value && root === parent.value) {
+    const obj = trees.parent(level + 1)
+    return is_modified(comp, trees, obj, obj, level + 2)
+  }
+  if (parent instanceof ast_prop_access && parent.expr === root) {
+    const prop = read_property(value, parent.property)
+    return !immutable && is_modified(comp, trees, parent, prop, level + 1)
+  }
+}
+
+const identifier_atom = make_set('Infinity NaN undefined')
+
+function is_identifier_atom (root) {
+  return root instanceof ast_infinity || root instanceof ast_nan || root instanceof ast_undefined
+}
+
+function as_statement_array (thing) {
+  if (thing === null) return []
+  if (thing instanceof ast_block_statement) return thing.body
+  if (thing instanceof ast_empty_statement) return []
+  if (thing instanceof ast_state) return [thing]
+  throw new Error('cannot convert to statement array')
+}
+
+function aborts (thing) {
+  try {
+    return thing && thing.aborts()
+  } catch {
+    return false
+  }
+}
+
 function tighten_body (statements, comp) {
   const nearest_scope = comp.find_scope()
   const defun_scope = nearest_scope.get_defun_scope()
-  const { in_loop, in_try } = find_loop_scope_try()
-  let changed, max_iter = 10
-  do {
-    changed = false
-    eliminate_spurious_blocks(statements)
-    if (comp.options['dead_code']) eliminate_dead_code(statements, comp)
-    if (comp.options['if_return']) handle_if_return(statements, comp)
-    if (comp.sequences_limit > 0) {
-      sequencesize(statements, comp)
-      sequencesize_2(statements, comp)
-    }
-    if (comp.options['join_vars']) join_consecutive_vars(statements)
-    if (comp.options['collapse_vars']) collapse(statements, comp)
-  } while (changed && max_iter-- > 0)
 
   function find_loop_scope_try () {
     let root = comp.self(), level = 0, in_loop = false, in_try = false
@@ -7365,10 +4465,235 @@ function tighten_body (statements, comp) {
     return {in_loop, in_try}
   }
 
+  const { in_loop, in_try } = find_loop_scope_try()
+  let changed, max_iter = 10
+
+  function eliminate_spurious_blocks (statements) {
+    const seen_dirs = []
+    for (let i = 0, length = statements.length, stat; i < length;) {
+      stat = statements[i]
+      if (stat instanceof ast_block_statement && stat.body.every(evictable)) {
+        changed = true
+        eliminate_spurious_blocks(stat.body)
+        statements.splice(i, 1, ...stat.body)
+        i += stat.body.length
+      } else if (stat instanceof ast_empty_statement) {
+        changed = true
+        statements.splice(i, 1)
+      } else if (stat instanceof ast_directive) {
+        if (seen_dirs.indexOf(stat.value) < 0) {
+          i++
+          seen_dirs.push(stat.value)
+        } else {
+          changed = true
+          statements.splice(i, 1)
+        }
+      } else i++
+    }
+  }
+
+  function join_object_assigns (defn, body) {
+    if (!(defn instanceof ast_definitions)) return
+    const defined = defn.defs[defn.defs.length - 1]
+    if (!(defined.value instanceof ast_object)) return
+    let exprs
+    if (body instanceof ast_assign && !body.logical) {
+      exprs = [body]
+    } else if (body instanceof ast_sequence) {
+      exprs = body.exprs.slice()
+    }
+    if (!exprs) return
+    let trimmed = false
+    do {
+      let root = exprs[0]
+      if (!(root instanceof ast_assign)) break
+      if (root.operator != '=') break
+      if (!(root.left instanceof ast_prop_access)) break
+      const sym = root.left.expr
+      if (!(sym instanceof ast_symbol_ref)) break
+      if (defined.name.name != sym.name) break
+      if (!root.right.constant_expression(nearest_scope)) break
+      let prop = root.left.property
+      if (prop instanceof ast_tree) prop = prop.evaluate(comp)
+      if (prop instanceof ast_tree) break
+      prop = '' + prop
+
+      function diff (root) { return root.key && root.key.name != prop }
+      
+      if (!defined.value.properties.every(diff)) break
+      const p = defined.value.properties.filter(function (p) { return p.key === prop })[0]
+      if (!p) {
+        defined.value.properties.push(make_node(ast_key_value, root, {key: prop, value: root.right}))
+      } else {
+        p.value = new ast_sequence({start: p.start, exprs: [p.value.copy(), root.right.copy()], end: p.end, file: ''})
+      }
+      exprs.shift()
+      trimmed = true
+    } while (exprs.length)
+    return trimmed && exprs
+  }
+
+  function declarations_only (root) {
+    return root.defs.every(var_def => !var_def.value)
+  }
+
+  function join_consecutive_vars (statements) {
+    let i = 0, j = -1, length = statements.length, stat, prev, defs, exprs
+
+    function extract_object_assigns (value) {
+      statements[++j] = stat
+      exprs = join_object_assigns(prev, value)
+      if (exprs) {
+        changed = true
+        if (exprs.length) {
+          return make_sequence(value, exprs)
+        } else if (value instanceof ast_sequence) {
+          return value.tail_node().left
+        } else {
+          return value.left
+        }
+      }
+      return value
+    }
+
+    for (; i < length; i++) {
+      stat = statements[i]
+      prev = statements[j]
+      if (stat instanceof ast_definitions) {
+        if (prev && prev.type == stat.type) {
+          prev.defs = prev.defs.concat(stat.defs)
+          changed = true
+        } else if (defs && defs.type == stat.type && declarations_only(stat)) {
+          defs.defs = defs.defs.concat(stat.defs)
+          changed = true
+        } else {
+          statements[++j] = stat
+          defs = stat
+        }
+      } else if (stat instanceof ast_exit) {
+        stat.value = extract_object_assigns(stat.value)
+      } else if (stat instanceof ast_for) {
+        exprs = join_object_assigns(prev, stat.init)
+        if (exprs) {
+          changed = true
+          stat.init = exprs.length ? make_sequence(stat.init, exprs) : null
+          statements[++j] = stat
+        } else if (prev instanceof ast_var && (!stat.init || stat.init.type == prev.type)) {
+          if (stat.init) prev.defs = prev.defs.concat(stat.init.defs)
+          stat.init = prev
+          statements[j] = stat
+          changed = true
+        } else if (defs instanceof ast_var && stat.init instanceof ast_var && declarations_only(stat.init)) {
+          defs.defs = defs.defs.concat(stat.init.defs)
+          stat.init = null
+          statements[++j] = stat
+          changed = true
+        } else {
+          statements[++j] = stat
+        }
+      } else if (stat instanceof ast_for_in) {
+        stat.object = extract_object_assigns(stat.object)
+      } else if (stat instanceof ast_if) {
+        stat.condition = extract_object_assigns(stat.condition)
+      } else if (stat instanceof ast_statement) {
+        exprs = join_object_assigns(prev, stat.body)
+        if (exprs) {
+          changed = true
+          if (!exprs.length) continue
+          stat.body = make_sequence(stat.body, exprs)
+        }
+        statements[++j] = stat
+      } else if (stat instanceof ast_switch) {
+        stat.expr = extract_object_assigns(stat.expr)
+      } else if (stat instanceof ast_with) {
+        stat.expr = extract_object_assigns(stat.expr)
+      } else {
+        statements[++j] = stat
+      }
+    }
+    statements.length = j + 1
+  }
+
   function collapse (statements, comp) {
     if (nearest_scope.global() || defun_scope.global()) return statements
     const candidates = []
     let stat_index = statements.length, args, defined
+
+    function handle_custom_scan_order (root) {
+      if (root instanceof ast_scope) return root
+      if (root instanceof ast_switch) {
+        root.expr = root.expr.transform(scanner)
+        for (let i = 0, length = root.body.length, branch; !abort && i < length; i++) {
+          branch = root.body[i]
+          if (branch instanceof ast_case) {
+            if (!hit) {
+              if (branch !== hit_stack[hit_index]) continue
+              hit_index++
+            }
+            branch.expr = branch.expr.transform(scanner)
+            if (!replace_all) break
+          }
+        }
+        abort = true
+        return root
+      }
+    }
+
+    function find_stop (root, level, write_only) {
+      const parent = scanner.parent(level)
+      if (parent instanceof ast_assign) {
+        if (write_only && !parent.logical && !(parent.left instanceof ast_prop_access
+          || lvalues.has(parent.left.name))) {
+          return find_stop(parent, level + 1, write_only)
+        }
+        return root
+      }
+      if (parent instanceof ast_binary) {
+        if (write_only && (!lazy_op.has(parent.operator) || parent.left === root)) {
+          return find_stop(parent, level + 1, write_only)
+        }
+        return root
+      }
+      if (parent instanceof ast_call) return root
+      if (parent instanceof ast_case) return root
+      if (parent instanceof ast_conditional) {
+        if (write_only && parent.condition === root) return find_stop(parent, level + 1, write_only)
+        return root
+      }
+      if (parent instanceof ast_definitions) return find_stop(parent, level + 1, true)
+      if (parent instanceof ast_exit) return write_only ? find_stop(parent, level + 1, write_only) : root
+      if (parent instanceof ast_if) {
+        if (write_only && parent.condition === root) return find_stop(parent, level + 1, write_only)
+        return root
+      }
+      if (parent instanceof ast_iteration_statement) return root
+      if (parent instanceof ast_sequence) return find_stop(parent, level + 1, parent.tail_node() !== root)
+      if (parent instanceof ast_statement) return find_stop(parent, level + 1, true)
+      if (parent instanceof ast_switch) return root
+      if (parent instanceof ast_def) return root
+      return null
+    }
+
+    function may_modify (sym) {
+      if (!sym.defined) return true
+      const defined = sym.defined()
+      if (defined.orig.length == 1 && defined.orig[0] instanceof ast_symbol_defun) return false
+      if (defined.scope.get_defun_scope() !== defun_scope) return true
+      return defined.references.some(ref => ref.scope.get_defun_scope() !== defun_scope)
+    }
+
+    function side_effects_external (root, lhs) {
+      if (root instanceof ast_assign) return side_effects_external(root.left, true)
+      if (root instanceof ast_unary) return side_effects_external(root.expr, true)
+      if (root instanceof ast_def) return root.value && side_effects_external(root.value)
+      if (lhs) {
+        if (root instanceof ast_dot) return side_effects_external(root.expr, true)
+        if (root instanceof ast_sub) return side_effects_external(root.expr, true)
+        if (root instanceof ast_symbol_ref) return root.defined().scope.get_defun_scope() !== defun_scope
+      }
+      return false
+    }
+
     const scanner = new transforms(function (root) {
       if (abort) return root
       if (!hit) {
@@ -7414,11 +4739,11 @@ function tighten_body (statements, comp) {
           return root
         } else {
           replaced++
-          if (value_def && candidate instanceof ast_var_def) return root
+          if (value_def && candidate instanceof ast_def) return root
         }
         changed = abort = true
         if (candidate instanceof ast_unary_postfix) return make_node(ast_unary_prefix, candidate, candidate)
-        if (candidate instanceof ast_var_def) {
+        if (candidate instanceof ast_def) {
           defined = candidate.name.defined()
           const value = candidate.value
           if (defined.references.length - defined.replaced == 1 && !comp.exposed(defined)) {
@@ -7435,7 +4760,7 @@ function tighten_body (statements, comp) {
       if (root instanceof ast_call || root instanceof ast_exit && (side_effects || lhs instanceof ast_prop_access
         || may_modify(lhs)) || root instanceof ast_prop_access && (side_effects || root.expr.may_throw_on_access(comp))
         || root instanceof ast_symbol_ref && ((lvalues.has(root.name) && lvalues.get(root.name).modified)
-        || side_effects && may_modify(root)) || root instanceof ast_var_def && root.value
+        || side_effects && may_modify(root)) || root instanceof ast_def && root.value
         && (lvalues.has(root.name.name) || side_effects && may_modify(root.name)) || (sym = is_lhs(root.left, root))
         && (sym instanceof ast_prop_access || lvalues.has(sym.name)) || may_throw
         && (in_try ? root.has_side_effects(comp) : side_effects_external(root))) {
@@ -7469,77 +4794,13 @@ function tighten_body (statements, comp) {
       if (root instanceof ast_default || root instanceof ast_scope) return root
     })
 
-    while (--stat_index >= 0) {
-      if (stat_index == 0 && comp.options['unused']) extract_args()
-      hit_stack = []
-      extract(statements[stat_index])
-      while (candidates.length > 0) {
-        hit_stack = candidates.pop()
-        hit_index = 0
-        candidate = hit_stack[hit_stack.length - 1]
-        value_def = null
-        stop_after = null
-        stop_if_hit = null
-        lhs = get_lhs(candidate)
-        if (!lhs || is_lhs_read_only(lhs) || lhs.has_side_effects(comp)) continue
-        lvalues = get_lvalues(candidate)
-        lhs_local = is_lhs_local(lhs)
-        if (lhs instanceof ast_symbol_ref) lvalues.set(lhs.name, {defined: lhs.defined(), modified: false})
-        side_effects = value_has_side_effects(candidate)
-        replace_all = replace_all_symbols()
-        may_throw = candidate.may_throw(comp)
-        funarg = candidate.name instanceof ast_symbol_funarg
-        hit = funarg
-        abort = false
-        replaced = 0
-        can_replace = !args || !hit
-        if (!can_replace) {
-          for (j = comp.self().argnames.lastIndexOf(candidate.name) + 1; !abort && j < args.length; j++) {
-            args[j].transform(scanner)
-          }
-          can_replace = true
-        }
-        for (i = stat_index, length = statements.length; !abort && i < length; i++) {
-          statements[i].transform(scanner)
-        }
-        if (value_def) {
-          defined = candidate.name.defined()
-          if (abort && defined.references.length - defined.replaced > replaced) {
-            replaced = false
-          } else {
-            abort = false
-            hit_index = 0
-            hit = funarg
-            for (i = stat_index, length = statements.length; !abort && i < length; i++) {
-              statements[i].transform(multi_replacer)
-            }
-            value_def.single_use = false
-          }
-        }
-        if (replaced && !remove_candidate(candidate)) statements.splice(stat_index, 1)
-      }
+    function arg_is_injectable (arg) {
+      if (arg instanceof ast_spread) return false
+      const contains_await = observe(arg, root => { if (root instanceof ast_await) return walk_abort })
+      if (contains_await) return false
+      return true
     }
-
-    function handle_custom_scan_order (root) {
-      if (root instanceof ast_scope) return root
-      if (root instanceof ast_switch) {
-        root.expr = root.expr.transform(scanner)
-        for (let i = 0, length = root.body.length, branch; !abort && i < length; i++) {
-          branch = root.body[i]
-          if (branch instanceof ast_case) {
-            if (!hit) {
-              if (branch !== hit_stack[hit_index]) continue
-              hit_index++
-            }
-            branch.expr = branch.expr.transform(scanner)
-            if (!replace_all) break
-          }
-        }
-        abort = true
-        return root
-      }
-    }
-
+    
     function redefined_within_scope (defined, scope) {
       if (defined.global) return false
       let cur_scope = defined.scope, name
@@ -7573,13 +4834,6 @@ function tighten_body (statements, comp) {
       return found
     }
 
-    function arg_is_injectable (arg) {
-      if (arg instanceof ast_spread) return false
-      const contains_await = observe(arg, root => { if (root instanceof ast_await) return walk_abort })
-      if (contains_await) return false
-      return true
-    }
-
     function extract_args () {
       const fn = comp.self()
       let iife
@@ -7594,13 +4848,13 @@ function tighten_body (statements, comp) {
           defined = sym.defined && sym.defined()
           is_reassigned = defined && defined.orig.length > 1
           if (is_reassigned) continue
-          args.unshift(make_node(ast_var_def, sym, {name: sym, value: arg}))
+          args.unshift(make_node(ast_def, sym, {name: sym, value: arg}))
           if (names.has(sym.name)) continue
           names.add(sym.name)
           if (sym instanceof ast_spread) {
             elements = iife.args.slice(i)
             if (elements.every(arg => !has_overlapping_symbol(fn, arg, false))) {
-              candidates.unshift([make_node(ast_var_def, sym, {name: sym.expr, value: make_node(ast_array, iife,
+              candidates.unshift([make_node(ast_def, sym, {name: sym.expr, value: make_node(ast_array, iife,
                 {elements})})])
             }
           } else {
@@ -7609,7 +4863,7 @@ function tighten_body (statements, comp) {
             } else if (arg instanceof ast_lambda && arg.global() || has_overlapping_symbol(fn, arg, false)) {
               arg = null
             }
-            if (arg) candidates.unshift([make_node(ast_var_def, sym, {name: sym, value: arg})])
+            if (arg) candidates.unshift([make_node(ast_def, sym, {name: sym, value: arg})])
           }
         }
       }
@@ -7663,7 +4917,7 @@ function tighten_body (statements, comp) {
         expr.body.forEach(extract)
       } else if (expr instanceof ast_unary) {
         if (expr.operator == '++' || expr.operator == '--') candidates.push(hit_stack.slice())
-      } else if (expr instanceof ast_var_def) {
+      } else if (expr instanceof ast_def) {
         if (expr.value && !(expr.value instanceof ast_chain)) {
           candidates.push(hit_stack.slice())
           extract(expr.value)
@@ -7671,42 +4925,7 @@ function tighten_body (statements, comp) {
       }
       hit_stack.pop()
     }
-
-    function find_stop (root, level, write_only) {
-      const parent = scanner.parent(level)
-      if (parent instanceof ast_assign) {
-        if (write_only && !parent.logical && !(parent.left instanceof ast_prop_access
-          || lvalues.has(parent.left.name))) {
-          return find_stop(parent, level + 1, write_only)
-        }
-        return root
-      }
-      if (parent instanceof ast_binary) {
-        if (write_only && (!lazy_op.has(parent.operator) || parent.left === root)) {
-          return find_stop(parent, level + 1, write_only)
-        }
-        return root
-      }
-      if (parent instanceof ast_call) return root
-      if (parent instanceof ast_case) return root
-      if (parent instanceof ast_conditional) {
-        if (write_only && parent.condition === root) return find_stop(parent, level + 1, write_only)
-        return root
-      }
-      if (parent instanceof ast_definitions) return find_stop(parent, level + 1, true)
-      if (parent instanceof ast_exit) return write_only ? find_stop(parent, level + 1, write_only) : root
-      if (parent instanceof ast_if) {
-        if (write_only && parent.condition === root) return find_stop(parent, level + 1, write_only)
-        return root
-      }
-      if (parent instanceof ast_iteration_statement) return root
-      if (parent instanceof ast_sequence) return find_stop(parent, level + 1, parent.tail_node() !== root)
-      if (parent instanceof ast_statement) return find_stop(parent, level + 1, true)
-      if (parent instanceof ast_switch) return root
-      if (parent instanceof ast_var_def) return root
-      return null
-    }
-
+    
     function mangleable (var_def) {
       const value = var_def.value
       if (!(value instanceof ast_symbol_ref)) return
@@ -7719,7 +4938,7 @@ function tighten_body (statements, comp) {
     function get_lhs (expr) {
       if (expr instanceof ast_assign && expr.logical) {
         return false
-      } else if (expr instanceof ast_var_def && expr.name instanceof ast_declaration) {
+      } else if (expr instanceof ast_def && expr.name instanceof ast_declaration) {
         const defined = expr.name.defined()
         if (!member(expr.name, defined.orig)) return
         const referenced = defined.references.length - defined.replaced
@@ -7759,38 +4978,6 @@ function tighten_body (statements, comp) {
       return lvalues
     }
 
-    function remove_candidate (expr) {
-      if (expr.name instanceof ast_symbol_funarg) {
-        const iife = comp.parent(), argnames = comp.self().argnames
-        const index = argnames.indexOf(expr.name)
-        if (index < 0) {
-          iife.args.length = Math.min(iife.args.length, argnames.length - 1)
-        } else {
-          const args = iife.args
-          if (args[index]) args[index] = make_node(ast_number, args[index], {value: 0})
-        }
-        return true
-      }
-      let found = false
-      return statements[stat_index].transform(new transforms(function (root, ascend, in_list) {
-        if (found) return root
-        if (root === expr || root.body === expr) {
-          found = true
-          if (root instanceof ast_var_def) {
-            root.value = root.name instanceof ast_symbol_const ? make_node(ast_undefined, root.value) : null
-            return root
-          }
-          return in_list ? {} : null
-        }
-      }, function (root, in_list) {
-        if (root instanceof ast_sequence)
-          switch (root.exprs.length) {
-            case 0: return in_list ? {} : make_node(ast_number, node, {value: 0})
-            case 1: return root.exprs[0]
-          }
-      }))
-    }
-
     function is_lhs_local (lhs) {
       while (lhs instanceof ast_prop_access) lhs = lhs.expr
       return lhs instanceof ast_symbol_ref && lhs.defined().scope.get_defun_scope() === defun_scope
@@ -7808,29 +4995,92 @@ function tighten_body (statements, comp) {
       if (value_def) return true
       if (lhs instanceof ast_symbol_ref) {
         const defined = lhs.defined()
-        if (defined.references.length - defined.replaced == (candidate instanceof ast_var_def ? 1 : 2)) return true
+        if (defined.references.length - defined.replaced == (candidate instanceof ast_def ? 1 : 2)) return true
       }
       return false
     }
-
-    function may_modify (sym) {
-      if (!sym.defined) return true
-      const defined = sym.defined()
-      if (defined.orig.length == 1 && defined.orig[0] instanceof ast_symbol_defun) return false
-      if (defined.scope.get_defun_scope() !== defun_scope) return true
-      return defined.references.some(ref => ref.scope.get_defun_scope() !== defun_scope)
+    
+    function remove_candidate (expr) {
+      if (expr.name instanceof ast_symbol_funarg) {
+        const iife = comp.parent(), argnames = comp.self().argnames
+        const index = argnames.indexOf(expr.name)
+        if (index < 0) {
+          iife.args.length = Math.min(iife.args.length, argnames.length - 1)
+        } else {
+          const args = iife.args
+          if (args[index]) args[index] = make_node(ast_number, args[index], {value: 0})
+        }
+        return true
+      }
+      let found = false
+      return statements[stat_index].transform(new transforms(function (root, ascend, in_list) {
+        if (found) return root
+        if (root === expr || root.body === expr) {
+          found = true
+          if (root instanceof ast_def) {
+            root.value = root.name instanceof ast_symbol_const ? make_node(ast_undefined, root.value) : null
+            return root
+          }
+          return in_list ? {} : null
+        }
+      }, function (root, in_list) {
+        if (root instanceof ast_sequence)
+          switch (root.exprs.length) {
+            case 0: return in_list ? {} : make_node(ast_number, node, {value: 0})
+            case 1: return root.exprs[0]
+          }
+      }))
     }
 
-    function side_effects_external (root, lhs) {
-      if (root instanceof ast_assign) return side_effects_external(root.left, true)
-      if (root instanceof ast_unary) return side_effects_external(root.expr, true)
-      if (root instanceof ast_var_def) return root.value && side_effects_external(root.value)
-      if (lhs) {
-        if (root instanceof ast_dot) return side_effects_external(root.expr, true)
-        if (root instanceof ast_sub) return side_effects_external(root.expr, true)
-        if (root instanceof ast_symbol_ref) return root.defined().scope.get_defun_scope() !== defun_scope
+    while (--stat_index >= 0) {
+      if (stat_index == 0 && comp.options['unused']) extract_args()
+      hit_stack = []
+      extract(statements[stat_index])
+      while (candidates.length > 0) {
+        hit_stack = candidates.pop()
+        hit_index = 0
+        candidate = hit_stack[hit_stack.length - 1]
+        value_def = null
+        stop_after = null
+        stop_if_hit = null
+        lhs = get_lhs(candidate)
+        if (!lhs || is_lhs_read_only(lhs) || lhs.has_side_effects(comp)) continue
+        lvalues = get_lvalues(candidate)
+        lhs_local = is_lhs_local(lhs)
+        if (lhs instanceof ast_symbol_ref) lvalues.set(lhs.name, {defined: lhs.defined(), modified: false})
+        side_effects = value_has_side_effects(candidate)
+        replace_all = replace_all_symbols()
+        may_throw = candidate.may_throw(comp)
+        funarg = candidate.name instanceof ast_symbol_funarg
+        hit = funarg
+        abort = false
+        replaced = 0
+        can_replace = !args || !hit
+        if (!can_replace) {
+          for (j = comp.self().argnames.lastIndexOf(candidate.name) + 1; !abort && j < args.length; j++) {
+            args[j].transform(scanner)
+          }
+          can_replace = true
+        }
+        for (i = stat_index, length = statements.length; !abort && i < length; i++) {
+          statements[i].transform(scanner)
+        }
+        if (value_def) {
+          defined = candidate.name.defined()
+          if (abort && defined.references.length - defined.replaced > replaced) {
+            replaced = false
+          } else {
+            abort = false
+            hit_index = 0
+            hit = funarg
+            for (i = stat_index, length = statements.length; !abort && i < length; i++) {
+              statements[i].transform(multi_replacer)
+            }
+            value_def.single_use = false
+          }
+        }
+        if (replaced && !remove_candidate(candidate)) statements.splice(stat_index, 1)
       }
-      return false
     }
 
     function shadows (my_scope, lvalues) {
@@ -7843,28 +5093,50 @@ function tighten_body (statements, comp) {
     }
   }
 
-  function eliminate_spurious_blocks (statements) {
-    const seen_dirs = []
-    for (let i = 0, length = statements.length, stat; i < length;) {
+  function eliminate_dead_code (statements, comp) {
+    const self = comp.self()
+    let i = 0, n = 0, length = statements.length, stat, lct, has_quit
+    for (; i < length; i++) {
       stat = statements[i]
-      if (stat instanceof ast_block_statement && stat.body.every(evictable)) {
-        changed = true
-        eliminate_spurious_blocks(stat.body)
-        statements.splice(i, 1, ...stat.body)
-        i += stat.body.length
-      } else if (stat instanceof ast_empty_statement) {
-        changed = true
-        statements.splice(i, 1)
-      } else if (stat instanceof ast_directive) {
-        if (seen_dirs.indexOf(stat.value) < 0) {
-          i++
-          seen_dirs.push(stat.value)
+      if (stat instanceof ast_loop_control) {
+        lct = comp.loop_control(stat)
+        if (stat instanceof ast_break && !(lct instanceof ast_iteration_statement) && loop_body(lct) === self
+          || stat instanceof ast_continue && loop_body(lct) === self) {
+          if (stat.label) remove(stat.label.thedef.references, stat)
         } else {
-          changed = true
-          statements.splice(i, 1)
+          statements[n++] = stat
         }
-      } else i++
+      } else {
+        statements[n++] = stat
+      }
+      if (aborts(stat)) {
+        has_quit = statements.slice(i + 1)
+        break
+      }
     }
+    statements.length = n
+    changed = n != length
+    if (has_quit) has_quit.forEach(function (stat) { trim_unreachable(comp, stat, statements) })
+  }
+
+  function has_multiple_if_returns (statements) {
+    for (let n = 0, i = statements.length, stat; --i >= 0;) {
+      stat = statements[i]
+      if (stat instanceof ast_if && stat.body instanceof ast_return) if (++n > 1) return true
+    }
+    return false
+  }
+
+  function is_return_void (value) {
+    return !value || value instanceof ast_unary_prefix && value.operator == 'void'
+  }
+
+  function as_statement_array_with_return (root, abort) {
+    let body = as_statement_array(root)
+    if (abort !== body[body.length - 1]) return undefined
+    body = body.slice(0, -1)
+    if (abort.value) body.push(make_node(ast_statement, abort.value, {body: abort.value.expr}))
+    return body
   }
 
   function handle_if_return (statements, comp) {
@@ -7873,6 +5145,28 @@ function tighten_body (statements, comp) {
     const in_lambda = self instanceof ast_lambda
     const iteration_start = Math.min(statements.length, 500)
     let i, j, next, stat
+
+    function can_merge_flow (abort) {
+      if (!abort) return false
+      for (let j = i + 1, length = statements.length, stat; j < length; j++) {
+        stat = statements[j]
+        if (stat instanceof ast_const || stat instanceof ast_let) return false
+      }
+      const lct = abort instanceof ast_loop_control ? comp.loop_control(abort) : null
+      return abort instanceof ast_return && in_lambda && is_return_void(abort.value)
+        || abort instanceof ast_continue && self === loop_body(lct)
+        || abort instanceof ast_break && lct instanceof ast_block_statement && self === lct
+    }
+
+    function next_index (i) {
+      let j = i + 1, length = statements.length, stat
+      for (; j < length; j++) {
+        stat = statements[j]
+        if (!(stat instanceof ast_var && declarations_only(stat))) break
+      }
+      return j
+    }
+
     for (i = iteration_start; --i >= 0;) {
       j = next_index(i)
       next = statements[j]
@@ -7890,6 +5184,18 @@ function tighten_body (statements, comp) {
           })
           continue
         }
+      }
+
+      function extract_functions () {
+        const tail = statements.slice(i + 1)
+        statements.length = i + 1
+        return tail.filter(function (stat) {
+          if (stat instanceof ast_defun) {
+            statements.push(stat)
+            return false
+          }
+          return true
+        })
       }
 
       if (stat instanceof ast_if) {
@@ -7958,59 +5264,6 @@ function tighten_body (statements, comp) {
       }
     }
 
-    function has_multiple_if_returns (statements) {
-      for (let n = 0, i = statements.length, stat; --i >= 0;) {
-        stat = statements[i]
-        if (stat instanceof ast_if && stat.body instanceof ast_return) if (++n > 1) return true
-      }
-      return false
-    }
-
-    function is_return_void (value) {
-      return !value || value instanceof ast_unary_prefix && value.operator == 'void'
-    }
-
-    function can_merge_flow (abort) {
-      if (!abort) return false
-      for (let j = i + 1, length = statements.length, stat; j < length; j++) {
-        stat = statements[j]
-        if (stat instanceof ast_const || stat instanceof ast_let) return false
-      }
-      const lct = abort instanceof ast_loop_control ? comp.loop_control(abort) : null
-      return abort instanceof ast_return && in_lambda && is_return_void(abort.value)
-        || abort instanceof ast_continue && self === loop_body(lct)
-        || abort instanceof ast_break && lct instanceof ast_block_statement && self === lct
-    }
-
-    function extract_functions () {
-      const tail = statements.slice(i + 1)
-      statements.length = i + 1
-      return tail.filter(function (stat) {
-        if (stat instanceof ast_defun) {
-          statements.push(stat)
-          return false
-        }
-        return true
-      })
-    }
-
-    function as_statement_array_with_return (root, abort) {
-      let body = as_statement_array(root)
-      if (abort !== body[body.length - 1]) return undefined
-      body = body.slice(0, -1)
-      if (abort.value) body.push(make_node(ast_statement, abort.value, {body: abort.value.expr}))
-      return body
-    }
-
-    function next_index (i) {
-      let j = i + 1, length = statements.length, stat
-      for (; j < length; j++) {
-        stat = statements[j]
-        if (!(stat instanceof ast_var && declarations_only(stat))) break
-      }
-      return j
-    }
-
     function prev_index (i) {
       let j = i, stat
       for (j = i; --j >= 0;) {
@@ -8019,36 +5272,6 @@ function tighten_body (statements, comp) {
       }
       return j
     }
-  }
-
-  function eliminate_dead_code (statements, comp) {
-    const self = comp.self()
-    let i = 0, n = 0, length = statements.length, stat, lct, has_quit
-    for (; i < length; i++) {
-      stat = statements[i]
-      if (stat instanceof ast_loop_control) {
-        lct = comp.loop_control(stat)
-        if (stat instanceof ast_break && !(lct instanceof ast_iteration_statement) && loop_body(lct) === self
-          || stat instanceof ast_continue && loop_body(lct) === self) {
-          if (stat.label) remove(stat.label.thedef.references, stat)
-        } else {
-          statements[n++] = stat
-        }
-      } else {
-        statements[n++] = stat
-      }
-      if (aborts(stat)) {
-        has_quit = statements.slice(i + 1)
-        break
-      }
-    }
-    statements.length = n
-    changed = n != length
-    if (has_quit) has_quit.forEach(function (stat) { trim_unreachable(comp, stat, statements) })
-  }
-
-  function declarations_only (root) {
-    return root.defs.every(var_def => !var_def.value)
   }
 
   function sequencesize (statements, comp) {
@@ -8158,123 +5381,18 @@ function tighten_body (statements, comp) {
     statements.length = n
   }
 
-  function join_object_assigns (defn, body) {
-    if (!(defn instanceof ast_definitions)) return
-    const defined = defn.defs[defn.defs.length - 1]
-    if (!(defined.value instanceof ast_object)) return
-    let exprs
-    if (body instanceof ast_assign && !body.logical) {
-      exprs = [body]
-    } else if (body instanceof ast_sequence) {
-      exprs = body.exprs.slice()
+  do {
+    changed = false
+    eliminate_spurious_blocks(statements)
+    if (comp.options['dead_code']) eliminate_dead_code(statements, comp)
+    if (comp.options['if_return']) handle_if_return(statements, comp)
+    if (comp.sequences_limit > 0) {
+      sequencesize(statements, comp)
+      sequencesize_2(statements, comp)
     }
-    if (!exprs) return
-    let trimmed = false
-    do {
-      let root = exprs[0]
-      if (!(root instanceof ast_assign)) break
-      if (root.operator != '=') break
-      if (!(root.left instanceof ast_prop_access)) break
-      const sym = root.left.expr
-      if (!(sym instanceof ast_symbol_ref)) break
-      if (defined.name.name != sym.name) break
-      if (!root.right.constant_expression(nearest_scope)) break
-      let prop = root.left.property
-      if (prop instanceof ast_tree) prop = prop.evaluate(comp)
-      if (prop instanceof ast_tree) break
-      prop = '' + prop
-
-      function diff (root) { return root.key && root.key.name != prop }
-      
-      if (!defined.value.properties.every(diff)) break
-      const p = defined.value.properties.filter(function (p) { return p.key === prop })[0]
-      if (!p) {
-        defined.value.properties.push(make_node(ast_key_value, root, {key: prop, value: root.right}))
-      } else {
-        p.value = new ast_sequence({start: p.start, exprs: [p.value.copy(), root.right.copy()], end: p.end, file: ''})
-      }
-      exprs.shift()
-      trimmed = true
-    } while (exprs.length)
-    return trimmed && exprs
-  }
-
-  function join_consecutive_vars (statements) {
-    let i = 0, j = -1, length = statements.length, stat, prev, defs, exprs
-
-    function extract_object_assigns (value) {
-      statements[++j] = stat
-      exprs = join_object_assigns(prev, value)
-      if (exprs) {
-        changed = true
-        if (exprs.length) {
-          return make_sequence(value, exprs)
-        } else if (value instanceof ast_sequence) {
-          return value.tail_node().left
-        } else {
-          return value.left
-        }
-      }
-      return value
-    }
-
-    for (; i < length; i++) {
-      stat = statements[i]
-      prev = statements[j]
-      if (stat instanceof ast_definitions) {
-        if (prev && prev.type == stat.type) {
-          prev.defs = prev.defs.concat(stat.defs)
-          changed = true
-        } else if (defs && defs.type == stat.type && declarations_only(stat)) {
-          defs.defs = defs.defs.concat(stat.defs)
-          changed = true
-        } else {
-          statements[++j] = stat
-          defs = stat
-        }
-      } else if (stat instanceof ast_exit) {
-        stat.value = extract_object_assigns(stat.value)
-      } else if (stat instanceof ast_for) {
-        exprs = join_object_assigns(prev, stat.init)
-        if (exprs) {
-          changed = true
-          stat.init = exprs.length ? make_sequence(stat.init, exprs) : null
-          statements[++j] = stat
-        } else if (prev instanceof ast_var && (!stat.init || stat.init.type == prev.type)) {
-          if (stat.init) prev.defs = prev.defs.concat(stat.init.defs)
-          stat.init = prev
-          statements[j] = stat
-          changed = true
-        } else if (defs instanceof ast_var && stat.init instanceof ast_var && declarations_only(stat.init)) {
-          defs.defs = defs.defs.concat(stat.init.defs)
-          stat.init = null
-          statements[++j] = stat
-          changed = true
-        } else {
-          statements[++j] = stat
-        }
-      } else if (stat instanceof ast_for_in) {
-        stat.object = extract_object_assigns(stat.object)
-      } else if (stat instanceof ast_if) {
-        stat.condition = extract_object_assigns(stat.condition)
-      } else if (stat instanceof ast_statement) {
-        exprs = join_object_assigns(prev, stat.body)
-        if (exprs) {
-          changed = true
-          if (!exprs.length) continue
-          stat.body = make_sequence(stat.body, exprs)
-        }
-        statements[++j] = stat
-      } else if (stat instanceof ast_switch) {
-        stat.expr = extract_object_assigns(stat.expr)
-      } else if (stat instanceof ast_with) {
-        stat.expr = extract_object_assigns(stat.expr)
-      } else {
-        statements[++j] = stat
-      }
-    }
-    statements.length = j + 1
-  }
+    if (comp.options['join_vars']) join_consecutive_vars(statements)
+    if (comp.options['collapse_vars']) collapse(statements, comp)
+  } while (changed && max_iter-- > 0)
 }
 
 function def_reduce_vars (root, func) {
@@ -8300,6 +5418,10 @@ function reset_def (comp, defined) {
   }
 }
 
+function mark (trees, defined, safe) {
+  trees.safe[defined.id] = safe
+}
+
 function reset_variables (trees, comp, root) {
   root.vars.forEach(function (defined) {
     reset_def(comp, defined)
@@ -8323,10 +5445,6 @@ function push (trees) {
 
 function pop (trees) {
   trees.safe = Object.getPrototypeOf(trees.safe)
-}
-
-function mark (trees, defined, safe) {
-  trees.safe[defined.id] = safe
 }
 
 function safe_to_read (trees, defined) {
@@ -8380,7 +5498,7 @@ function mark_escaped (trees, defined, scope, root, value, level = 0, depth = 1)
   if (parent instanceof ast_assign && (parent.operator == '=' || parent.logical) && root === parent.right
     || parent instanceof ast_call && (root !== parent.expr || parent instanceof ast_new)
     || parent instanceof ast_exit && root === parent.value && root.scope !== defined.scope
-    || parent instanceof ast_var_def && root === parent.value
+    || parent instanceof ast_def && root === parent.value
     || parent instanceof ast_yield && root === parent.value && root.scope !== defined.scope) {
     if (depth > 1 && !(value && value.constant_expression(scope))) depth = 1
     if (!defined.escaped || defined.escaped > depth) defined.escaped = depth
@@ -8539,6 +5657,16 @@ def_reduce_vars(ast_default, function (trees, ascend) {
   return true
 })
 
+function is_recursive_ref (comp, defined) {
+  for (let i = 0, name, root; root = comp.parent(i); i++) {
+    if (root instanceof ast_lambda || root instanceof ast_class) {
+      name = root.name
+      if (name && name.defined() === defined) return true
+    }
+  }
+  return false
+}
+
 function handle_defined_after_hoist (parent) {
   const defuns = []
   observe(parent, root => {
@@ -8651,6 +5779,18 @@ function mark_lambda (trees, ascend, comp) {
 
 def_reduce_vars(ast_lambda, mark_lambda)
 
+function has_break_or_continue (loop, parent) {
+  let found = false
+  const trees = new observes(function (root) {
+    if (found || root instanceof ast_scope) return true
+    if (root instanceof ast_loop_control && trees.loop_control(root) === loop) return found = true
+  })
+  if (parent instanceof ast_labeled_statement) trees.push(parent)
+  trees.push(loop)
+  loop.body.observe(trees)
+  return found
+}
+
 def_reduce_vars(ast_do, function (trees, ascend, comp) {
   reset_block_variables(comp, this)
   const saved_loop = trees.in_loop
@@ -8761,12 +5901,12 @@ def_reduce_vars(ast_try, function (trees, ascend, comp) {
   push(trees)
   this.body.observe(trees)
   pop(trees)
-  if (this.bcatch) {
+  if (this.catch) {
     push(trees)
-    this.bcatch.observe(trees)
+    this.catch.observe(trees)
     pop(trees)
   }
-  if (this.bfinally) this.bfinally.observe(trees)
+  if (this.finally) this.finally.observe(trees)
   return true
 })
 
@@ -8793,7 +5933,7 @@ def_reduce_vars(ast_unary, function (trees) {
   return true
 })
 
-def_reduce_vars(ast_var_def, function (trees, ascend) {
+def_reduce_vars(ast_def, function (trees, ascend) {
   const root = this
   if (root.name instanceof ast_destructure) {
     suppress(root.name)
@@ -9140,30 +6280,6 @@ def_is_string(ast_conditional, function (comp) {
   return this.consequent.is_string(comp) && this.alt.is_string(comp)
 })
 
-function is_undefined (root, comp) {
-  return (has_flag(root, undefined_flag) || root instanceof ast_undefined || root instanceof ast_unary_prefix
-    && root.operator == 'void' && !root.expr.has_side_effects(comp))
-}
-
-function is_null_or_undefined (root, comp) {
-  let fixed
-  return (root instanceof ast_null || is_undefined(root, comp) || (root instanceof ast_symbol_ref
-    && (fixed = root.defined().fixed) instanceof ast_tree && is_nullish(fixed, comp)))
-}
-
-function is_nullish_shortcircuited (root, comp) {
-  if (root instanceof ast_prop_access || root instanceof ast_call) {
-    return (root.optional && is_null_or_undefined(root.expr, comp)) || is_nullish_shortcircuited(root.expr, comp)
-  }
-  if (root instanceof ast_chain) return is_nullish_shortcircuited(root.expr, comp)
-  return false
-}
-
-function is_nullish (root, comp) {
-  if (is_null_or_undefined(root, comp)) return true
-  return is_nullish_shortcircuited(root, comp)
-}
-
 function def_has_side_effects (nodes, func) {
   for (const node of [].concat(nodes)) {
     node.prototype.has_side_effects = func
@@ -9194,8 +6310,8 @@ def_has_side_effects(ast_case, function (comp) {
   return this.expr.has_side_effects(comp) || side_effects(this.body, comp)
 })
 def_has_side_effects(ast_try, function (comp) {
-  return this.body.has_side_effects(comp) || this.bcatch && this.bcatch.has_side_effects(comp)
-    || this.bfinally && this.bfinally.has_side_effects(comp)
+  return this.body.has_side_effects(comp) || this.catch && this.catch.has_side_effects(comp)
+    || this.finally && this.finally.has_side_effects(comp)
 })
 def_has_side_effects(ast_if, function (comp) {
   return this.condition.has_side_effects(comp) || this.body && this.body.has_side_effects(comp)
@@ -9255,7 +6371,7 @@ def_has_side_effects(ast_sub, function (comp) {
 def_has_side_effects(ast_chain, function (comp) { return this.expr.has_side_effects(comp) })
 def_has_side_effects(ast_sequence, function (comp) { return side_effects(this.exprs, comp) })
 def_has_side_effects(ast_definitions, function (comp) { return side_effects(this.defs, comp) })
-def_has_side_effects(ast_var_def, function () { return this.value != null })
+def_has_side_effects(ast_def, function () { return this.value != null })
 def_has_side_effects(ast_template_segment, get_false)
 def_has_side_effects(ast_template_string, function (comp) { return side_effects(this.segments, comp) })
 
@@ -9335,14 +6451,14 @@ def_may_throw(ast_switch, function (comp) { return this.expr.may_throw(comp) || 
 def_may_throw(ast_symbol_ref, function (comp) { return !this.is_declared(comp) && !safe_globals.has(this.name) })
 def_may_throw(ast_symbol_class_property, get_false)
 def_may_throw(ast_try, function (comp) {
-  return this.bcatch ? this.bcatch.may_throw(comp) : this.body.may_throw(comp) || this.bfinally
-    && this.bfinally.may_throw(comp)
+  return this.catch ? this.catch.may_throw(comp) : this.body.may_throw(comp) || this.finally
+    && this.finally.may_throw(comp)
 })
 def_may_throw(ast_unary, function (comp) {
   if (this.operator == 'typeof' && this.expr instanceof ast_symbol_ref) return false
   return this.expr.may_throw(comp)
 })
-def_may_throw(ast_var_def, function (comp) {
+def_may_throw(ast_def, function (comp) {
   if (!this.value) return false
   return this.value.may_throw(comp)
 })
@@ -9461,12 +6577,6 @@ def_may_throw_on_access(ast_symbol_ref, function (comp) {
   return !fixed || fixed._dot_throw(comp)
 })
 
-function is_lhs (root, parent) {
-  if (parent instanceof ast_unary && unary_side_effects.has(parent.operator)) return parent.expr
-  if (parent instanceof ast_assign && parent.left === root) return root
-  if (parent instanceof ast_for_in && parent.init === root) return root
-}
-
 function def_negate (root, func) {
   root.prototype.negate = function (comp, first) {
     return func.call(this, comp, first)
@@ -9474,6 +6584,10 @@ function def_negate (root, func) {
 }
 
 function basic_negation (expr) { return make_node(ast_unary_prefix, expr, {operator: '!', expr}) }
+
+function best_of_expression (ast1, ast2) {
+  return ast1.len() > ast2.len() ? ast2 : ast1
+}
 
 function best (orig, alt, first) {
   const negated = basic_negation(orig)
@@ -9560,14 +6674,6 @@ ast_call.prototype.is_callee_pure = function (comp) {
   return !comp.pure_funcs(this)
 }
 
-function aborts (thing) {
-  try {
-    return thing && thing.aborts()
-  } catch {
-    return false
-  }
-}
-
 function def_aborts (root, func) {
   root.prototype.aborts = func
 }
@@ -9601,26 +6707,6 @@ ast_tree.prototype.this = function () {
     if (root instanceof ast_this) return walk_abort
     if (root !== this && root instanceof ast_scope && !(root instanceof ast_arrow)) return true
   })
-}
-
-function is_modified (comp, trees, root, value, level, immutable) {
-  const parent = trees.parent(level)
-  const lhs = is_lhs(root, parent)
-  if (lhs) return lhs
-  if (!immutable && parent instanceof ast_call && parent.expr === root
-    && !(value instanceof ast_arrow) && !(value instanceof ast_class) && !parent.is_callee_pure(comp)
-    && (!(value instanceof ast_function) || !(parent instanceof ast_new) && value.this())) {
-    return true
-  }
-  if (parent instanceof ast_array) return is_modified(comp, trees, parent, parent, level + 1)
-  if (parent instanceof ast_key_value && root === parent.value) {
-    const obj = trees.parent(level + 1)
-    return is_modified(comp, trees, obj, obj, level + 2)
-  }
-  if (parent instanceof ast_prop_access && parent.expr === root) {
-    const prop = read_property(value, parent.property)
-    return !immutable && is_modified(comp, trees, parent, prop, level + 1)
-  }
 }
 
 function def_find_defs (root, func) {
@@ -9725,6 +6811,11 @@ function shorter_const (defined, fixed_value) {
   return true
 }
 
+function retain_top_func (fn, comp) {
+  return comp.top_retain && fn instanceof ast_defun && has_flag(fn, topped_flag) && fn.name
+    && comp.top_retain(fn.name.defined())
+}
+
 function inline_into_symbolref (self, comp) {
   if (comp.in_computed_key()) return self
   const parent = comp.parent()
@@ -9813,10 +6904,19 @@ function inline_into_symbolref (self, comp) {
   return self
 }
 
+function best_of_statement (ast1, ast2) {
+  return best_of_expression(make_node(ast_statement, ast1, {body: ast1}),
+    make_node(ast_statement, ast2, {body: ast2})).body
+}
+
+function best_of (comp, ast1, ast2) {
+  return first_of(comp) ? best_of_statement(ast1, ast2) : best_of_expression(ast1, ast2)
+}
+
 function inline_into_call (self, comp) {
   if (comp.in_computed_key()) return self
   const expr = self.expr, simple_args = self.args.every(arg => !(arg instanceof ast_spread))
-  let fn = expr
+  let fn = expr, in_loop, level, scope
   if (comp.options['reduce_vars'] && fn instanceof ast_symbol_ref && !has_annotation(self, _noinline)) {
     const fixed = fn.fixed_value()
     if (retain_top_func(fixed, comp) || !comp.toplevel.funcs && expr.defined().global) return self
@@ -9843,52 +6943,6 @@ function inline_into_call (self, comp) {
       return replacement
     }
   }
-  let level, scope, in_loop
-  if (can_inline) {
-    level = -1
-    let defined, returned_value, nearest_scope
-    if (simple_args && !fn.uses_args && !(comp.parent() instanceof ast_class) && !(fn.name
-      && fn instanceof ast_function) && (returned_value = can_flatten_body(stat)) && (expr === fn
-      || has_annotation(self, _inline) || comp.options['unused'] && (defined = expr.defined()).references.length == 1
-      && !is_recursive_ref(comp, defined) && fn.constant_expression(expr.scope))
-      && !has_annotation(self, _pure | _noinline) && !fn.this() && can_inject_symbols()
-      && (nearest_scope = comp.find_scope())
-      && !scope_encloses_variables_in_this_scope(nearest_scope, fn, comp.imports) && !(function in_default_assign () {
-          let p, i = 0
-          while (p = comp.parent(i++)) {
-            if (p instanceof ast_default_assign) return true
-            if (p instanceof ast_block) break
-          }
-          return false
-        })()
-      && !(scope instanceof ast_class)) {
-      set_flag(fn, squeezed_flag)
-      nearest_scope.add_child_scope(fn)
-      return make_sequence(self, flatten_fn(returned_value)).optimize(comp)
-    }
-  }
-
-  if (can_inline && has_annotation(self, _inline)) {
-    set_flag(fn, squeezed_flag)
-    fn = make_node(fn.constructor === ast_defun ? ast_function : fn.constructor, fn, fn)
-    fn = fn.copy(true)
-    fn.figure_out_scope({imports: comp.imports}, {parents: comp.find_scope(), toplevel: comp.get_toplevel()})
-    return make_node(ast_call, self, {expr: fn, args: self.args}).optimize(comp)
-  }
-  const can_drop_this_call = is_regular_func && comp.options['side_effects'] && fn.body.every(is_empty)
-  if (can_drop_this_call) {
-    const args = self.args.concat(make_node(ast_undefined, self))
-    return make_sequence(self, args).optimize(comp)
-  }
-  if (comp.options['negate_iife'] && comp.parent() instanceof ast_statement && is_iife_call(self)) {
-    return self.negate(comp, true)
-  }
-  let ev = self.evaluate(comp)
-  if (ev !== self) {
-    ev = make_node_from_constant(ev, self).optimize(comp)
-    return best_of(comp, ev, self)
-  }
-  return self
 
   function return_value (stat) {
     if (!stat) return make_node(ast_undefined, self)
@@ -9981,7 +7035,7 @@ function inline_into_call (self, comp) {
     if (!scope.vars.has(node_name)) {
       scope.vars.set(node_name, defined)
       scope.encl.push(defined)
-      decls.push(make_node(ast_var_def, name, {name, value: null}))
+      decls.push(make_node(ast_def, name, {name, value: null}))
     }
     const sym = make_node(ast_symbol_ref, name, name)
     defined.references.push(sym)
@@ -10042,17 +7096,52 @@ function inline_into_call (self, comp) {
     }
     return exprs.map(expr => expr.copy(true))
   }
-}
 
-function merge_sequence (array, root) {
-  root instanceof ast_sequence ? array.push(...root.exprs) : array.push(root)
-  return array
-}
+  if (can_inline) {
+    level = -1
+    let defined, returned_value, nearest_scope
+    if (simple_args && !fn.uses_args && !(comp.parent() instanceof ast_class) && !(fn.name
+      && fn instanceof ast_function) && (returned_value = can_flatten_body(stat)) && (expr === fn
+      || has_annotation(self, _inline) || comp.options['unused'] && (defined = expr.defined()).references.length == 1
+      && !is_recursive_ref(comp, defined) && fn.constant_expression(expr.scope))
+      && !has_annotation(self, _pure | _noinline) && !fn.this() && can_inject_symbols()
+      && (nearest_scope = comp.find_scope())
+      && !scope_encloses_variables_in_this_scope(nearest_scope, fn, comp.imports) && !(function in_default_assign () {
+          let p, i = 0
+          while (p = comp.parent(i++)) {
+            if (p instanceof ast_default_assign) return true
+            if (p instanceof ast_block) break
+          }
+          return false
+        })()
+      && !(scope instanceof ast_class)) {
+      set_flag(fn, squeezed_flag)
+      nearest_scope.add_child_scope(fn)
+      return make_sequence(self, flatten_fn(returned_value)).optimize(comp)
+    }
+  }
 
-function make_sequence (orig, exprs) {
-  if (exprs.length == 1) return exprs[0]
-  if (exprs.length == 0) throw new Error('sequence length zero')
-  return make_node(ast_sequence, orig, {exprs: exprs.reduce(merge_sequence, [])})
+  if (can_inline && has_annotation(self, _inline)) {
+    set_flag(fn, squeezed_flag)
+    fn = make_node(fn.constructor === ast_defun ? ast_function : fn.constructor, fn, fn)
+    fn = fn.copy(true)
+    fn.figure_out_scope({imports: comp.imports}, {parents: comp.find_scope(), toplevel: comp.get_toplevel()})
+    return make_node(ast_call, self, {expr: fn, args: self.args}).optimize(comp)
+  }
+  const can_drop_this_call = is_regular_func && comp.options['side_effects'] && fn.body.every(is_empty)
+  if (can_drop_this_call) {
+    const args = self.args.concat(make_node(ast_undefined, self))
+    return make_sequence(self, args).optimize(comp)
+  }
+  if (comp.options['negate_iife'] && comp.parent() instanceof ast_statement && is_iife_call(self)) {
+    return self.negate(comp, true)
+  }
+  let ev = self.evaluate(comp)
+  if (ev !== self) {
+    ev = make_node_from_constant(ev, self).optimize(comp)
+    return best_of(comp, ev, self)
+  }
+  return self
 }
 
 function make_empty_function (self) {
@@ -10061,132 +7150,12 @@ function make_empty_function (self) {
     cname: 0, block_scope: undefined})
 }
 
-function make_node_from_constant (val, orig) {
-  switch (typeof val) {
-    case 'string':
-      return make_node(ast_string, orig, {value: val})
-    case 'number':
-      if (isNaN(val)) return make_node(ast_nan, orig)
-      if (isFinite(val)) return 1 / val < 0 ? make_node(ast_unary_prefix, orig, {operator: '-', expr:
-        make_node(ast_number, orig, {value: -val})}) : make_node(ast_number, orig, {value: val})
-      return val < 0 ? make_node(ast_unary_prefix, orig, {operator: '-', expr: make_node(ast_infinity, orig)})
-        : make_node(ast_infinity, orig)
-    case 'bigint':
-      return make_node(ast_big_int, orig, {value: val.toString()})
-    case 'boolean':
-      return make_node(val ? ast_true : ast_false, orig)
-    case 'undefined':
-      return make_node(ast_undefined, orig)
-    default:
-      if (val === null) return make_node(ast_null, orig, {value: null})
-      if (val instanceof RegExp) return make_node(ast_reg_exp, orig, {value: {source: source_regex(val.source),
-        flags: val.flags}})
-      throw new Error('type ' + {type: typeof val})
-  }
-}
-
-function best_of_expression (ast1, ast2) {
-  return ast1.len() > ast2.len() ? ast2 : ast1
-}
-
-function best_of_statement (ast1, ast2) {
-  return best_of_expression(make_node(ast_statement, ast1, {body: ast1}),
-    make_node(ast_statement, ast2, {body: ast2})).body
-}
-
-function best_of (comp, ast1, ast2) {
-  return first_of(comp) ? best_of_statement(ast1, ast2) : best_of_expression(ast1, ast2)
-}
-
-function get_simple_key (key) {
-  if (key instanceof ast_literal) return key.get_value()
-  if (key instanceof ast_unary_prefix && key.operator == 'void' && key.expr instanceof ast_literal) return
-  return key
-}
-
-function read_property (obj, key) {
-  key = get_simple_key(key)
-  if (key instanceof ast_tree) return
-  let value
-  if (obj instanceof ast_array) {
-    const elements = obj.elements
-    if (key == 'length') return make_node_from_constant(elements.length, obj)
-    if (typeof key == 'number' && key in elements) value = elements[key]
-  } else if (obj instanceof ast_object) {
-    key = '' + key
-    const properties = obj.properties
-    for (let i = properties.length, prop; --i >= 0;) {
-      prop = properties[i]
-      if (!(prop instanceof ast_key_value)) return
-      if (!value && prop.key === key) value = prop.value
-    }
-  }
-  return value instanceof ast_symbol_ref && value.fixed_value() || value
-}
-
-function has_break_or_continue (loop, parent) {
-  let found = false
-  const trees = new observes(function (root) {
-    if (found || root instanceof ast_scope) return true
-    if (root instanceof ast_loop_control && trees.loop_control(root) === loop) return found = true
-  })
-  if (parent instanceof ast_labeled_statement) trees.push(parent)
-  trees.push(loop)
-  loop.body.observe(trees)
-  return found
-}
-
-function maintain_bind (parent, orig, val) {
-  if (parent instanceof ast_unary_prefix && parent.operator == 'delete' || parent instanceof ast_call
-    && parent.expr === orig && (val instanceof ast_chain || val instanceof ast_prop_access
-    || val instanceof ast_symbol_ref && val.name == 'eval')) {
-    return make_sequence(orig, [make_node(ast_number, orig, {value: 0}), val])
-  } else {
-    return val
-  }
-}
-
-function is_func_expr (root) {
-  return root instanceof ast_arrow || root instanceof ast_function
-}
-
-function is_iife_call (root) {
-  if (root.type != 'ast_call') return false
-  return root.expr instanceof ast_function || is_iife_call(root.expr)
-}
-
-function is_empty (thing) {
-  if (thing === null) return true
-  if (thing instanceof ast_empty_statement) return true
-  if (thing instanceof ast_block_statement) return thing.body.length == 0
-  return false
-}
-
-const identifier_atom = make_set('Infinity NaN undefined')
-
-function is_identifier_atom (root) {
-  return root instanceof ast_infinity || root instanceof ast_nan || root instanceof ast_undefined
-}
-
 function ref_of (ref, type) {
   if (!(ref instanceof ast_symbol_ref)) return false
   const orig = ref.defined().orig
   for (let i = orig.length; --i >= 0;) {
     if (orig[i] instanceof type) return true
   }
-}
-
-function evictable (root) {
-  return !(root instanceof ast_def_class || root instanceof ast_defun || root instanceof ast_let
-    || root instanceof ast_const || root instanceof ast_export || root instanceof ast_import)
-}
-
-function as_statement_array (thing) {
-  if (thing === null) return []
-  if (thing instanceof ast_block_statement) return thing.body
-  if (thing instanceof ast_empty_statement) return []
-  if (thing instanceof ast_state) return [thing]
-  throw new Error('cannot convert to statement array')
 }
 
 function is_reachable (scope_node, defs) {
@@ -10203,19 +7172,132 @@ function is_reachable (scope_node, defs) {
   })
 }
 
-function is_recursive_ref (comp, defined) {
-  for (let i = 0, name, root; root = comp.parent(i); i++) {
-    if (root instanceof ast_lambda || root instanceof ast_class) {
-      name = root.name
-      if (name && name.defined() === defined) return true
+function is_used_in_expression (ast_tree) {
+  for (let node, op, p = 0, parent; node = ast_tree.parent(p - 1), parent = ast_tree.parent(p); p++) {
+    if (parent instanceof ast_sequence) {
+      if (parent.expressions.indexOf(node) != parent.expressions.length - 1) {
+        return (parent.expressions.length > 2 || parent.expressions.length == 1
+          || !maintain_bind(ast_tree.parent(p + 1), parent, parent.expressions[1]))
+      } else {
+        continue
+      }
     }
+    if (parent instanceof ast_unary) {
+      op = parent.operator
+      if (op == 'void') return false
+      if (op == 'typeof' || op == '+' || op == '-' || op == '!' || op == '~') continue
+    }
+    if (parent instanceof ast_statement || parent instanceof ast_labeled_statement) return false
+    if (parent instanceof ast_scope) return false
+    return true
   }
-  return false
+  return true
 }
 
-function retain_top_func (fn, comp) {
-  return comp.top_retain && fn instanceof ast_defun && has_flag(fn, topped_flag) && fn.name
-    && comp.top_retain(fn.name.defined())
+ast_toplevel.prototype.drop_console = function (options) {
+  const is_array = Array.isArray(options)
+  const transformer = new transforms(function (self) {
+    if (self.type != 'ast_call') return
+    const expr = self.expr
+    if (!(expr instanceof ast_prop_access)) return
+    let depth = 2, name = expr.expr, prop = expr.property
+    if (is_array && !options.includes(prop)) return
+    while (name.expr) {
+      prop = name.property
+      name = name.expr
+      depth++
+    }
+    if (is_undeclared_ref(name) && name.name == 'console') {
+      if (depth == 3 && !['call', 'apply'].includes(prop) && is_used_in_expression(transformer)) {
+        expr.expr = make_empty_function(self)
+        set_flag(expr.expr, squeezed_flag)
+      } else {
+        return make_node(ast_undefined, self)
+      }
+    }
+  })
+  return this.transform(transformer)
+}
+ast_tree.prototype.contains_optional = function () {
+  if (this instanceof ast_prop_access || this instanceof ast_call || this instanceof ast_chain) {
+    return this.optional ? true : this.expr.contains_optional()
+  } else {
+    return false
+  }
+}
+ast_tree.prototype.equivalent_to = function (root) {
+  return equivalent_to(this, root)
+}
+ast_scope.prototype.process_expression = function (insert, comp) {
+  const self = this
+  const trans = new transforms(function (root) {
+    if (insert && root instanceof ast_statement) return make_node(ast_return, root, {value: root.body})
+    if (!insert && root instanceof ast_return) {
+      if (comp) {
+        const value = root.value && root.value.drop(comp, true)
+        return value ? make_node(ast_statement, root, {body: value}) : make_node(ast_empty_statement, root)
+      }
+      return make_node(ast_statement, root, {body: root.value || make_node(ast_unary_prefix, root, {operator: 'void',
+        expr: make_node(ast_number, root, {value: 0})})
+      })
+    }
+    if (root instanceof ast_class || root instanceof ast_lambda && root !== self) return root
+    if (root instanceof ast_block) {
+      const index = root.body.length - 1
+      if (index >= 0) root.body[index] = root.body[index].transform(trans)
+    } else if (root instanceof ast_if) {
+      root.body = root.body.transform(trans)
+      if (root.alt) root.alt = root.alt.transform(trans)
+    } else if (root instanceof ast_with) {
+      root.body = root.body.transform(trans)
+    }
+    return root
+  })
+  self.transform(trans)
+}
+ast_toplevel.prototype.reset_opt_flags = function (comp) {
+  const self = this
+  const reduce_vars = comp.options['reduce_vars']
+  const preparation = new observes(function (root, ascend) {
+    clear_flag(root, pass_flag)
+    if (reduce_vars) {
+      if (comp.top_retain && root instanceof ast_defun && preparation.parent() === self) set_flag(root, topped_flag)
+      return root.reduce_vars(preparation, ascend, comp)
+    }
+  })
+  preparation.safe = Object.create(null)
+  preparation.in_loop = null
+  preparation.loop_ids = new Map()
+  preparation.defs_to_safe_ids = new Map()
+  self.observe(preparation)
+}
+
+ast_symbol.prototype.fixed_value = function () {
+  const fixed = this.thedef.fixed
+  if (!fixed || fixed instanceof ast_tree) return fixed
+  return fixed()
+}
+
+ast_symbol_ref.prototype.is_immutable = function () {
+  const orig = this.defined().orig
+  return orig.length == 1 && orig[0] instanceof ast_symbol_lambda
+}
+
+function find_variable (comp, name) {
+  let scope, i = 0
+  while (scope = comp.parent(i++)) {
+    if (scope instanceof ast_scope) break
+    if (scope instanceof ast_catch && scope.argname) {
+      scope = scope.argname.defined().scope
+      break
+    }
+  }
+  const node_name = name.name + '/' + name.file
+  return scope.find_variable(node_name, comp.imports)
+}
+
+ast_symbol_ref.prototype.is_declared = function () {
+  return !this.defined().undeclared
 }
 
 class compressor extends observes {
@@ -10382,134 +7464,6 @@ class compressor extends observes {
   }
 }
 
-function is_used_in_expression (ast_tree) {
-  for (let node, op, p = 0, parent; node = ast_tree.parent(p - 1), parent = ast_tree.parent(p); p++) {
-    if (parent instanceof ast_sequence) {
-      if (parent.expressions.indexOf(node) != parent.expressions.length - 1) {
-        return (parent.expressions.length > 2 || parent.expressions.length == 1
-          || !maintain_bind(ast_tree.parent(p + 1), parent, parent.expressions[1]))
-      } else {
-        continue
-      }
-    }
-    if (parent instanceof ast_unary) {
-      op = parent.operator
-      if (op == 'void') return false
-      if (op == 'typeof' || op == '+' || op == '-' || op == '!' || op == '~') continue
-    }
-    if (parent instanceof ast_statement || parent instanceof ast_labeled_statement) return false
-    if (parent instanceof ast_scope) return false
-    return true
-  }
-  return true
-}
-
-ast_toplevel.prototype.drop_console = function (options) {
-  const is_array = Array.isArray(options)
-  const transformer = new transforms(function (self) {
-    if (self.type != 'ast_call') return
-    const expr = self.expr
-    if (!(expr instanceof ast_prop_access)) return
-    let depth = 2, name = expr.expr, prop = expr.property
-    if (is_array && !options.includes(prop)) return
-    while (name.expr) {
-      prop = name.property
-      name = name.expr
-      depth++
-    }
-    if (is_undeclared_ref(name) && name.name == 'console') {
-      if (depth == 3 && !['call', 'apply'].includes(prop) && is_used_in_expression(transformer)) {
-        expr.expr = make_empty_function(self)
-        set_flag(expr.expr, squeezed_flag)
-      } else {
-        return make_node(ast_undefined, self)
-      }
-    }
-  })
-  return this.transform(transformer)
-}
-ast_tree.prototype.contains_optional = function () {
-  if (this instanceof ast_prop_access || this instanceof ast_call || this instanceof ast_chain) {
-    return this.optional ? true : this.expr.contains_optional()
-  } else {
-    return false
-  }
-}
-ast_tree.prototype.equivalent_to = function (root) {
-  return equivalent_to(this, root)
-}
-ast_scope.prototype.process_expression = function (insert, comp) {
-  const self = this
-  const trans = new transforms(function (root) {
-    if (insert && root instanceof ast_statement) return make_node(ast_return, root, {value: root.body})
-    if (!insert && root instanceof ast_return) {
-      if (comp) {
-        const value = root.value && root.value.drop(comp, true)
-        return value ? make_node(ast_statement, root, {body: value}) : make_node(ast_empty_statement, root)
-      }
-      return make_node(ast_statement, root, {body: root.value || make_node(ast_unary_prefix, root, {operator: 'void',
-        expr: make_node(ast_number, root, {value: 0})})
-      })
-    }
-    if (root instanceof ast_class || root instanceof ast_lambda && root !== self) return root
-    if (root instanceof ast_block) {
-      const index = root.body.length - 1
-      if (index >= 0) root.body[index] = root.body[index].transform(trans)
-    } else if (root instanceof ast_if) {
-      root.body = root.body.transform(trans)
-      if (root.alt) root.alt = root.alt.transform(trans)
-    } else if (root instanceof ast_with) {
-      root.body = root.body.transform(trans)
-    }
-    return root
-  })
-  self.transform(trans)
-}
-ast_toplevel.prototype.reset_opt_flags = function (comp) {
-  const self = this
-  const reduce_vars = comp.options['reduce_vars']
-  const preparation = new observes(function (root, ascend) {
-    clear_flag(root, pass_flag)
-    if (reduce_vars) {
-      if (comp.top_retain && root instanceof ast_defun && preparation.parent() === self) set_flag(root, topped_flag)
-      return root.reduce_vars(preparation, ascend, comp)
-    }
-  })
-  preparation.safe = Object.create(null)
-  preparation.in_loop = null
-  preparation.loop_ids = new Map()
-  preparation.defs_to_safe_ids = new Map()
-  self.observe(preparation)
-}
-
-ast_symbol.prototype.fixed_value = function () {
-  const fixed = this.thedef.fixed
-  if (!fixed || fixed instanceof ast_tree) return fixed
-  return fixed()
-}
-
-ast_symbol_ref.prototype.is_immutable = function () {
-  const orig = this.defined().orig
-  return orig.length == 1 && orig[0] instanceof ast_symbol_lambda
-}
-
-function find_variable (comp, name) {
-  let scope, i = 0
-  while (scope = comp.parent(i++)) {
-    if (scope instanceof ast_scope) break
-    if (scope instanceof ast_catch && scope.argname) {
-      scope = scope.argname.defined().scope
-      break
-    }
-  }
-  const node_name = name.name + '/' + name.file
-  return scope.find_variable(node_name, comp.imports)
-}
-
-ast_symbol_ref.prototype.is_declared = function () {
-  return !this.defined().undeclared
-}
-
 function def_optimize (root, optimizer) {
   root.prototype.optimize = function (comp) {
     const self = this
@@ -10574,7 +7528,7 @@ ast_scope.prototype.hoist_properties = function (comp) {
   const top_retain = self instanceof ast_toplevel && comp.top_retain || get_false
   const defs_by_id = new Map()
   const hoister = new transforms(function (root, ascend) {
-    if (root instanceof ast_var_def) {
+    if (root instanceof ast_def) {
       const sym = root.name
       let defined, value
       if (sym.scope === self && (defined = sym.defined()).escaped != 1 && !defined.assigns
@@ -10589,10 +7543,10 @@ ast_scope.prototype.hoist_properties = function (comp) {
           const symbol = self.create_symbol(sym.constructor, {source: sym, scope, scopes: new Set([scope,
             ...sym.defined().references.map(ref => ref.scope)]), name: sym.name + '_' + key})
           defs.set(String(key), symbol.defined())
-          assigns.push(make_node(ast_var_def, root, {name: symbol, value}))
+          assigns.push(make_node(ast_def, root, {name: symbol, value}))
         })
         defs_by_id.set(defined.id, defs)
-        return _splice(assigns)
+        return splice(assigns)
       }
     } else if (root instanceof ast_prop_access && root.expr instanceof ast_symbol_ref) {
       const defs = defs_by_id.get(root.expr.defined().id)
@@ -10641,6 +7595,25 @@ def_optimize(ast_do, function (self, comp) {
 
 function if_break_in_loop (self, comp) {
   const first = self.body instanceof ast_block_statement ? self.body.body[0] : self.body
+
+  function is_break (root) {
+    return root instanceof ast_break && comp.loop_control(root) === comp.self()
+  }
+
+  function drop_it (rest) {
+    rest = as_statement_array(rest)
+    if (self.body instanceof ast_block_statement) {
+      self.body = self.body.copy()
+      self.body.body = rest.concat(self.body.body.slice(1))
+      self.body = self.body.transform(comp)
+    } else {
+      self.body = make_node(ast_block_statement, self.body, {
+        body: rest
+      }).transform(comp)
+    }
+    self = if_break_in_loop(self, comp)
+  }
+
   if (comp.options['dead_code'] && is_break(first)) {
     const body = []
     if (self.init instanceof ast_state) {
@@ -10664,24 +7637,6 @@ function if_break_in_loop (self, comp) {
     }
   }
   return self
-
-  function is_break (root) {
-    return root instanceof ast_break && comp.loop_control(root) === comp.self()
-  }
-
-  function drop_it (rest) {
-    rest = as_statement_array(rest)
-    if (self.body instanceof ast_block_statement) {
-      self.body = self.body.copy()
-      self.body.body = rest.concat(self.body.body.slice(1))
-      self.body = self.body.transform(comp)
-    } else {
-      self.body = make_node(ast_block_statement, self.body, {
-        body: rest
-      }).transform(comp)
-    }
-    self = if_break_in_loop(self, comp)
-  }
 }
 
 def_optimize(ast_for, function (self, comp) {
@@ -10806,6 +7761,44 @@ def_optimize(ast_switch, function (self, comp) {
   }
   if (!comp.options['dead_code']) return self
   if (value instanceof ast_tree) value = self.expr.tail_node().evaluate(comp)
+
+  function eliminate_branch (branch, prev) {
+    prev && !aborts(prev) ? prev.body = prev.body.concat(branch.body) : trim_unreachable(comp, branch, decl)
+  }
+
+  function branches_equivalent (branch, prev, insert_break) {
+    let branch_body = branch.body
+    let prev_body = prev.body
+    if (insert_break) branch_body = branch_body.concat(make_node(ast_break))
+    if (branch_body.length !== prev_body.length) return false
+    let branch_block = make_node(ast_block_statement, branch, {body: branch_body})
+    let prev_block = make_node(ast_block_statement, prev, {body: prev_body})
+    return branch_block.equivalent_to(prev_block)
+  }
+
+  function statement (body) { return make_node(ast_statement, body, {body}) }
+
+  function is_break (root, stack) { return root instanceof ast_break && stack.loop_control(root) === self }
+
+  function has_nested_break (root) {
+    let has_break = false
+    let trees = new observes(root => {
+      if (has_break) return true
+      if (root instanceof ast_lambda) return true
+      if (root instanceof ast_statement) return true
+      if (!is_break(root, trees)) return
+      let parent = trees.parent()
+      if (parent instanceof ast_switch_branch && parent.body[parent.body.length - 1] === root) return
+      has_break = true
+    })
+    root.observe(trees)
+    return has_break
+  }
+
+  function is_inert_body (branch) {
+    return !aborts(branch) && !make_node(ast_block_statement, branch, {body: branch.body}).has_side_effects(comp)
+  }
+  
   const decl = [], body = []
   let branch, default_branch, exact_match, expr, i, length, default_index
   for (i = 0, length = self.body.length; i < length && !exact_match; i++) {
@@ -10985,51 +7978,14 @@ def_optimize(ast_switch, function (self, comp) {
       {operator, left: self.expr, right: branch.expr}), body: consequent, alt: null}), always]}).optimize(comp)
   }
   return self
-
-  function eliminate_branch (branch, prev) {
-    prev && !aborts(prev) ? prev.body = prev.body.concat(branch.body) : trim_unreachable(comp, branch, decl)
-  }
-
-  function branches_equivalent (branch, prev, insert_break) {
-    let branch_body = branch.body
-    let prev_body = prev.body
-    if (insert_break) branch_body = branch_body.concat(make_node(ast_break))
-    if (branch_body.length !== prev_body.length) return false
-    let branch_block = make_node(ast_block_statement, branch, {body: branch_body})
-    let prev_block = make_node(ast_block_statement, prev, {body: prev_body})
-    return branch_block.equivalent_to(prev_block)
-  }
-
-  function statement (body) { return make_node(ast_statement, body, {body}) }
-
-  function has_nested_break (root) {
-    let has_break = false
-    let trees = new observes(root => {
-      if (has_break) return true
-      if (root instanceof ast_lambda) return true
-      if (root instanceof ast_statement) return true
-      if (!is_break(root, trees)) return
-      let parent = trees.parent()
-      if (parent instanceof ast_switch_branch && parent.body[parent.body.length - 1] === root) return
-      has_break = true
-    })
-    root.observe(trees)
-    return has_break
-  }
-
-  function is_break (root, stack) { return root instanceof ast_break && stack.loop_control(root) === self }
-
-  function is_inert_body (branch) {
-    return !aborts(branch) && !make_node(ast_block_statement, branch, {body: branch.body}).has_side_effects(comp)
-  }
 })
 
 def_optimize(ast_try, function (self, comp) {
-  if (self.bcatch && self.bfinally && self.bfinally.body.every(is_empty)) self.bfinally = null
+  if (self.catch && self.finally && self.finally.body.every(is_empty)) self.finally = null
   if (comp.options['dead_code'] && self.body.body.every(is_empty)) {
     const body = []
-    if (self.bcatch) trim_unreachable(comp, self.bcatch, body)
-    if (self.bfinally) body.push(...self.bfinally.body)
+    if (self.catch) trim_unreachable(comp, self.catch, body)
+    if (self.finally) body.push(...self.finally.body)
     return make_node(ast_block_statement, self, {body}).optimize(comp)
   }
   return self
@@ -11057,12 +8013,25 @@ def_optimize(ast_definitions, function (self) {
   return self
 })
 
-def_optimize(ast_var_def, function (self, comp) {
+def_optimize(ast_def, function (self, comp) {
   if (self.name instanceof ast_symbol_let && self.value != null && is_undefined(self.value, comp)) self.value = null
   return self
 })
 
 def_optimize(ast_import, function (self) { return self })
+
+function inline_array_like_spread (elements) {
+  for (let i = 0, length = elements.length, el, expr; i < length; i++) {
+    el = elements[i]
+    if (el instanceof ast_spread) {
+      expr = el.expr
+      if (expr instanceof ast_array && !expr.elements.some(el => el instanceof ast_hole)) {
+        elements.splice(i, 1, ...expr.elements)
+        i--
+      }
+    }
+  }
+}
 
 def_optimize(ast_call, function (self, comp) {
   const expr = self.expr
@@ -11117,9 +8086,21 @@ def_optimize(ast_new, function (self, comp) { return self })
 def_optimize(ast_sequence, function (self, comp) {
   if (!comp.options['side_effects']) return self
   const exprs = []
-  filter_for_side_effects()
+  const last = self.exprs.length - 1
+  let first_expr = first_of(comp)
+  self.exprs.forEach(function (expr, index) {
+    if (index < last) expr = expr.drop(comp, first_expr)
+    if (expr) {
+      merge_sequence(exprs, expr)
+      first_expr = false
+    }
+  })
   let end = exprs.length - 1
-  trim_right_for_undefined()
+  while (end > 0 && is_undefined(exprs[end], comp)) end--
+  if (end < exprs.length - 1) {
+    exprs[end] = make_node(ast_unary_prefix, self, {operator: 'void', expr: exprs[end]})
+    exprs.length = end + 1
+  }
   if (end == 0) {
     self = maintain_bind(comp.parent(), comp.self(), exprs[0])
     if (!(self instanceof ast_sequence)) self = self.optimize(comp)
@@ -11127,26 +8108,6 @@ def_optimize(ast_sequence, function (self, comp) {
   }
   self.exprs = exprs
   return self
-
-  function filter_for_side_effects () {
-    const last = self.exprs.length - 1
-    let first_expr = first_of(comp)
-    self.exprs.forEach(function (expr, index) {
-      if (index < last) expr = expr.drop(comp, first_expr)
-      if (expr) {
-        merge_sequence(exprs, expr)
-        first_expr = false
-      }
-    })
-  }
-
-  function trim_right_for_undefined () {
-    while (end > 0 && is_undefined(exprs[end], comp)) end--
-    if (end < exprs.length - 1) {
-      exprs[end] = make_node(ast_unary_prefix, self, {operator: 'void', expr: exprs[end]})
-      exprs.length = end + 1
-    }
-  }
 })
 
 ast_unary.prototype.lift_sequences = function (comp) {
@@ -11196,9 +8157,7 @@ def_optimize(ast_unary_prefix, function (self, comp) {
   if (expr instanceof ast_binary && (self.operator == '+' || self.operator == '-')
     && (expr.operator == '*' || expr.operator == '/' || expr.operator == '%')) {
     return make_node(ast_binary, self, {operator: expr.operator,
-      left: make_node(ast_unary_prefix, expr.left, {operator: self.operator, expr: expr.left}),
-      right: expr.right
-    })
+      left: make_node(ast_unary_prefix, expr.left, {operator: self.operator, expr: expr.left}), right: expr.right })
   }
   if (self.operator == '~' && self.expr instanceof ast_unary_prefix && self.expr.operator == '~'
     && (comp.in_32_bit_context(false) || self.expr.expr.is_int32(comp))) {
@@ -11354,8 +8313,7 @@ def_optimize(ast_binary, function (self, comp) {
         && self.right.left instanceof ast_null || lhs.left instanceof ast_null && is_undefined(self.right.left, comp))
         && !lhs.right.has_side_effects(comp) && lhs.right.equivalent_to(self.right.right)) {
         if (lhs !== self.left) {
-          return make_node(ast_binary, self, {operator: self.operator, left: self.left.left,
-          right})
+          return make_node(ast_binary, self, {operator: self.operator, left: self.left.left, right})
         } else {
           return make_node(ast_binary, self, {operator: lhs.operator.slice(0, -1),
             left: make_node(ast_null, self), right: lhs.right})
@@ -11671,6 +8629,25 @@ def_optimize(ast_assign, function (self, comp) {
   }
   if (comp.options['dead_code'] && self.left instanceof ast_symbol_ref
     && (defined = self.left.defined()).scope === comp.find_parent(ast_lambda)) {
+
+    function in_try (level, root) {
+      function may_assign_throw () {
+        const right = self.right
+        self.right = make_node(ast_null, right)
+        const may_throw = root.may_throw(comp)
+        self.right = right
+        return may_throw
+      }
+      const stop_at = self.left.defined().scope.get_defun_scope()
+      let parent
+      while ((parent = comp.parent(level++)) !== stop_at) {
+        if (parent instanceof ast_try) {
+          if (parent.finally) return true
+          if (parent.catch && may_assign_throw()) return true
+        }
+      }
+    }
+
     let level = 0, parent = self, root
     do {
       root = parent
@@ -11699,24 +8676,6 @@ def_optimize(ast_assign, function (self, comp) {
     }
   }
   return self
-
-  function in_try (level, root) {
-    function may_assign_throw () {
-      const right = self.right
-      self.right = make_node(ast_null, right)
-      const may_throw = root.may_throw(comp)
-      self.right = right
-      return may_throw
-    }
-    const stop_at = self.left.defined().scope.get_defun_scope()
-    let parent
-    while ((parent = comp.parent(level++)) !== stop_at) {
-      if (parent instanceof ast_try) {
-        if (parent.bfinally) return true
-        if (parent.bcatch && may_assign_throw()) return true
-      }
-    }
-  }
 })
 
 def_optimize(ast_default_assign, function (self, comp) {
@@ -11801,6 +8760,22 @@ def_optimize(ast_conditional, function (self, comp) {
       logical: consequent.logical, right: make_node(ast_conditional, self, {condition: self.condition,
       consequent: consequent.right, alt: alt.right})})
   }
+
+  function single_arg_diff () {
+    const args1 = consequent.args, args2 = alt.args
+    for (let i = 0, length = args1.length, j; i < length; i++) {
+      if (args1[i] instanceof ast_spread) return
+      if (!args1[i].equivalent_to(args2[i])) {
+        if (args2[i] instanceof ast_spread) return
+        for (j = i + 1; j < length; j++) {
+          if (args1[j] instanceof ast_spread) return
+          if (!args1[j].equivalent_to(args2[j])) return
+        }
+        return i
+      }
+    }
+  }
+
   let index
   if (consequent instanceof ast_call && alt.type === consequent.type && consequent.args.length > 0
     && consequent.args.length == alt.args.length && consequent.expr.equivalent_to(alt.expr)
@@ -11853,21 +8828,6 @@ def_optimize(ast_conditional, function (self, comp) {
     return root instanceof ast_false || in_bool && root instanceof ast_literal && !root.get_value()
       || (root instanceof ast_unary_prefix && root.operator == '!' && root.expr instanceof ast_literal
       && root.expr.get_value())
-  }
-
-  function single_arg_diff () {
-    const args1 = consequent.args, args2 = alt.args
-    for (let i = 0, length = args1.length, j; i < length; i++) {
-      if (args1[i] instanceof ast_spread) return
-      if (!args1[i].equivalent_to(args2[i])) {
-        if (args2[i] instanceof ast_spread) return
-        for (j = i + 1; j < length; j++) {
-          if (args1[j] instanceof ast_spread) return
-          if (!args1[j].equivalent_to(args2[j])) return
-        }
-        return i
-      }
-    }
   }
 
   function booleanize (root) {
@@ -12133,19 +9093,6 @@ function literals_in_boolean_context (self, comp) {
   return self
 }
 
-function inline_array_like_spread (elements) {
-  for (let i = 0, length = elements.length, el, expr; i < length; i++) {
-    el = elements[i]
-    if (el instanceof ast_spread) {
-      expr = el.expr
-      if (expr instanceof ast_array && !expr.elements.some(el => el instanceof ast_hole)) {
-        elements.splice(i, 1, ...expr.elements)
-        i--
-      }
-    }
-  }
-}
-
 def_optimize(ast_array, function (self, comp) {
   const optimized = literals_in_boolean_context(self, comp)
   if (optimized !== self) return optimized
@@ -12289,17 +9236,3070 @@ def_optimize(ast_key_value, function (self, comp) {
 
 def_optimize(ast_object_property, lift_key)
 
+function is_token (token, type, val) {
+  return token.type == type && (val == null || token.value == val)
+}
+
+function parse (text, options) {
+  const comments_before = new WeakMap()
+  options = defaults(options, {'bare_returns': false, 'expr': false, 'file': null,
+    'comments': true, 'module': false, 'shebang': true, 'strict': false, 'toplevel': null})
+  let file = '', imports = {}
+  if (options.toplevel) {
+    if (options.toplevel.file) file = options.toplevel.file
+    if (options.toplevel.imports) imports = options.toplevel.imports
+  }
+  options.file = file
+  const scope = {input: (typeof text == 'string' ? tokenizer(text, file, options.comments, options.shebang) : text),
+    token: null, prev: null, peeked: null, in_function: 0, in_async: -1, in_generator: -1, in_directives: true,
+    in_loop: 0, labels: []}
+
+  function peek () { return scope.peeked || (scope.peeked = scope.input()) }
+
+  function is (type, value) { return is_token(scope.token, type, value) }
+
+  function next () {
+    scope.prev = scope.token
+    if (!scope.peeked) peek()
+    scope.token = scope.peeked
+    scope.peeked = null
+    scope.in_directives = scope.in_directives && (scope.token.type == 'string' || is('punc', ';'))
+    return scope.token
+  }
+
+  scope.token = next()
+
+  function prev () { return scope.prev }
+
+  function cr (msg, line, col, pos) {
+    const ctx = scope.input.context()
+    js_error(msg, ctx.file, line != null ? line : ctx.tokline, col != null ? col : ctx.tokcol,
+      pos != null ? pos : ctx.tokpos)
+  }
+
+  function tr (token, msg) { cr(msg, token.line, token.col) }
+
+  function unexpected (token) {
+    if (token == null) token = scope.token
+    tr(token, 'unexpected token: ' + token.type + ' (' + token.value + ')')
+  }
+
+  function expect_token (type, val) {
+    if (is(type, val)) return next()
+    tr(scope.token, 'expected ' + type + ' (' + val + ') got ' + scope.token.type + ' (' + scope.token.value + ')')
+  }
+
+  function expect (punc) { return expect_token('punc', punc) }
+
+  function has_newline_before (token) {
+    return token.nlb() || !token.comments_before.every(comment => !comment.nlb())
+  }
+
+  function can_insert_semicolon () {
+    return !options.strict && (is('eof') || is('punc', '}') || has_newline_before(scope.token))
+  }
+
+  function is_in_generator () {
+    return scope.in_generator === scope.in_function
+  }
+
+  function is_in_async () {
+    return scope.in_async === scope.in_function
+  }
+
+  function can_await () {
+    return scope.in_async === scope.in_function
+  }
+
+  function semicolon (optional) {
+    if (is('punc', ';')) {
+      next()
+    } else if (!optional && !can_insert_semicolon()) {
+      unexpected()
+    }
+  }
+
+  function to_expr_or_sequence (start, exprs) {
+    if (exprs.length === 1) {
+      return exprs[0]
+    } else if (exprs.length > 1) {
+      return new ast_sequence({start, exprs: exprs, end: peek(), file})
+    } else {
+      cr('bad parenthesized expr')
+    }
+  }
+
+  function handle_regex () {
+    if (is('operator', '/') || is('operator', '/=')) {
+      scope.peeked = null
+      scope.token = scope.input(scope.token.value.substr(1))
+    }
+  }
+
+  function annotate (root, before_token = root.start) {
+    const comments = before_token.comments_before
+    const comments_after = comments_before.get(before_token)
+    let i = comments_after != null ? comments_after : comments.length, comment
+    while (--i >= 0) {
+      comment = comments[i]
+      if (/[@#]__/.test(comment.value)) {
+        if (/[@#]__PURE__/.test(comment.value)) {
+          set_annotation(root, _pure)
+          break
+        }
+        if (/[@#]__INLINE__/.test(comment.value)) {
+          set_annotation(root, _inline)
+          break
+        }
+        if (/[@#]__NOINLINE__/.test(comment.value)) {
+          set_annotation(root, _noinline)
+          break
+        }
+        if (/[@#]__KEY__/.test(comment.value)) {
+          set_annotation(root, _key)
+          break
+        }
+        if (/[@#]__MANGLE_PROP__/.test(comment.value)) {
+          set_annotation(root, _mangleprop)
+          break
+        }
+      }
+    }
+    return root
+  }
+
+  function template_string () {
+    const segments = [], start = scope.token
+    segments.push(new ast_template_segment({start: scope.token, raw: template_raws.get(scope.token),
+      value: scope.token.value, end: scope.token, file}))
+
+    while (!scope.token.get_template_end()) {
+      next()
+      handle_regex()
+      segments.push(expression(true))
+      segments.push(new ast_template_segment({start: scope.token, raw: template_raws.get(scope.token),
+        value: scope.token.value, end: scope.token, file}))
+    }
+    next()
+
+    return new ast_template_string({start, segments, end: scope.token, file})
+  }
+
+  function as_name () {
+    const tmp = scope.token
+    if (tmp.type != 'name' && tmp.type != 'privatename') unexpected()
+    next()
+    return tmp.value
+  }
+
+  function call_args () {
+    const args = []
+    while (!is('punc', ')')) {
+      if (is('expand', '...')) {
+        next()
+        args.push(new ast_spread({start: prev(), expr: expression(false), end: prev(), file}))
+      } else {
+        args.push(expression(false))
+      }
+      if (!is('punc', ')')) expect(',')
+    }
+    next()
+    return args
+  }
+
+  function subscripts (expr, allow_calls, is_chain) {
+    const start = expr.start
+    if (is('punc', '.')) {
+      next()
+      if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
+      const ast_dot_variant = is('privatename') ? ast_dot_hash : ast_dot
+      return annotate(subscripts(new ast_dot_variant({start, expr, optional: false, property: as_name(), end: prev(),
+        file}), allow_calls, is_chain))
+    }
+    if (is('punc', '[')) {
+      next()
+      const property = expression(true)
+      expect(']')
+      return annotate(subscripts(new ast_sub({start, expr, optional: false, property, end: prev(), file}), allow_calls,
+       is_chain))
+    }
+    if (allow_calls && is('punc', '(')) {
+      next()
+      const call = new ast_call({start, expr, optional: false, args: call_args(), end: prev(), file})
+      annotate(call)
+      return subscripts(call, true, is_chain)
+    }
+    if (is('punc', '?.')) {
+      next()
+      let chain_contents
+      if (allow_calls && is('punc', '(')) {
+        next()
+        const call = new ast_call({start, optional: true, expr, args: call_args(), end: prev(), file})
+        annotate(call)
+        chain_contents = subscripts(call, true, true)
+      } else if (is('name') || is('privatename')) {
+        if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
+        const ast_dot_variant = is('privatename') ? ast_dot_hash : ast_dot
+        chain_contents = annotate(subscripts(new ast_dot_variant({start, expr, optional: true,
+          property: as_name(), end: prev(), file}), allow_calls, true))
+      } else if (is('punc', '[')) {
+        next()
+        const property = expression(true)
+        expect(']')
+        chain_contents = annotate(subscripts(new ast_sub({start, expr, optional: true, property, end: prev(), file}),
+          allow_calls, true))
+      }
+      if (!chain_contents) unexpected()
+      if (chain_contents instanceof ast_chain) return chain_contents
+      return new ast_chain({start, expr: chain_contents, end: prev(), file})
+    }
+    if (is('template_head')) {
+      if (is_chain) unexpected()
+      return subscripts(new ast_template_prefix({start, prefix: expr,
+        template_string: template_string(), end: prev(), file}), allow_calls)
+    }
+    return expr
+  }
+
+  function expr_list (closing, allow_trailing_comma, allow_empty) {
+    const a = []
+    let first = true
+    while (!is('punc', closing)) {
+      first ? first = false : expect(',')
+      if (allow_trailing_comma && is('punc', closing)) break
+      if (is('punc', ',') && allow_empty) {
+        a.push(new ast_hole({start: scope.token, end: scope.token, file}))
+      } else if (is('expand', '...')) {
+        next()
+        a.push(new ast_spread({start: prev(), expr: expression(), end: scope.token, file}))
+      } else {
+        a.push(expression(false))
+      }
+    }
+    next()
+    return a
+  }
+
+  function new_ (allow_calls) {
+    const start = scope.token
+    expect_token('operator', 'new')
+    if (is('punc', '.')) {
+      next()
+      expect_token('name', 'target')
+      return subscripts(new ast_new_target({start, end: prev(), file}), allow_calls)
+    }
+    const expr = expr_atom(false)
+    let args
+    if (is('punc', '(')) {
+      next()
+      args = expr_list(')', true)
+    } else {
+      args = []
+    }
+    const call = new ast_new({start, expr, args, end: prev(), file})
+    annotate(call)
+    return subscripts(call, allow_calls)
+  }
+
+  function _make_symbol (type) {
+    const name = scope.token.value
+    return new (name == 'this' ? ast_this : name == 'super' ? ast_super : type)({
+      name: String(name), start: scope.token, end: scope.token, file})
+  }
+
+  function as_atom_node () {
+    const tok = scope.token
+    let result
+    switch (tok.type) {
+      case 'name':
+        result = _make_symbol(ast_symbol_ref)
+        break
+      case 'num':
+        result = new ast_number({start: tok, end: tok, file, value: tok.value, raw: latest_raw})
+        break
+      case 'big_int':
+        result = new ast_big_int({start: tok, end: tok, file, value: tok.value})
+        break
+      case 'string':
+        result = new ast_string({start: tok, end: tok, file, value: tok.value, quote: tok.quote})
+        annotate(result)
+        break
+      case 'regex':
+        const [_, source, flags] = tok.value.match(/^\/(.*)\/(\w*)$/)
+        result = new ast_reg_exp({start: tok, end: tok, file, value: {source, flags}})
+        break
+      case 'atom':
+        switch (tok.value) {
+          case 'false':
+            result = new ast_false({start: tok, end: tok, file})
+            break
+          case 'true':
+            result = new ast_true({start: tok, end: tok, file})
+            break
+          case 'null':
+            result = new ast_null({start: tok, end: tok, file})
+            break
+        }
+        break
+    }
+    next()
+    return result
+  }
+
+  function params_or_seq_ (allow_arrows, maybe_sequence) {
+    const a = []
+    let bad_sequence, spread_token, trailing_comma
+    expect('(')
+    while (!is('punc', ')')) {
+      if (spread_token) unexpected(spread_token)
+      if (is('expand', '...')) {
+        spread_token = scope.token
+        if (maybe_sequence) bad_sequence = scope.token
+        next()
+        a.push(new ast_spread({start: prev(), expr: expression(), end: scope.token, file}))
+      } else {
+        a.push(expression())
+      }
+      if (!is('punc', ')')) {
+        expect(',')
+        if (is('punc', ')')) {
+          trailing_comma = prev()
+          if (maybe_sequence) bad_sequence = trailing_comma
+        }
+      }
+    }
+    expect(')')
+    if (allow_arrows && is('arrow', '=>')) {
+      if (spread_token && trailing_comma) unexpected(trailing_comma)
+    } else if (bad_sequence) {
+      unexpected(bad_sequence)
+    }
+    return a
+  }
+
+  function block_ () {
+    expect('{')
+    const a = []
+    while (!is('punc', '}')) {
+      if (is('eof')) unexpected()
+      a.push(statement())
+    }
+    next()
+    return a
+  }
+
+  function _verify_symbol (sym) {
+    if (is_in_generator() && sym.name == 'yield') tr(sym.start, 'yield cannot be identifier')
+  }
+
+  function as_symbol (type, noerror) {
+    if (!is('name')) {
+      if (!noerror) cr('expected name')
+      return null
+    }
+    const sym = _make_symbol(type)
+    _verify_symbol(sym)
+    next()
+    return sym
+  }
+
+  function as_property_name () {
+    const tmp = scope.token
+    switch (tmp.type) {
+      case 'punc':
+        if (tmp.value == '[') {
+          next()
+          const expr = expression(false)
+          expect(']')
+          return expr
+        } else {
+          unexpected(tmp)
+        }
+      case 'operator':
+        if (tmp.value == '*') {
+          next()
+          return
+        }
+        if (!member(tmp.value, ['delete', 'in', 'instanceof', 'new', 'typeof', 'void'])) unexpected(tmp)
+      case 'atom':
+      case 'big_int':
+      case 'keyword':
+      case 'name':
+      case 'num':
+      case 'privatename':
+      case 'string':
+        next()
+        return tmp.value
+      default:
+        unexpected(tmp)
+    }
+  }
+
+  function binding_element (used, symbol_type) {
+    const elements = [], start = scope.token
+    let first = true, is_expand = false, expand_token
+    if (used === undefined) used = new used_parameters(false, symbol_type === ast_symbol_var)
+    symbol_type = symbol_type === undefined ? ast_symbol_funarg : symbol_type
+    if (is('punc', '[')) {
+      next()
+      while (!is('punc', ']')) {
+        first ? first = false : expect(',')
+        if (is('expand', '...')) {
+          is_expand = true
+          expand_token = scope.token
+          used.mark_spread(scope.token)
+          next()
+        }
+        if (is('punc')) {
+          switch (scope.token.value) {
+            case ',':
+              elements.push(new ast_hole({start: scope.token, end: scope.token, file}))
+              continue
+            case ']':
+              break
+            case '[':
+            case '{':
+              elements.push(binding_element(used, symbol_type))
+              break
+            default:
+              unexpected()
+          }
+        } else if (is('name')) {
+          used.add_parameter(scope.token)
+          elements.push(as_symbol(symbol_type))
+        } else {
+          cr('bad function parameter')
+        }
+        if (is('operator', '=') && is_expand === false) {
+          used.mark_default_assign(scope.token)
+          next()
+          elements[elements.length - 1] = new ast_default_assign({
+            start: elements[elements.length - 1].start, left: elements[elements.length - 1],
+            operator: '=', right: expression(false), end: scope.token, file})
+        }
+        if (is_expand) {
+          if (!is('punc', ']')) cr('rest element must be last element')
+          elements[elements.length - 1] = new ast_spread({
+            start: expand_token, expr: elements[elements.length - 1], end: expand_token, file})
+        }
+      }
+      expect(']')
+      used.check_strict()
+      return new ast_destructure({start, names: elements, is_array: true, end: prev(), file})
+    } else if (is('punc', '{')) {
+      next()
+      while (!is('punc', '}')) {
+        first ? first = false : expect(',')
+        if (is('expand', '...')) {
+          is_expand = true
+          expand_token = scope.token
+          used.mark_spread(scope.token)
+          next()
+        }
+        if (is('name') && (is_token(peek(), 'punc') || is_token(peek(), 'operator'))
+          && member(peek().value, [',', '}', '='])) {
+          used.add_parameter(scope.token)
+          const start = prev(), value = as_symbol(symbol_type)
+          if (is_expand) {
+            elements.push(new ast_spread({start: expand_token, expr: value, end: value.end, file}))
+          } else {
+            elements.push(new ast_key_value({start, key: value.name, value, end: value.end, file}))
+          }
+        } else if (is('punc', '}')) {
+          continue
+        } else {
+          const property_token = scope.token, property = as_property_name()
+          if (property === null) {
+            unexpected(prev())
+          } else if (prev().type == 'name' && !is('punc', ':')) {
+            elements.push(new ast_key_value({start: prev(), key: property,
+              value: new symbol_type({start: prev(), name: property, end: prev(), file}), end: prev(), file}))
+          } else {
+            expect(':')
+            elements.push(new ast_key_value({start: property_token, quote: property_token.quote, key: property,
+              value: binding_element(used, symbol_type), end: prev(), file}))
+          }
+        }
+        if (is_expand) {
+          if (!is('punc', '}')) cr('rest element must be last element')
+        } else if (is('operator', '=')) {
+          used.mark_default_assign(scope.token)
+          next()
+          elements[elements.length - 1].value = new ast_default_assign({
+            start: elements[elements.length - 1].value.start, left: elements[elements.length - 1].value,
+            operator: '=', right: expression(false), end: scope.token, file})
+        }
+      }
+      expect('}')
+      used.check_strict()
+      return new ast_destructure({start, names: elements, is_array: false, end: prev(), file})
+    } else if (is('name')) {
+      used.add_parameter(scope.token)
+      return as_symbol(symbol_type)
+    } else {
+      cr('bad function parameter')
+    }
+  }
+
+  function parameter (used, symbol_type) {
+    let expand = false, param
+    if (used === undefined) used = new used_parameters(true)
+    if (is('expand', '...')) {
+      expand = scope.token
+      used.mark_spread(scope.token)
+      next()
+    }
+    param = binding_element(used, symbol_type)
+    if (is('operator', '=') && expand === false) {
+      used.mark_default_assign(scope.token)
+      next()
+      param = new ast_default_assign({start: param.start, left: param, operator: '=',
+        right: expression(false), end: scope.token, file})
+    }
+
+    if (expand !== false) {
+      if (!is('punc', ')')) unexpected()
+      param = new ast_spread({start: expand, expr: param, end: expand, file})
+    }
+    used.check_strict()
+    return param
+  }
+
+  function parameters (params) {
+    const used = new used_parameters(true)
+    expect('(')
+    let param
+    while (!is('punc', ')')) {
+      param = parameter(used)
+      params.push(param)
+      if (!is('punc', ')')) expect(',')
+      if (param instanceof ast_spread) break
+    }
+    next()
+  }
+
+  function _function_body (block, generator, sync, name, args) {
+    const loop = scope.in_loop, labels = scope.labels, is_generator = scope.in_generator, is_async = scope.in_async
+    ++scope.in_function
+    if (generator) scope.in_generator = scope.in_function
+    if (sync) scope.in_async = scope.in_function
+    if (args) parameters(args)
+    if (block) scope.in_directives = true
+    scope.in_loop = 0
+    scope.labels = []
+    let a
+    if (block) {
+      scope.input.push_directives_stack()
+      a = block_()
+      if (name) _verify_symbol(name)
+      if (args) args.forEach(_verify_symbol)
+      scope.input.pop_directives_stack()
+    } else {
+      a = [new ast_return({start: scope.token, value: expression(false), end: scope.token, file})]
+    }
+    --scope.in_function
+    scope.in_loop = loop
+    scope.labels = labels
+    scope.in_generator = is_generator
+    scope.in_async = is_async
+    return a
+  }
+  
+  function arrow_function (start, argnames, sync) {
+    if (has_newline_before(scope.token)) cr('unexpected newline before arrow (=>)')
+    expect_token('arrow', '=>')
+    const body = _function_body(is('punc', '{'), false, sync)
+    const end = body instanceof Array ? (body.length ? body[body.length - 1].end : start) : body.end
+    return new ast_arrow({start, end, file, sync, argnames, body})
+  }
+
+  function to_fun_args (expr, above) {
+    function insert_default (expr, default_value) {
+      if (default_value) return new ast_default_assign({start: expr.start, left: expr, operator: '=', right: default_value,
+        end: default_value.end, file})
+      return expr
+    }
+    if (expr instanceof ast_object) {
+      return insert_default(new ast_destructure({start: expr.start, is_array: false,
+        names: expr.properties.map(prop => to_fun_args(prop)), end: expr.end, file}), above)
+    } else if (expr instanceof ast_key_value) {
+      expr.value = to_fun_args(expr.value)
+      return insert_default(expr, above)
+    } else if (expr instanceof ast_hole) {
+      return expr
+    } else if (expr instanceof ast_destructure) {
+      expr.names = expr.names.map(name => to_fun_args(name))
+      return insert_default(expr, above)
+    } else if (expr instanceof ast_symbol_ref) {
+      return insert_default(new ast_symbol_funarg({name: expr.name, start: expr.start, end: expr.end, file}), above)
+    } else if (expr instanceof ast_spread) {
+      expr.expr = to_fun_args(expr.expr)
+      return insert_default(expr, above)
+    } else if (expr instanceof ast_array) {
+      return insert_default(new ast_destructure({start: expr.start, is_array: true,
+        names: expr.elements.map(el => to_fun_args(el)), end: expr.end, file}), above)
+    } else if (expr instanceof ast_assign) {
+      return insert_default(to_fun_args(expr.left, expr.right), above)
+    } else if (expr instanceof ast_default_assign) {
+      expr.left = to_fun_args(expr.left)
+      return expr
+    } else {
+      cr('bad function parameter', expr.start.line, expr.start.col)
+    }
+  }
+
+  function embed_tokens (parser) {
+    return function _embed_tokens_wrapper (...args) {
+      const start = scope.token
+      const expr = parser(...args)
+      expr.start = start
+      expr.end = prev()
+      return expr
+    }
+  }
+
+  function class_static_block () {
+    if (!is('punc', '{')) return null
+    const start = scope.token
+    const body = []
+    next()
+    while (!is('punc', '}')) body.push(statement())
+    next()
+    return new ast_class_static({start, body, end: prev(), file})
+  }
+
+  function concise_method_or_getset (name, start, is_class) {
+    const get_symbol_ast = (name, symbol = ast_symbol_method) => {
+      if (typeof name == 'string' || typeof name == 'number') {
+        return new symbol({start, name: '' + name, end: prev(), file})
+      } else if (name === null) {
+        unexpected()
+      }
+      return name
+    }
+    const is_not_method_start = () => !is('punc', '(') && !is('punc', ',') && !is('punc', '}') && !is('punc', ';')
+      && !is('operator', '=')
+    let sync, sttc, gen, is_private, accessor_type
+    if (is_class && name == 'static' && is_not_method_start()) {
+      const static_block = class_static_block()
+      if (static_block != null) return static_block
+      sttc = true
+      name = as_property_name()
+    }
+    if (name == 'async' && is_not_method_start()) {
+      sync = true
+      name = as_property_name()
+    }
+    if (prev().type == 'operator' && prev().value == '*') {
+      gen = true
+      name = as_property_name()
+    }
+    if ((name == 'get' || name == 'set') && is_not_method_start()) {
+      accessor_type = name
+      name = as_property_name()
+    }
+    if (prev().type == 'privatename') is_private = true
+    const property_token = prev()
+    if (accessor_type != null) {
+      if (!is_private) {
+        const accessor = accessor_type == 'get' ? ast_object_getter : ast_object_setter
+        name = get_symbol_ast(name)
+        return annotate(new accessor({start, static: sttc, key: name,
+          quote: name instanceof ast_symbol_method ? property_token.quote : undefined,
+          value: create_accessor(), end: prev()}))
+      } else {
+        const accessor = accessor_type == 'get' ? ast_private_getter : ast_private_setter
+        return annotate(new accessor({start, static: sttc, key: get_symbol_ast(name), value: create_accessor(),
+          end: prev()}))
+      }
+    }
+    if (is('punc', '(')) {
+      name = get_symbol_ast(name)
+      const ast_method_variant = is_private ? ast_private_method : ast_concise_method
+      const root = new ast_method_variant({start, static: sttc, gen, sync, key: name,
+        quote: name instanceof ast_symbol_method ? property_token.quote : undefined,
+        value: create_accessor(gen, sync), end: prev(), file})
+      return annotate(root)
+    }
+    if (is_class) {
+      const key = get_symbol_ast(name, ast_symbol_class_property)
+      const quote = key instanceof ast_symbol_class_property ? property_token.quote : undefined
+      const variant = is_private ? ast_private_property : ast_class_property
+      if (is('operator', '=')) {
+        next()
+        return annotate(new variant({start, static: sttc, quote, key, value: expression(false), end: prev(), file}))
+      } else if (is('name') || is('privatename') || is('punc', '[') || is('operator', '*') || is('punc', ';')
+        || is('punc', '}')) {
+        return annotate(new variant({start, static: sttc, quote, key, end: prev(), file}))
+      }
+    }
+  }
+
+  const object_or_destructure = embed_tokens(function object_or_destructure () {
+    const properties = []
+    let start = scope.token, first = true
+    expect('{')
+    while (!is('punc', '}')) {
+      first ? first = false : expect(',')
+      if (!options.strict && is('punc', '}')) break
+      start = scope.token
+      if (start.type == 'expand') {
+        next()
+        properties.push(new ast_spread({start, expr: expression(false), end: prev(), file}))
+        continue
+      }
+      if (is('privatename')) cr('private fields are not allowed in an object')
+      const name = as_property_name()
+      let value
+      if (!is('punc', ':')) {
+        const concise = concise_method_or_getset(name, start)
+        if (concise) {
+          properties.push(concise)
+          continue
+        }
+        value = new ast_symbol_ref({start: prev(), name, end: prev(), file})
+      } else if (name === null) {
+        unexpected(prev())
+      } else {
+        next()
+        value = expression(false)
+      }
+      if (is('operator', '=')) {
+        next()
+        value = new ast_assign({start, left: value, operator: '=', right: expression(false), logical: false, end: prev(),
+          file})
+      }
+      properties.push(annotate(new ast_key_value({start, quote: start.quote, key: name, value, end: prev(), file})))
+    }
+    next()
+    return new ast_object({properties})
+  })
+  
+  function class_ (kind, is_export_default) {
+    const a = []
+    let start, method, class_name, extends_
+    scope.input.push_directives_stack()
+    if (scope.token.type == 'name' && scope.token.value != 'extends') {
+      class_name = as_symbol(kind === ast_def_class ? ast_symbol_def_class: ast_symbol_class)
+    }
+    if (kind === ast_def_class && !class_name) is_export_default ? kind = ast_class_expression : unexpected()
+    if (scope.token.value == 'extends') {
+      next()
+      extends_ = expression(true)
+    }
+    expect('{')
+    const save_in_class = scope.in_class
+    scope.in_class = true
+    while (is('punc', ';')) next()
+    while (!is('punc', '}')) {
+      start = scope.token
+      method = concise_method_or_getset(as_property_name(), start, true)
+      if (!method) unexpected()
+      a.push(method)
+      while (is('punc', ';')) next()
+    }
+    scope.in_class = save_in_class
+    scope.input.pop_directives_stack()
+    next()
+    return new kind({start, name: class_name, extends: extends_, properties: a, end: prev(), file})
+  }
+  
+  function function_ (ctor, is_generator, sync, is_export_default) {
+    const in_statement = ctor === ast_defun, gen = is('operator', '*')
+    if (gen) next()
+    const name = is('name') ? as_symbol(in_statement ? ast_symbol_defun: ast_symbol_lambda) : null
+    if (in_statement && !name) is_export_default ? ctor = ast_function : unexpected()
+    if (name && ctor !== ast_accessor && !(name instanceof ast_declaration)) unexpected(prev())
+    const argnames = []
+    const body = _function_body(true, gen || is_generator, sync, name, argnames)
+    return new ctor({start: argnames.start, end: body.end, file, gen, sync, name, argnames, body})
+  }
+
+  function expr_atom (allow_calls, allow_arrows) {
+    if (is('operator', 'new')) return new_(allow_calls)
+    if (is('name', 'import') && is_token(peek(), 'punc', '.')) return import_meta(allow_calls)
+    const start = scope.token
+    let peeked
+    const async = is('name', 'async') && (peeked = peek()).value != '[' && peeked.type != 'arrow' && as_atom_node()
+    if (is('punc')) {
+      switch (scope.token.value) {
+        case '(':
+          if (async && !allow_calls) break
+          const exprs = params_or_seq_(allow_arrows, !async)
+          if (allow_arrows && is('arrow', '=>')) return arrow_function(start, exprs.map(expr => to_fun_args(expr)), !!async)
+          const expr = async ? new ast_call({expr: async, args: exprs}) : to_expr_or_sequence(start, exprs)
+          if (expr.start) {
+            const outer_comments_before = start.comments_before.length
+            comments_before.set(start, outer_comments_before)
+            expr.start.comments_before.unshift(...start.comments_before)
+            start.comments_before = expr.start.comments_before
+            if (outer_comments_before == 0 && start.comments_before.length > 0) {
+              const comment = start.comments_before[0]
+              if (!comment.nlb()) {
+                comment.set_nlb(start.nlb())
+                start.set_nlb(false)
+              }
+            }
+            start.comments_after = expr.start.comments_after
+          }
+          expr.start = start
+          const end = prev()
+          if (expr.end) {
+            end.comments_before = expr.end.comments_before
+            expr.end.comments_after.push(...end.comments_after)
+            end.comments_after = expr.end.comments_after
+          }
+          expr.end = end
+          if (expr instanceof ast_call) annotate(expr)
+          return subscripts(expr, allow_calls)
+        case '[':
+          return subscripts(array_(), allow_calls)
+        case '{':
+          return subscripts(object_or_destructure(), allow_calls)
+      }
+      if (!async) unexpected()
+    }
+    if (allow_arrows && is('name') && is_token(peek(), 'arrow')) {
+      const param = new ast_symbol_funarg({name: scope.token.value, start, end: start, file})
+      next()
+      return arrow_function(start, [param], !!async)
+    }
+    if (is('keyword', 'function')) {
+      next()
+      const func = function_(ast_function, false, !!async)
+      func.start = start
+      func.end = prev()
+      return subscripts(func, allow_calls)
+    }
+    if (async) return subscripts(async, allow_calls)
+    if (is('keyword', 'class')) {
+      next()
+      const cls = class_(ast_class_expression)
+      cls.start = start
+      cls.end = prev()
+      return subscripts(cls, allow_calls)
+    }
+    if (is('template_head')) return subscripts(template_string(), allow_calls)
+    if (atom_token.has(scope.token.type)) return subscripts(as_atom_node(), allow_calls)
+    unexpected()
+  }
+
+  function make_unary (ctor, token, expr) {
+    const operator = token.value
+    switch (operator) {
+      case '++':
+      case '--':
+        if (!is_assignable(expr)) cr('bad use of ' + operator + ' operator', token.line, token.col, token.pos)
+        break
+      case 'delete':
+        break
+    }
+    return new ctor({operator, expr})
+  }
+
+  function _await_expression () {
+    if (!can_await()) cr('await outside async', scope.prev.line, scope.prev.col, scope.prev.pos)
+    return new ast_await({start: prev(), end: scope.token, file, expr: maybe_unary(true)})
+  }
+
+  function maybe_unary (allow_calls, allow_arrows) {
+    const start = scope.token
+    if (start.type == 'name' && start.value == 'await' && can_await()) {
+      next()
+      return _await_expression()
+    }
+    if (is('operator') && unary_prefix.has(start.value)) {
+      next()
+      handle_regex()
+      const expr = make_unary(ast_unary_prefix, start, maybe_unary(allow_calls))
+      expr.start = start
+      expr.end = prev()
+      return expr
+    }
+    let val = expr_atom(allow_calls, allow_arrows)
+    while (is('operator') && unary_postfix.has(scope.token.value) && !has_newline_before(scope.token)) {
+      if (val instanceof ast_arrow) unexpected()
+      val = make_unary(ast_unary_postfix, scope.token, val)
+      val.start = start
+      val.end = scope.token
+      next()
+    }
+    return val
+  }
+
+  function is_assignable (expr) {
+    return expr instanceof ast_prop_access || expr instanceof ast_symbol_ref
+  }
+
+  function expr_op (left, min_prec, noin) {
+    let operator = is('operator') ? scope.token.value : null
+    if (operator == 'in' && noin) operator = null
+    if (operator == '**' && left instanceof ast_unary_prefix && !is_token(left.start, 'punc', '(')
+      && left.operator != '--' && left.operator != '++') unexpected(left.start)
+    const prec = operator != null ? precedence[operator] : null
+    if (prec != null && (prec > min_prec || (operator == '**' && min_prec === prec))) {
+      next()
+      const right = expr_ops(noin, prec, true)
+      return expr_op(new ast_binary({start: left.start, left, operator, right, end: right.end, file}), min_prec, noin)
+    }
+    return left
+  }
+
+  function expr_ops (noin, min_prec, allow_calls, allow_arrows) {
+    if (!noin && min_prec < precedence['in'] && is('privatename')) {
+      if (!scope.in_class) cr('private field')
+      const start = scope.token
+      const key = new ast_symbol_private_property({start, name: start.value, end: start, file})
+      next()
+      expect_token('operator', 'in')
+      return expr_op(new ast_private_in({start, key, value: expr_ops(noin, precedence['in'], true), end: prev(),
+        file}), 0, noin)
+    } else {
+      return expr_op(maybe_unary(allow_calls, allow_arrows), min_prec, noin)
+    }
+  }
+
+  function maybe_conditional (noin) {
+    const start = scope.token, expr = expr_ops(noin, 0, true, true)
+    if (is('operator', '?')) {
+      next()
+      const consequent = expression(false)
+      expect(':')
+      return new ast_conditional({start, condition: expr, consequent,
+        alt: expression(false, noin), end: prev(), file})
+    }
+    return expr
+  }
+
+  function yield_expression () {
+    if (!is_in_generator()) cr('yield outside generator', scope.prev.line, scope.prev.col, scope.prev.pos)
+    const start = scope.token
+    let has_expression = true, star = false
+    if (can_insert_semicolon() || is('punc') && punc_after_expression.has(scope.token.value) || is('template_cont')) {
+      has_expression = false
+    } else if (is('operator', '*')) {
+      star = true
+      next()
+    }
+    return new ast_yield({start, star, expr: has_expression ? expression() : null, end: prev(), file})
+  }
+
+  function to_destructure (root) {
+    if (root instanceof ast_object) {
+      root = new ast_destructure({start: root.start, names: root.properties.map(to_destructure), is_array: false,
+        end: root.end, file})
+    } else if (root instanceof ast_array) {
+      const names = []
+      for (let i = 0, length = root.elements.length; i < length; i++) {
+        if (root.elements[i] instanceof ast_spread) {
+          if (i + 1 != root.elements.length) tr(root.elements[i].start, 'spread must be last element')
+          root.elements[i].expr = to_destructure(root.elements[i].expr)
+        }
+        names.push(to_destructure(root.elements[i]))
+      }
+      root = new ast_destructure({start: root.start, names, is_array: true, end: root.end, file})
+    } else if (root instanceof ast_object_property) {
+      root.value = to_destructure(root.value)
+    } else if (root instanceof ast_assign) {
+      root = new ast_default_assign({start: root.start, left: root.left, operator: '=',
+        right: root.right, end: root.end, file})
+    }
+    return root
+  }
+
+  function maybe_assign (noin) {
+    handle_regex()
+    let start = scope.token
+    if (start.type == 'name' && start.value == 'yield') {
+      if (is_in_generator()) {
+        next()
+        return yield_expression()
+      }
+    }
+    let left = maybe_conditional(noin), val = scope.token.value
+    if (is('operator') && assign.has(val)) {
+      if (is_assignable(left) || (left = to_destructure(left)) instanceof ast_destructure) {
+        next()
+        return new ast_assign({start, left, operator: val, right: maybe_assign(noin),
+          logical: logical_assign.has(val), end: prev(), file})
+      }
+      cr('bad assign')
+    }
+    return left
+  }
+
+  function expression (commas, noin) {
+    const exprs = [], start = scope.token
+    while (true) {
+      exprs.push(maybe_assign(noin))
+      if (!commas || !is('punc', ',')) break
+      next()
+      commas = true
+    }
+    return to_expr_or_sequence(start, exprs)
+  }
+
+  const array_ = embed_tokens(function () {
+    expect('[')
+    return new ast_array({elements: expr_list(']', !options.strict, true)})
+  })
+
+  const create_accessor = embed_tokens((gen, sync) => {
+    return function_(ast_accessor, gen, sync)
+  })
+
+  function parenthesised () {
+    expect('(')
+    const expr = expression(true)
+    expect(')')
+    return expr
+  }
+
+  function map_name (is_import) {
+    function make_symbol (type, quote) {
+      return new type({name: as_property_name(), quote: quote || undefined, start: prev(), end: prev(), file})
+    }
+    const foreign_type = is_import ? ast_symbol_import_foreign : ast_symbol_export_foreign
+    const type = is_import ? ast_symbol_import : ast_symbol_export
+    const start = scope.token
+    let foreign_name, name
+    is_import ? foreign_name = make_symbol(foreign_type, start.quote) : name = make_symbol(type, start.quote)
+    if (is('name', 'as')) {
+      next()
+      is_import ? name = make_symbol(type) : foreign_name = make_symbol(foreign_type, scope.token.quote)
+    } else if (is_import) {
+      name = new type(foreign_name)
+    } else {
+      foreign_name = new foreign_type(name)
+    }
+    return new ast_name_mapping({start, foreign_name, name, end: prev(), file})
+  }
+
+  function as_symbol_or_string (type) {
+    if (!is('name')) {
+      if (!is('string')) cr('name or string expected')
+      const tok = scope.token
+      const result = new type({start: tok, end: tok, file, name: tok.value, quote: tok.quote})
+      next()
+      return result
+    }
+    const sym = _make_symbol(type)
+    _verify_symbol(sym)
+    next()
+    return sym
+  }
+
+  function map_name_asterisk (is_import, import_name) {
+    const foreign_type = is_import ? ast_symbol_import_foreign : ast_symbol_export_foreign
+    const type = is_import ? ast_symbol_import: ast_symbol_export
+    const start = scope.token, end = prev()
+    let name, foreign_name
+    is_import ? name = import_name : foreign_name = import_name
+    name = name || new type({start, name: '*', end, file})
+    foreign_name = foreign_name || new foreign_type({start, name: '*', end, file})
+    return new ast_name_mapping({start, foreign_name, name, end, file})
+  }
+
+  function map_names (is_import) {
+    let names
+    if (is('punc', '{')) {
+      next()
+      names = []
+      while (!is('punc', '}')) {
+        names.push(map_name(is_import))
+        if (is('punc', ',')) next()
+      }
+      next()
+    } else if (is('operator', '*')) {
+      let name
+      next()
+      if (is('name', 'as')) {
+        next()
+        name = is_import ? as_symbol(ast_symbol_import) : as_symbol_or_string(ast_symbol_export_foreign)
+      }
+      names = [map_name_asterisk(is_import, name)]
+    }
+    return names
+  }
+
+  function maybe_import_attributes () {
+    if (is('name', 'assert') && !has_newline_before(scope.token)) {
+      next()
+      return object_or_destructure()
+    }
+    return null
+  }
+
+  function import_statement () {
+    const start = prev()
+    let import_name, import_names
+    if (is('name')) import_name = as_symbol(ast_symbol_import)
+    if (is('punc', ',')) next()
+    import_names = map_names(true)
+    if (import_names || import_name) expect_token('name', 'from')
+    const module = scope.token
+    if (module.type != 'string') unexpected()
+    next()
+    const attributes = maybe_import_attributes()
+    const resolved = resolve(file, module.value)
+    if (import_name) {
+      import_name.file = resolved
+      imports[file + '/' + import_name.name] = resolved + '/' + import_name.name
+    }
+    if (import_names) import_names.forEach(i => {
+      i.file = resolved
+      i.foreign_name.file = resolved
+      i.name.file = resolved
+      imports[file + '/' + i.name.name] = resolved + '/' + i.foreign_name.name
+    })
+    return new ast_import({start, import_name, import_names,
+      module: new ast_string({start: module, value: module.value, quote: module.quote, end: module, file}),
+      attributes, end: scope.token, file})
+  }
+
+  function simple_statement (tmp) {
+    return new ast_statement({body: (tmp = expression(true), semicolon(), tmp)})
+  }
+
+  function labeled_statement () {
+    const label = as_symbol(ast_label)
+    if (label.name == 'await' && is_in_async()) tr(scope.prev, 'await cannot be async function label')
+    if (scope.labels.some(l => l.name === label.name)) cr('duplicate label ' + label.name)
+    expect(':')
+    scope.labels.push(label)
+    const stat = statement()
+    scope.labels.pop()
+    if (!(stat instanceof ast_iteration_statement) && label.references) {
+      label.references.forEach(function (ref) {
+        if (ref instanceof ast_continue) {
+          ref = ref.label.start
+          cr('continue ' + label.name + ' refers to non iter statement', ref.line, ref.col, ref.pos)
+        }
+      })
+    }
+    return new ast_labeled_statement({body: stat, label})
+  }
+
+  function break_cont (type) {
+    let label = null, ldef
+    if (!can_insert_semicolon()) label = as_symbol(ast_label_ref, true)
+    if (label != null) {
+      ldef = scope.labels.find(l => l.name === label.name)
+      if (!ldef) cr('no label ' + label.name)
+      label.thedef = ldef
+    } else if (scope.in_loop == 0) {
+      cr(type.type + ' not in loop or switch')
+    }
+    semicolon()
+    const stat = new type({label})
+    if (ldef && ldef.references) ldef.references.push(stat)
+    return stat
+  }
+
+  function vardefs (noin, kind) {
+    const defs = []
+    let defined, sym_type
+    while (true) {
+      sym_type = kind == 'var' ? ast_symbol_var : kind == 'const' ? ast_symbol_const
+        : kind == 'let' ? ast_symbol_let : null
+      if (is('punc', '{') || is('punc', '[')) {
+        defined = new ast_def({start: scope.token, name: binding_element(undefined, sym_type),
+          value: is('operator', '=') ? (expect_token('operator', '='), expression(false, noin)) : null, end: prev(),
+          file})
+      } else {
+        defined = new ast_def({start: scope.token, name: as_symbol(sym_type), value: is('operator', '=')
+          ? (next(), expression(false, noin)) : (!noin && kind == 'const') && cr('no const init'), end: prev(), file})
+        if (defined.name.name == 'import') cr('unexpected import')
+      }
+      defs.push(defined)
+      if (!is('punc', ',')) break
+      next()
+    }
+    return defs
+  }
+
+  function var_ (noin) {
+    return new ast_var({start: prev(), defs: vardefs(noin, 'var'), end: prev(), file})
+  }
+
+  function let_ (noin) {
+    return new ast_let({start: prev(), defs: vardefs(noin, 'let'), end: prev(), file})
+  }
+
+  function const_ (noin) {
+    return new ast_const({start: prev(), defs: vardefs(noin, 'const'), end: prev(), file})
+  }
+
+  function in_loop (cont) {
+    ++scope.in_loop
+    const result = cont()
+    --scope.in_loop
+    return result
+  }
+
+  function for_in (init) {
+    const object = expression(true)
+    expect(')')
+    return new ast_for_in({init, object, body: in_loop(function () { return statement(false, true) })})
+  }
+
+  function for_of (init, is_await) {
+    const name = init instanceof ast_definitions ? init.defs[0].name : null, object = expression(true)
+    expect(')')
+    return new ast_for_of({is_await, init, name, object, body: in_loop(function () { return statement(false, true)})})
+  }
+
+  function regular_for (init) {
+    expect(';')
+    const condition = is('punc', ';') ? null : expression(true)
+    expect(';')
+    const step = is('punc', ')') ? null : expression(true)
+    expect(')')
+    return new ast_for({init, condition, step, body: in_loop(function () { return statement(false, true) })})
+  }
+
+  function for_ () {
+    let await_tok = scope.token, init
+    if (await_tok.type == 'name' && await_tok.value == 'await') {
+      if (!can_await()) tr(await_tok, 'bad for await')
+      next()
+    } else {
+      await_tok = false
+    }
+    expect('(')
+    if (!is('punc', ';')) {
+      init = is('keyword', 'var') ? (next(), var_(true)) :
+        is('keyword', 'let') ? (next(), let_(true)) :
+        is('keyword', 'const') ? (next(), const_(true)) : expression(true, true)
+      const is_in = is('operator', 'in'), is_of = is('name', 'of')
+      if (await_tok && !is_of) tr(await_tok, 'bad for await')
+      if (is_in || is_of) {
+        if (init instanceof ast_definitions) {
+          if (init.defs.length > 1) tr(init.start, 'only one variable declaration allowed in for..in loop')
+        } else if (!(is_assignable(init) || (init = to_destructure(init)) instanceof ast_destructure)) {
+          tr(init.start, 'bad left hand side in for..in loop')
+        }
+        next()
+        return is_in ? for_in(init) : for_of(init, !!await_tok)
+      }
+    } else if (await_tok) {
+      tr(await_tok, for_await_error)
+    }
+    return regular_for(init)
+  }
+
+  function if_ () {
+    const condition = parenthesised(), body = statement(false, false, true)
+    let alt = null
+    if (is('keyword', 'else')) {
+      next()
+      alt = statement(false, false, true)
+    }
+    return new ast_if({condition, body, alt})
+  }
+
+  function switch_body_ () {
+    expect('{')
+    const a = []
+    let cur = null, branch = null, tmp
+    while (!is('punc', '}')) {
+      if (is('eof')) unexpected()
+      if (is('keyword', 'case')) {
+        if (branch) branch.end = prev()
+        cur = []
+        branch = new ast_case({start: (tmp = scope.token, next(), tmp), expr: expression(true), body: cur})
+        a.push(branch)
+        expect(':')
+      } else if (is('keyword', 'default')) {
+        if (branch) branch.end = prev()
+        cur = []
+        branch = new ast_default({start: (tmp = scope.token, next(), expect(':'), tmp), body: cur})
+        a.push(branch)
+      } else {
+        if (!cur) unexpected()
+        cur.push(statement())
+      }
+    }
+    if (branch) branch.end = prev()
+    next()
+    return a
+  }
+
+  function try_ () {
+    const body = new ast_try_block({start: scope.token, body: block_(), end: prev(), file})
+    let catches, final, start, name
+    if (is('keyword', 'catch')) {
+      start = scope.token
+      next()
+      if (is('punc', '{')) {
+        name = null
+      } else {
+        expect('(')
+        name = parameter(undefined, ast_symbol_catch)
+        expect(')')
+      }
+      catches = new ast_catch({start, argname: name, body: block_(), end: prev(), file})
+    }
+    if (is('keyword', 'finally')) {
+      start = scope.token
+      next()
+      final = new ast_finally({start, body: block_(), end: prev(), file})
+    }
+    if (!catches && !final) cr('no catch or finally block')
+    return new ast_try({body, catch: catches, finally: final})
+  }
+
+  function export_statement () {
+    const start = scope.token
+    let is_default, names
+    if (is('keyword', 'default')) {
+      is_default = true
+      next()
+    } else if (names = map_names(false)) {
+      if (is('name', 'from')) {
+        next()
+        const string = scope.token
+        if (string.type != 'string') unexpected()
+        next()
+        const attributes = maybe_import_attributes()
+        return new ast_export({start, attributes, is_default, names, module: new ast_string({start: string,
+          value: string.value, quote: string.quote, end: string, file}), end: prev(), file})
+      } else {
+        return new ast_export({start, is_default, names, end: prev(), file})
+      }
+    }
+    let root, value, defined
+    if (is('punc', '{') || is_default && (is('keyword', 'class') || is('keyword', 'function'))
+      && is_token(peek(), 'punc')) {
+      value = expression(false)
+      semicolon()
+    } else if ((root = statement(is_default)) instanceof ast_definitions && is_default) {
+      unexpected(root.start)
+    } else if (root instanceof ast_definitions || root instanceof ast_defun || root instanceof ast_def_class) {
+      defined = root
+    } else if (root instanceof ast_class_expression || root instanceof ast_function) {
+      value = root
+    } else if (root instanceof ast_statement) {
+      value = root.body
+    } else {
+      unexpected(root.start)
+    }
+    return new ast_export({start, attributes: null, is_default, value, defined, end: prev(), file})
+  }
+
+  const statement = embed_tokens(function statement (is_export_default, is_for_body, is_if_body) {
+    handle_regex()
+    let root, value
+    switch (scope.token.type) {
+      case 'string':
+        if (scope.in_directives) {
+          const token = peek()
+          if (!member('\\', latest_raw) && (is_token(token, 'punc', ';') || is_token(token, 'punc', '}')
+              || has_newline_before(token) || is_token(token, 'eof'))) {
+            scope.input.add_directive(scope.token.value)
+          } else {
+            scope.in_directives = false
+          }
+        }
+        const dir = scope.in_directives, stat = simple_statement()
+        return dir && stat.body instanceof ast_string ? new ast_directive(stat.body) : stat
+      case 'atom':
+      case 'big_int':
+      case 'num':
+      case 'operator':
+      case 'regex':
+      case 'template_head':
+        return simple_statement()
+      case 'name':
+      case 'privatename':
+        if (is('privatename') && !scope.in_class) cr('private field for enclosing class')
+        if (scope.token.value == 'async' && is_token(peek(), 'keyword', 'function')) {
+          next()
+          next()
+          if (is_for_body) cr('functions not allowed as body of loop')
+          return function_(ast_defun, false, true, is_export_default)
+        }
+        if (scope.token.value == 'import' && !is_token(peek(), 'punc', '(') && !is_token(peek(), 'punc', '.')) {
+          next()
+          root = import_statement()
+          semicolon()
+          return root
+        }
+        return is_token(peek(), 'punc', ':') ? labeled_statement() : simple_statement()
+      case 'punc':
+        switch (scope.token.value) {
+          case '{':
+            return new ast_block_statement({start: scope.token, body: block_(), end: prev(), file})
+          case '[':
+          case '(':
+            return simple_statement()
+          case ';':
+            scope.in_directives = false
+            next()
+            return new ast_empty_statement()
+          default:
+            unexpected()
+        }
+      case 'keyword':
+        switch (scope.token.value) {
+          case 'break':
+            next()
+            return break_cont(ast_break)
+          case 'continue':
+            next()
+            return break_cont(ast_continue)
+          case 'debugger':
+            next()
+            semicolon()
+            return new ast_debugger()
+          case 'do':
+            next()
+            const body = in_loop(statement)
+            expect_token('keyword', 'while')
+            const condition = parenthesised()
+            semicolon(true)
+            return new ast_do({body, condition})
+          case 'while':
+            next()
+            return new ast_while({condition: parenthesised(), body: in_loop(function () { return statement(false, true) })})
+          case 'for':
+            next()
+            return for_()
+          case 'class':
+            next()
+            if (is_for_body) cr('classes cannot be body of a loop')
+            if (is_if_body) cr('classes cannot be body of an if')
+            return class_(ast_def_class, is_export_default)
+          case 'function':
+            next()
+            if (is_for_body) cr('functions cannot be body of a loop')
+            return function_(ast_defun, false, false, is_export_default)
+          case 'if':
+            next()
+            return if_()
+          case 'return':
+            if (scope.in_function == 0 && !options.bare_returns) cr('return outside of function')
+            next()
+            value = null
+            if (is('punc', ';')) {
+              next()
+            } else if (!can_insert_semicolon()) {
+              value = expression(true)
+              semicolon()
+            }
+            return new ast_return({value})
+          case 'switch':
+            next()
+            return new ast_switch({expr: parenthesised(), body: in_loop(switch_body_)})
+          case 'throw':
+            next()
+            if (has_newline_before(scope.token)) cr('bad newline after throw')
+            value = expression(true)
+            semicolon()
+            return new ast_throw({value})
+          case 'try':
+            next()
+            return try_()
+          case 'var':
+            next()
+            root = var_()
+            semicolon()
+            return root
+          case 'let':
+            next()
+            root = let_()
+            semicolon()
+            return root
+          case 'const':
+            next()
+            root = const_()
+            semicolon()
+            return root
+          case 'with':
+            next()
+            return new ast_with({expr: parenthesised(), body: statement()})
+          case 'export':
+            if (!is_token(peek(), 'punc', '(')) {
+              next()
+              root = export_statement()
+              if (is('punc', ';')) semicolon()
+              return root
+            }
+        }
+    }
+    unexpected()
+  })
+
+  class used_parameters {
+    constructor (is_parameter, duplicates_ok = false) {
+      this.is_parameter = is_parameter
+      this.duplicates_ok = duplicates_ok
+      this.parameters = new Set()
+      this.duplicate = null
+      this.default_assign = false
+      this.spread = false
+    }
+    add_parameter (token) {
+      if (this.parameters.has(token.value)) {
+        if (this.duplicate === null) this.duplicate = token
+        this.check_strict()
+      } else {
+        this.parameters.add(token.value)
+        if (this.is_parameter) {
+          switch (token.value) {
+            case 'arguments':
+            case 'eval':
+            case 'yield': break
+            default: if (reserved_words.has(token.value)) unexpected()
+          }
+        }
+      }
+    }
+    mark_default_assign (token) {
+      if (this.default_assign === false) this.default_assign = token
+    }
+    mark_spread (token) {
+      if (this.spread === false) this.spread = token
+    }
+    mark_strict_mode () {
+      this.strict_mode = true
+    }
+    is_strict () {
+      return this.default_assign !== false || this.spread !== false || this.strict_mode
+    }
+    check_strict () {
+      if (this.is_strict() && this.duplicate !== null && !this.duplicates_ok) {
+        tr(this.duplicate, 'Parameter ' + this.duplicate.value + ' was used already')
+      }
+    }
+  }
+
+  if (options.expr) return expression(true)
+
+  function parse_toplevel () {
+    const body = [], start = scope.token
+    scope.input.push_directives_stack()
+    let file = '', imports = [], imported = [], toplevel, resolved
+    if (options.toplevel) {
+      file = options.toplevel.file
+      imports = options.toplevel.imports
+      imported = options.toplevel.imported
+    }
+    while (!is('eof')) {
+      const sta = statement()
+      sta.file = file
+      if (sta instanceof ast_import) {
+        resolved = resolve(file, sta.module.value)
+        if (!member(resolved, imported) && !member(resolved, imports)) {
+          imports.unshift(resolved)
+          toplevel = options.toplevel
+          if (toplevel) {
+            toplevel.imports = imports
+            toplevel.pushed = false
+          }
+          return toplevel
+        }
+      }
+      body.push(sta)
+    }
+    scope.input.pop_directives_stack()
+    const end = prev()
+    toplevel = options.toplevel
+    if (toplevel) {
+      toplevel.imports = imports
+      if (!toplevel.body) toplevel.body = []
+      toplevel.body = toplevel.body.concat(body)
+      toplevel.end = end
+    } else {
+      toplevel = new ast_toplevel({start, body, end, file})
+      toplevel.imports = imports
+    }
+    template_raws = new Map()
+    return toplevel
+  }
+  return parse_toplevel()
+}
+
+function mangle_props (ast) {
+  let cprivate = -1
+  const nth = base54, private_cache = new Map()
+
+  function mangle_private(name) {
+    let mangled = private_cache.get(name)
+    if (!mangled) {
+      mangled = nth.get(++cprivate)
+      private_cache.set(name, mangled)
+    }
+    return mangled
+  }
+
+  return ast.transform(new transforms(function (root) {
+    if (root instanceof ast_private_property || root instanceof ast_private_method
+      || root instanceof ast_private_getter || root instanceof ast_private_setter || root instanceof ast_private_in) {
+      root.key.name = mangle_private(root.key.name)
+    } else if (root instanceof ast_dot_hash) {
+      root.property = mangle_private(root.property)
+    }
+  }))
+}
+
+function output_stream (options) {
+  const readonly = !options
+  options = defaults(options, {'ascii_only': false, 'beautify': false, 'braces': false,
+    'comments': 'some', 'indent_level': 4, 'indent_start': 0, 'inline_script': true, 'keep_numbers': false,
+    'keep_quoted_props': false, 'max_line_len': false, 'preamble': null, 'preserve_annotations': false,
+    'quote_keys': false, 'quote_style': 0, 'semicolons': true, 'shebang': true, 'shorthand': undefined,
+    'source_map': null, 'webkit': false, 'width': 80, 'wrap_iife': false, 'wrap_func_args': true,
+    '_destroy_ast': false})
+  if (options.shorthand === undefined) options.shorthand = true
+  let comment_filter = get_false
+  if (options.comments) {
+    let comments = options.comments
+    if (typeof options.comments == 'string' && /^\/.*\/[a-zA-Z]*$/.test(options.comments)) {
+      const regex_pos = options.comments.lastIndexOf('/')
+      comments = new RegExp(options.comments.substr(1, regex_pos - 1), options.comments.substr(regex_pos + 1))
+    }
+    if (comments instanceof RegExp) {
+      comment_filter = function (comment) {
+        return comment.type != 'comment5' && comments.test(comment.value)
+      }
+    } else if (typeof comments == 'function') {
+      comment_filter = function (comment) {
+        return comment.type != 'comment5' && comments(this, comment)
+      }
+    } else if (comments == 'some') {
+      comment_filter = is_some_comments
+    } else {
+      comment_filter = get_true
+    }
+  }
+
+  if (options.preserve_annotations) {
+    let prev_comment_filter = comment_filter
+    comment_filter = function (comment) {
+      return r_annotation.test(comment.value) || prev_comment_filter.apply(this, arguments)
+    }
+  }
+
+  const outp = new rope()
+
+  let indentation = 0, current_col = 0, current_pos = 0, current_line = 1
+  let printed_comments = new Set()
+
+  const to_utf8 = options.ascii_only ? function (string, identifier = false, regex = false) {
+    if (!regex) {
+      string = string.replace(/[\ud800-\udbff][\udc00-\udfff]/g, function (char) {
+        return '\\u{' + get_full_char_code(char, 0).toString(16) + '}'
+      })
+    }
+    return string.replace(/[\u0000-\u001f\u007f-\uffff]/g, function (char) {
+      const code = char.charCodeAt(0).toString(16)
+      if (code.length <= 2 && !identifier) {
+        while (code.length < 2) code = '0' + code
+        return '\\x' + code
+      } else {
+        while (code.length < 4) code = '0' + code
+        return '\\u' + code
+      }
+    })
+  } : function (string) {
+    return string.replace(/[\ud800-\udbff][\udc00-\udfff]|([\ud800-\udbff]|[\udc00-\udfff])/g, function (match, lone) {
+      if (lone) return '\\u' + lone.charCodeAt(0).toString(16)
+      return match
+    })
+  }
+
+  function make_string (string, quote) {
+    let dq = 0, sq = 0
+    string = string.replace(/[\\\b\f\n\r\v\t\x22\x27\u2028\u2029\0\ufeff]/g,
+      function (s, i) {
+      switch (s) {
+        case '"':
+          ++dq
+          return '"'
+        case "'":
+          ++sq
+          return "'"
+        case '\\': return '\\\\'
+        case '\n': return '\\n'
+        case '\r': return '\\r'
+        case '\t': return '\\t'
+        case '\b': return '\\b'
+        case '\f': return '\\f'
+        case '\x0B': return '\\v'
+        case '\u2028': return '\\u2028'
+        case '\u2029': return '\\u2029'
+        case '\ufeff': return '\\ufeff'
+        case '\0': return /[0-9]/.test(get_full_char(string, i + 1)) ? '\\x00' : '\\0'
+      }
+      return s
+    })
+
+    function single_quote () { return "'" + string.replace(/\x27/g, "\\'") + "'" }
+
+    function quote_double () { return '"' + string.replace(/\x22/g, '\\"') + '"' }
+
+    function quote_template () { return '`' + string.replace(/`/g, "\\`") + '`' }
+
+    string = to_utf8(string)
+    if (quote == '`') return quote_template()
+    switch (options.quote_style) {
+      case 1: return single_quote()
+      case 2: return quote_double()
+      case 3: return quote == '"' ? quote_double() : single_quote()
+      default: return dq > sq ? single_quote() : quote_double()
+    }
+  }
+
+  function encode_string (string, quote) {
+    let result = make_string(string, quote)
+    if (options.inline_script) {
+      result = result.replace(/<\x2f(script)([>\/\t\n\f\r ])/gi, '<\\/$1$2')
+      result = result.replace(/\x3c!--/g, '\\x3c!--')
+      result = result.replace(/--\x3e/g, '--\\x3e')
+    }
+    return result
+  }
+
+  function make_name (name) {
+    return to_utf8(name.toString(), true)
+  }
+
+  let might_add_newline = 0, newline_insert = -1, last = ''
+  let mappings = options.source_map && [], mapping_name, mapping_token
+  let has_parens, might_need_space, might_need_semicolon, need_newline_indented, need_space
+
+  const do_add_mapping = mappings ? function () {
+    mappings.forEach(function (mapping) {
+      try {
+        let { name, token } = mapping
+        if (name !== false) {
+          if (token.type == 'name' || token.type == 'privatename') {
+            name = token.value
+          } else if (name instanceof ast_symbol) {
+            name = token.type == 'string' ? token.value : name.name
+          }
+        }
+        options.source_map.add(
+          mapping.token.file,
+          mapping.line, mapping.col,
+          mapping.token.line, mapping.token.col,
+          is_basic_identifier_string(name) ? name : undefined
+        )
+      } catch {}
+    })
+    mappings = []
+  } : func
+
+  const ensure_line_len = options.max_line_len ? function () {
+    if (current_col > options.max_line_len) {
+      if (might_add_newline) {
+        outp.insertAt('\n', might_add_newline)
+        const len_after_newline = outp.length() - might_add_newline - 1
+        if (mappings) {
+          const delta = len_after_newline - current_col
+          mappings.forEach(function (mapping) {
+            mapping.line++
+            mapping.col += delta
+          })
+        }
+        current_line++
+        current_pos++
+        current_col = len_after_newline
+      }
+    }
+    if (might_add_newline) {
+      might_add_newline = 0
+      do_add_mapping()
+    }
+  } : func
+
+  const require_semicolon = make_set('( [ + * / - , . `')
+
+  function print (string) {
+    string = String(string)
+    const char = get_full_char(string, 0)
+    if (need_newline_indented && char) {
+      need_newline_indented = false
+      if (char != '\n') {
+        print('\n')
+        indent()
+      }
+    }
+    if (need_space && char) {
+      need_space = false
+      if (!/[\s;})]/.test(char)) space()
+    }
+    newline_insert = -1
+    const prev = last.charAt(last.length - 1)
+    if (might_need_semicolon) {
+      might_need_semicolon = false
+      if (prev == ':' && char == '}' || (!char || !member(char, ';}')) && prev != ';') {
+        if (options.semicolons || require_semicolon.has(char)) {
+          outp.append(';')
+          current_col++
+          current_pos++
+        } else {
+          ensure_line_len()
+          if (current_col > 0) {
+            outp.append('\n')
+            current_pos++
+            current_line++
+            current_col = 0
+          }
+          if (/^\s+$/.test(string)) might_need_semicolon = true
+        }
+        if (!options.beautify) might_need_space = false
+      }
+    }
+
+    if (might_need_space) {
+      if ((is_identifier_char(prev) && (is_identifier_char(char) || char == '\\'))
+        || (char == '/' && char == prev) || ((char == '+' || char == '-') && char == last)) {
+        outp.append(' ')
+        current_col++
+        current_pos++
+      }
+      might_need_space = false
+    }
+
+    if (mapping_token) {
+      mappings.push({token: mapping_token, name: mapping_name, line: current_line, col: current_col})
+      mapping_token = false
+      if (!might_add_newline) do_add_mapping()
+    }
+
+    outp.append(string)
+    has_parens = string[string.length - 1] == '('
+    current_pos += string.length
+    const a = string.split(/\r?\n/), n = a.length - 1
+    current_line += n
+    current_col += a[0].length
+    if (n > 0) {
+      ensure_line_len()
+      current_col = a[n].length
+    }
+    last = string
+  }
+
+  const indent_level = options.indent_level
+
+  function star () { print('*') }
+
+  const space = options.beautify ? function () { print(' ') } : function () { might_need_space = true }
+
+  const redent = options.beautify ? function () { indentation += indent_level } : func
+
+  const undent = options.beautify ? function () { indentation -= indent_level } : func
+
+  const indent = options.beautify ? function (level=0) {
+    indentation += level * indent_level
+    print(' '.repeat(options.indent_start + indentation))
+  } : func
+
+  function next_indent () { return indentation + options.indent_level }
+
+  const with_indent = options.beautify ? function (col, cont) {
+    if (col === true) col = next_indent()
+    const save_indentation = indentation
+    indentation = col
+    const result = cont()
+    indentation = save_indentation
+    return result
+  } : function (col, cont) { return cont() }
+
+  const newline = options.beautify ? function () {
+    if (newline_insert < 0) return print('\n')
+    if (outp.charAt(newline_insert) != '\n') {
+      outp.insertAt('\n', newline_insert)
+      current_pos++
+      current_line++
+    }
+    newline_insert++
+  } : options.max_line_len ? function () {
+    ensure_line_len()
+    might_add_newline = outp.length()
+  } : func
+
+  const semicolon = options.beautify ? function () { print(';') } : function () { might_need_semicolon = true }
+
+  function force_semicolon () {
+    might_need_semicolon = false
+    print(';')
+  }
+
+  function with_block (cont) {
+    let result
+    print('{')
+    with_indent(next_indent(), function () { result = cont() })
+    print('}')
+    return result
+  }
+
+  function with_parens (cont) {
+    print('(')
+    const result = cont()
+    print(')')
+    return result
+  }
+
+  function with_square (cont) {
+    print('[')
+    const result = cont()
+    print(']')
+    return result
+  }
+
+  function comma () {
+    print(',')
+    space()
+  }
+
+  function colon () {
+    print(':')
+    space()
+  }
+
+  const add_mapping = mappings ? function (token, name) {
+    mapping_token = token
+    mapping_name = name
+  } : func
+
+  function get () {
+    if (might_add_newline) ensure_line_len()
+    return outp.toString()
+  }
+
+  function filter_comment (comment) {
+    if (!options.preserve_annotations) comment = comment.replace(r_annotation, ' ')
+    if (/^\s*$/.test(comment)) return ''
+    return comment.replace(/(<\s*\/\s*)(script)/i, '<\\/$2')
+  }
+
+  function prepend_comments (root) {
+    const start = root.start
+    if (!start) return
+    const self = this
+    const printed_comments = self.printed_comments
+    const keyword_with_value = root instanceof ast_exit && root.value
+      || (root instanceof ast_await || root instanceof ast_yield) && root.expr
+    if (start.comments_before && printed_comments.has(start.comments_before)) {
+      if (keyword_with_value) {
+        start.comments_before = []
+      } else {
+        return
+      }
+    }
+    let comments = start.comments_before
+    if (!comments) {
+      comments = start.comments_before = []
+    } else if (comments.length) {
+      printed_comments.add(comments)
+    }
+    if (keyword_with_value) {
+      let trees = new observes(function (root) {
+        const parent = trees.parent()
+        if (parent instanceof ast_exit || parent instanceof ast_await || parent instanceof ast_yield
+          || parent instanceof ast_binary && parent.left === root || parent instanceof ast_call && parent.expr === root
+          || parent instanceof ast_conditional && parent.condition === root
+          || parent instanceof ast_dot && parent.expr === root
+          || parent instanceof ast_sequence && parent.exprs[0] === root
+          || parent instanceof ast_sub && parent.expr === root || parent instanceof ast_unary_postfix) {
+          if (!root.start) return
+          const text = root.start.comments_before
+          if (text && !printed_comments.has(text)) {
+            if (text.length) printed_comments.add(text)
+            comments = comments.concat(text)
+          }
+        } else {
+          return true
+        }
+      })
+      trees.push(root)
+      keyword_with_value.observe(trees)
+    }
+
+    if (current_pos == 0) {
+      if (comments.length > 0 && options.shebang && comments[0].type == 'comment5'
+        && !printed_comments.has(comments[0])) {
+        print('#!' + comments.shift().value + '\n')
+        indent()
+      }
+      const preamble = options.preamble
+      if (preamble) {
+        print(preamble.replace(/\r\n?|[\n\u2028\u2029]|\s*$/g, '\n'))
+      }
+    }
+
+    comments = comments.filter(comment_filter, root).filter(c => !printed_comments.has(c))
+    if (comments.length == 0) return
+    const has_nlb = outp.has_nlb()
+    comments.forEach(function (c, i) {
+      if (c.length) printed_comments.add(c)
+      if (!has_nlb) {
+        if (c.nlb()) {
+          print('\n')
+          indent()
+          has_nlb = true
+        } else if (i > 0) {
+          space()
+        }
+      }
+      if (/comment[134]/.test(c.type)) {
+        const value = filter_comment(c.value)
+        if (value) {
+          print('//' + value + '\n')
+          indent()
+        }
+        has_nlb = true
+      } else if (c.type == 'comment2') {
+        const value = filter_comment(c.value)
+        if (value) print('/*' + value + '*/')
+        has_nlb = false
+      }
+    })
+    if (!has_nlb) {
+      if (start.nlb()) {
+        print('\n')
+        indent()
+      } else {
+        space()
+      }
+    }
+  }
+
+  function append_comments (root, tail) {
+    const token = root.end
+    if (!token) return
+    const self = this, printed = self.printed_comments, comments = token[tail ? 'comments_before' : 'comments_after']
+    if (!comments || printed.has(comments)) return
+    if (!(root instanceof ast_state || comments.every(c => !/comment[134]/.test(c.type)))) return
+    if (comments.length) printed.add(comments)
+    const insert = outp.length()
+    comments.filter(comment_filter, root).forEach(function (c, i) {
+      if (printed.has(c)) return
+      if (c.length) printed.add(c)
+      need_space = false
+      if (need_newline_indented) {
+        print('\n')
+        indent()
+        need_newline_indented = false
+      } else if (c.nlb() && (i > 0 || !outp.has_nlb())) {
+        print('\n')
+        indent()
+      } else if (i > 0 || !tail) {
+        space()
+      }
+      if (/comment[134]/.test(c.type)) {
+        const value = filter_comment(c.value)
+        if (value) print('//' + value)
+        need_newline_indented = true
+      } else if (c.type == 'comment2') {
+        const value = filter_comment(c.value)
+        if (value) print('/*' + value + '*/')
+        need_space = true
+      }
+    })
+    if (outp.length() > insert) newline_insert = insert
+  }
+
+  function gc_scope (scope) {
+    if (options['_destroy_ast']) {
+      scope.body.length = 0
+      scope.argnames.length = 0
+    }
+  }
+
+  function print_string (string, quote, escape_directive) {
+    const encoded = encode_string(string, quote)
+    if (escape_directive === true && !member('\\', encoded)) {
+      if (!outp.expect_directive()) force_semicolon()
+      force_semicolon()
+    }
+    print(encoded)
+  }
+
+  function print_template_chars (string) {
+    const encoded = encode_string(string, '`').replace(/\${/g, '\\${')
+    return print(encoded.substr(1, encoded.length - 2))
+  }
+
+  const stack = []
+  return {get, toString: get, indent, undent, redent, in_directive: false, use_asm: null, active_scope: null,
+    indentation: function () { return indentation }, current_width: function () { return current_col - indentation },
+    should_break: function () { return options.width && this.current_width() >= options.width },
+    has_parens: function () { return has_parens }, last: function () { return last },
+    newline, print, star, space, comma, colon, semicolon, force_semicolon, to_utf8,
+    print_name: function (name) { print(make_name(name)) },
+    print_string, print_template_chars, encode_string, next_indent, with_indent,
+    with_block, with_parens, with_square, add_mapping, options, gc_scope, printed_comments,
+    prepend_comments: readonly ? func : prepend_comments,
+    append_comments: readonly || comment_filter === get_false ? func : append_comments,
+    line: function () { return current_line }, col: function () { return current_col },
+    pos: function () { return current_pos }, push_node: function (root) { stack.push(root) },
+    pop_node: function () { return stack.pop() }, parent: function (n) { return stack[stack.length - 2 - (n || 0)]}}
+}
+
+function def_output (nodetype, generator) {
+  nodetype.prototype.codegen = generator
+}
+
+function output_js () {
+  ast_tree.prototype.print = function (output, force_parens) {
+    const self = this, generator = self.codegen
+    if (self instanceof ast_scope) {
+      output.active_scope = self
+    } else if (!output.use_asm && self instanceof ast_directive && self.value == 'use asm') {
+      output.use_asm = output.active_scope
+    }
+
+    function generate () {
+      output.prepend_comments(self)
+      self.add_source_map(output)
+      generator(self, output)
+      output.append_comments(self)
+    }
+
+    output.push_node(self)
+    force_parens || self.needs_parens(output) ? output.with_parens(generate) : generate()
+    output.pop_node()
+    if (self === output.use_asm) output.use_asm = null
+  }
+  ast_tree.prototype._print = ast_tree.prototype.print
+  ast_tree.prototype.print_to_string = function (options) {
+    const output = output_stream(options)
+    this.print(output)
+    return output.get()
+  }
+
+  function display_body (body, is_toplevel, output, allow_directives) {
+    const last = body.length - 1
+    output.in_directive = allow_directives
+    body.forEach(function (statement, i) {
+      if (output.in_directive === true && !(statement instanceof ast_directive
+        || statement instanceof ast_empty_statement
+        || (statement instanceof ast_statement && statement.body instanceof ast_string))) {
+        output.in_directive = false
+      }
+      if (!(statement instanceof ast_empty_statement)) {
+        statement.print(output)
+        if (!(i == last && is_toplevel)) {
+          output.newline()
+          if (is_toplevel) output.newline()
+        }
+      }
+      if (output.in_directive === true && statement instanceof ast_statement && statement.body instanceof ast_string) {
+        output.in_directive = false
+      }
+    })
+    output.in_directive = false
+  }
+  
+  function make_block (statement, output) {
+    if (!statement || statement instanceof ast_empty_statement) {
+      output.print('{}')
+    } else if (statement instanceof ast_block_statement) {
+      statement.print(output)
+    } else {
+      output.with_block(function () {
+        output.indent()
+        statement.print(output)
+        output.newline()
+      })
+    }
+  }
+
+  function print_maybe_braced_body (stat, output) {
+    if (output.options['braces']) {
+      make_block(stat, output)
+    } else {
+      if (!stat || stat instanceof ast_empty_statement) {
+        output.force_semicolon()
+      } else if (stat instanceof ast_let || stat instanceof ast_const || stat instanceof ast_class) {
+        make_block(stat, output)
+      } else {
+        stat.print(output)
+      }
+    }
+  }
+
+  function print_braced_empty (self, output) {
+    output.print('{')
+    output.with_indent(output.next_indent(), function () {
+      output.append_comments(self, true)
+    })
+    output.add_mapping(self.end)
+    output.print('}')
+  }
+
+  function print_braced (self, output, allow_directives) {
+    if (self.body.length > 0) {
+      output.with_block(function () {
+        display_body(self.body, false, output, allow_directives)
+        output.add_mapping(self.end)
+      })
+    } else {
+      print_braced_empty(self, output)
+    }
+  }
+
+  def_output(ast_array, function (self, output) {
+    output.with_square(function () {
+      const a = self.elements, length = a.length
+      if (length > 0) output.space()
+      a.forEach(function (expr, i) {
+        if (i) output.comma()
+        expr.print(output)
+        if (i == length - 1 && expr instanceof ast_hole) output.comma()
+      })
+      if (length > 0) output.space()
+    })
+  })
+  def_output(ast_await, function (self, output) {
+    output.print('await')
+    output.space()
+    const expr = self.expr
+    const parentheses = !(expr instanceof ast_call || expr instanceof ast_symbol_ref || expr instanceof ast_prop_access
+      || expr instanceof ast_unary || expr instanceof ast_literal || expr instanceof ast_await
+      || expr instanceof ast_object)
+    if (parentheses) output.print('(')
+    self.expr.print(output)
+    if (parentheses) output.print(')')
+  })
+  def_output(ast_chain, function (self, output) {
+    self.expr.print(output)
+  })
+  def_output(ast_spread, function (self, output) {
+    output.print('...')
+    self.expr.print(output)
+  })
+  def_output(ast_unary_postfix, function (self, output) {
+    self.expr.print(output)
+    output.print(self.operator)
+  })
+  def_output(ast_unary_prefix, function (self, output) {
+    const op = self.operator
+    if (op == '--' && output.last().endsWith('!')) output.print(' ')
+    output.print(op)
+    if (/^[a-z]/i.test(op) || (/[+-]$/.test(op) && self.expr instanceof ast_unary_prefix
+        && /^[+-]/.test(self.expr.operator))) output.space()
+    self.expr.print(output)
+  })
+  def_output(ast_yield, function (self, output) {
+    const star = self.star ? '*' : ''
+    output.print('yield' + star)
+    if (self.expr) {
+      output.space()
+      self.expr.print(output)
+    }
+  })
+  def_output(ast_binary, function (self, output) {
+    const op = self.operator
+    self.left.print(output)
+    output.space()
+    output.print(op)
+    output.space()
+    self.right.print(output)
+  })
+  def_output(ast_block_statement, function (self, output) {
+    print_braced(self, output)
+  })
+  def_output(ast_switch, function (self, output) {
+    output.print('switch')
+    output.space()
+    output.with_parens(function () {
+      self.expr.print(output)
+    })
+    output.space()
+    const last = self.body.length - 1
+    if (last < 0) {
+      print_braced_empty(self, output)
+    } else {
+      output.with_block(function () {
+        self.body.forEach(function (branch, i) {
+          output.indent(true)
+          branch.print(output)
+          if (i < last && branch.body.length > 0) output.newline()
+        })
+      })
+    }
+  })
+  ast_switch_branch.prototype._do_print_body = function (output) {
+    output.newline()
+    this.body.forEach(function (statement) {
+      output.indent()
+      statement.print(output)
+      output.newline()
+    })
+  }
+  def_output(ast_case, function (self, output) {
+    output.print('case')
+    output.space()
+    self.expr.print(output)
+    output.print(':')
+    self._do_print_body(output)
+  })
+  def_output(ast_default, function (self, output) {
+    output.print('default:')
+    self._do_print_body(output)
+  })
+  def_output(ast_class, function (self, output) {
+    output.print('class')
+    output.space()
+    if (self.name) {
+      self.name.print(output)
+      output.space()
+    }
+    if (self.extends) {
+      const parens = (!(self.extends instanceof ast_symbol_ref)
+        && !(self.extends instanceof ast_prop_access)
+        && !(self.extends instanceof ast_class_expression)
+        && !(self.extends instanceof ast_function)
+      )
+      output.print('extends')
+      parens ? output.print('(') : output.space()
+      self.extends.print(output)
+      parens ? output.print(')') : output.space()
+    }
+    if (self.properties.length > 0) {
+      output.with_block(function () {
+        self.properties.forEach(function (prop, i) {
+          if (i) output.newline()
+          output.indent()
+          prop.print(output)
+        })
+        output.newline()
+      })
+    } else {
+      output.print('{}')
+    }
+  })
+  def_output(ast_class_static, function (self, output) {
+    output.print('static')
+    output.space()
+    print_braced(self, output)
+  })
+  ast_lambda.prototype._do_print = function (output, nokeyword) {
+    const self = this
+    if (!nokeyword) {
+      if (self.sync) {
+        output.print('async')
+        output.space()
+      }
+      output.print('function')
+      if (self.gen) output.star()
+      if (self.name) output.space()
+    }
+    if (self.name instanceof ast_symbol) {
+      self.name.print(output)
+    } else if (nokeyword && self.name instanceof ast_tree) {
+      output.with_square(function () { self.name.print(output) })
+    }
+    output.with_parens(function () {
+      self.argnames.forEach(function (arg, i) {
+        if (i) output.comma()
+        arg.print(output)
+      })
+    })
+    output.space()
+    print_braced(self, output, true)
+  }
+  def_output(ast_lambda, function (self, output) {
+    self._do_print(output)
+    output.gc_scope(self)
+  })
+  ast_arrow.prototype._do_print = function (output) {
+    const self = this, parent = output.parent()
+    const needs_parens = (parent instanceof ast_binary && !(parent instanceof ast_assign)
+      && !(parent instanceof ast_default_assign)) || parent instanceof ast_unary
+      || (parent instanceof ast_call && self === parent.expr)
+    if (needs_parens) output.print('(')
+    if (self.sync) {
+      output.print('async')
+      output.space()
+    }
+    if (self.argnames.length === 1 && self.argnames[0] instanceof ast_symbol) {
+      self.argnames[0].print(output)
+    } else {
+      output.with_parens(function () {
+        self.argnames.forEach(function (arg, i) {
+          if (i) output.comma()
+          arg.print(output)
+        })
+      })
+    }
+    output.space()
+    output.print('=>')
+    output.space()
+    const first_statement = self.body[0]
+    if (self.body.length === 1 && first_statement instanceof ast_return) {
+      const returned = first_statement.value
+      if (!returned) {
+        output.print('{}')
+      } else if (left_is_object(returned)) {
+        output.print('(')
+        returned.print(output)
+        output.print(')')
+      } else {
+        returned.print(output)
+      }
+    } else {
+      print_braced(self, output)
+    }
+    if (needs_parens) { output.print(')') }
+    output.gc_scope(self)
+  }
+  def_output(ast_toplevel, function (self, output) {
+    display_body(self.body, true, output, true)
+    output.print('')
+  })
+  def_output(ast_try_block, function (self, output) {
+    print_braced(self, output)
+  })
+  def_output(ast_call, function (self, output) {
+    self.expr.print(output)
+    if (self instanceof ast_new && self.args.length === 0) return
+    if (self.expr instanceof ast_call || self.expr instanceof ast_lambda) output.add_mapping(self.start)
+    if (self.optional) output.print('?.')
+    output.with_parens(function () {
+      self.args.forEach(function (expr, i) {
+        if (i) output.comma()
+        expr.print(output)
+      })
+    })
+  })
+  def_output(ast_new, function (self, output) {
+    output.print('new')
+    output.space()
+    ast_call.prototype.codegen(self, output)
+  })
+  def_output(ast_catch, function (self, output) {
+    output.print('catch')
+    if (self.argname) {
+      output.space()
+      output.with_parens(function () {
+        self.argname.print(output)
+      })
+    }
+    output.space()
+    print_braced(self, output)
+  })
+  def_output(ast_conditional, function (self, output) {
+    self.condition.print(output)
+    output.space()
+    output.print('?')
+    output.space()
+    self.consequent.print(output)
+    output.space()
+    output.colon()
+    self.alt.print(output)
+  })
+
+  function parenthesis (root, output, noin) {
+    let parens = false
+    if (noin) parens = observe(root, root => {
+      if (root instanceof ast_scope && !(root instanceof ast_arrow)) return true
+      if (root instanceof ast_binary && root.operator == 'in' || root instanceof ast_private_in) return walk_abort
+    })
+    root.print(output, parens)
+  }
+
+  def_output(ast_def, function (self, output) {
+    self.name.print(output)
+    if (self.value) {
+      output.space()
+      output.print('=')
+      output.space()
+      const p = output.parent(1)
+      const noin = p instanceof ast_for || p instanceof ast_for_in
+      parenthesis(self.value, output, noin)
+    }
+  })
+  ast_definitions.prototype._do_print = function (output, kind) {
+    output.print(kind)
+    output.space()
+    this.defs.forEach(function (defined, i) {
+      if (i) output.comma()
+      defined.print(output)
+    })
+    const p = output.parent()
+    const in_for = p instanceof ast_for || p instanceof ast_for_in
+    if (!in_for || p && p.init !== this) output.semicolon()
+  }
+  def_output(ast_const, function (self, output) {
+    self._do_print(output, 'const')
+  })
+  def_output(ast_let, function (self, output) {
+    self._do_print(output, 'let')
+  })
+  def_output(ast_var, function (self, output) {
+    self._do_print(output, 'var')
+  })
+  def_output(ast_destructure, function (self, output) {
+    output.print(self.is_array ? '[' : '{')
+    const length = self.names.length
+    self.names.forEach(function (name, i) {
+      if (i > 0) output.comma()
+      name.print(output)
+      if (i == length - 1 && name instanceof ast_hole) output.comma()
+    })
+    output.print(self.is_array ? ']' : '}')
+  })
+  def_output(ast_directive, function (self, output) {
+    output.print_string(self.value, self.quote)
+    output.semicolon()
+  })
+  def_output(ast_empty_statement, function (self, output) {
+    output.semicolon()
+  })
+  def_output(ast_export, function (self, output) {
+    if (self.names) {
+      if (self.names.length == 1 && self.names[0].name.name == '*' && !self.names[0].name.quote) {
+        self.names[0].print(output)
+      } else {
+        output.print('{')
+        self.names.forEach(function (name_export, i) {
+          output.space()
+          name_export.print(output)
+          if (i < self.names.length - 1) output.print(',')
+        })
+        output.space()
+        output.print('}')
+      }
+    } else if (self.value) {
+      self.value.print(output)
+    } else if (self.defined) {
+      self.defined.print(output)
+      if (self.defined instanceof ast_definitions) return
+    }
+    if (self.module) {
+      output.space()
+      output.print('from')
+      output.space()
+      self.module.print(output)
+    }
+    if (self.attributes) {
+      output.print('with')
+      self.attributes.print(output)
+    }
+    if (self.value && !(self.value instanceof ast_defun
+      || self.value instanceof ast_function || self.value instanceof ast_class)
+      || self.module || self.names) {
+      output.semicolon()
+    }
+  })
+  def_output(ast_finally, function (self, output) {
+    output.print('finally')
+    output.space()
+    print_braced(self, output)
+  })
+  def_output(ast_import, function (self, output) {})
+  def_output(ast_literal, function (self, output) {
+    output.print(self.get_value())
+  })
+  def_output(ast_hole, func)
+  def_output(ast_number, function (self, output) {
+    if ((output.options['keep_numbers'] || output.use_asm) && self.raw) {
+      output.print(self.raw)
+    } else {
+      output.print(make_num(self.get_value()))
+    }
+  })
+  def_output(ast_big_int, function (self, output) {
+    output.print(self.get_value() + 'n')
+  })
+
+  const r_slash_script = /(<\s*\/\s*script)/i, r_starts_with_script = /^\s*script/i
+  const replace_slash = (_, script) => script.replace('/', '\\/')
+
+  def_output(ast_reg_exp, function (self, output) {
+    let { source, flags } = self.get_value()
+    source = source_regex(source)
+    flags = flags ? sort_regex_flags(flags) : ''
+    source = source.replace(r_slash_script, replace_slash)
+    if (r_starts_with_script.test(source) && output.last().endsWith('<')) output.print(' ')
+    output.print(output.to_utf8(`/${source}/${flags}`, false, true))
+    const parent = output.parent()
+    if (parent instanceof ast_binary && /^\w/.test(parent.operator) && parent.left === self) output.print(' ')
+  })
+  def_output(ast_string, function (self, output) {
+    output.print_string(self.get_value(), self.quote, output.in_directive)
+  })
+  def_output(ast_name_mapping, function (self, output) {
+    const is_import = output.parent() instanceof ast_import, defined = self.name.defined(), foreign = self.foreign_name
+    const different_names = (defined && defined.mangled_name || self.name.name) !== foreign.name
+    if (!different_names && foreign.name == '*' && foreign.quote != self.name.quote) different_names = true
+    const is_name = foreign.quote == null
+    if (different_names) {
+      if (is_import) {
+        is_name ? output.print(foreign.name) : output.print_string(foreign.name, foreign.quote)
+      } else {
+        self.name.quote == null ? self.name.print(output) : output.print_string(self.name.name, self.name.quote)
+      }
+      output.space()
+      output.print('as')
+      output.space()
+      if (is_import) {
+        self.name.print(output)
+      } else {
+        is_name ? output.print(foreign.name) : output.print_string(foreign.name, foreign.quote)
+      }
+    } else {
+      self.name.quote == null ? self.name.print(output) : output.print_string(self.name.name, self.name.quote)
+    }
+  })
+  def_output(ast_new_target, function (self, output) {
+    output.print('new.target')
+  })
+  def_output(ast_object, function (self, output) {
+    if (self.properties.length > 0) output.with_block(function () {
+      self.properties.forEach(function (prop, i) {
+        if (i) {
+          output.print(',')
+          output.newline()
+        }
+        output.indent()
+        prop.print(output)
+      })
+    })
+    else {
+      print_braced_empty(self, output)
+    }
+  })
+
+  function print_property_name (key, quote, output) {
+    if (output.options['quote_keys']) {
+      output.print_string(key)
+      return false
+    }
+    if ('' + +key == key && key >= 0) {
+      if (output.options['keep_numbers']) {
+        output.print(key)
+        return false
+      }
+      output.print(make_num(key))
+      return false
+    }
+    const print_string = all_reserved_words.has(key) ? false : !is_identifier_string(key, true)
+    if (print_string || (quote && output.options['keep_quoted_props'])) {
+      output.print_string(key, quote)
+      return false
+    }
+    output.print_name(key)
+    return true
+  }
+
+  ast_object_property.prototype._print_getter_setter = function (type, is_private, output) {
+    const self = this
+    if (self.static) {
+      output.print('static')
+      output.space()
+    }
+    if (type) {
+      output.print(type)
+      output.space()
+    }
+    if (self.key instanceof ast_symbol_method) {
+      if (is_private) output.print('#')
+      print_property_name(self.key.name, self.quote, output)
+      self.key.add_source_map(output)
+    } else {
+      output.with_square(function () {
+        self.key.print(output)
+      })
+    }
+    self.value._do_print(output, true)
+  }
+
+  function print_method (self, is_private, output) {
+    let type
+    if (self.gen && self.sync) {
+      type = 'async*'
+    } else if (self.gen) {
+      type = '*'
+    } else if (self.sync) {
+      type = 'async'
+    }
+    self._print_getter_setter(type, is_private, output)
+  }
+
+  def_output(ast_concise_method, function (self, output) {
+    print_method(self, false, output)
+  })
+  def_output(ast_key_value, function (self, output) {
+    function get_name (self) {
+      const defined = self.defined()
+      return defined ? defined.mangled_name || defined.name : self.name
+    }
+    const try_shorthand = output.options['shorthand'] && !(self.key instanceof ast_tree)
+    if (try_shorthand && self.value instanceof ast_symbol && get_name(self.value) === self.key
+      && !all_reserved_words.has(self.key)) {
+      const was_shorthand = print_property_name(self.key, self.quote, output)
+      if (!was_shorthand) {
+        output.colon()
+        self.value.print(output)
+      }
+    } else if (try_shorthand && self.value instanceof ast_default_assign
+      && self.value.left instanceof ast_symbol
+      && get_name(self.value.left) === self.key) {
+      const was_shorthand = print_property_name(self.key, self.quote, output)
+      if (!was_shorthand) {
+        output.colon()
+        self.value.left.print(output)
+      }
+      output.space()
+      output.print('=')
+      output.space()
+      self.value.right.print(output)
+    } else {
+      if (!(self.key instanceof ast_tree)) {
+        print_property_name(self.key, self.quote, output)
+      } else {
+        output.with_square(function () { self.key.print(output) })
+      }
+      output.colon()
+      self.value.print(output)
+    }
+  })
+  def_output(ast_object_getter, function (self, output) {
+    self._print_getter_setter('get', false, output)
+  })
+  def_output(ast_object_setter, function (self, output) {
+    self._print_getter_setter('set', false, output)
+  })
+  def_output(ast_private_getter, function (self, output) {
+    self._print_getter_setter('get', true, output)
+  })
+  def_output(ast_private_method, function (self, output) {
+    print_method(self, true, output)
+  })
+  def_output(ast_private_setter, function (self, output) {
+    self._print_getter_setter('set', true, output)
+  })
+  ast_symbol.prototype._do_print = function (output) {
+    const defined = this.defined()
+    output.print_name(defined ? defined.mangled_name || defined.name : this.name)
+  }
+  def_output(ast_symbol, function (self, output) {
+    self._do_print(output)
+  })
+  def_output(ast_symbol_private_property, function (self, output) {
+    output.print('#' + self.name)
+  })
+  def_output(ast_this, function (self, output) {
+    output.print('this')
+  })
+  def_output(ast_super, function (self, output) {
+    output.print('super')
+  })
+  def_output(ast_template_prefix, function (self, output) {
+    const tag = self.prefix
+    const parenthesize_tag = tag instanceof ast_lambda || tag instanceof ast_binary || tag instanceof ast_conditional
+      || tag instanceof ast_sequence || tag instanceof ast_unary
+      || tag instanceof ast_dot && tag.expr instanceof ast_object
+    if (parenthesize_tag) output.print('(')
+    self.prefix.print(output)
+    if (parenthesize_tag) output.print(')')
+    self.template_string.print(output)
+  })
+  def_output(ast_template_segment, function (self, output) {
+    output.print_template_chars(self.value)
+  })
+  def_output(ast_template_string, function (self, output) {
+    const is_tagged = output.parent() instanceof ast_template_prefix
+    output.print('`')
+    for (let i = 0, length = self.segments.length; i < length; i++) {
+      if (!(self.segments[i] instanceof ast_template_segment)) {
+        output.print('${')
+        self.segments[i].print(output)
+        output.print('}')
+      } else if (is_tagged) {
+        output.print(self.segments[i].raw)
+      } else {
+        output.print_template_chars(self.segments[i].value)
+      }
+    }
+    output.print('`')
+  })
+  def_output(ast_class_property, (self, output) => {
+    if (self.static) {
+      output.print('static')
+      output.space()
+    }
+    if (self.key instanceof ast_symbol_class_property) {
+      print_property_name(self.key.name, self.quote, output)
+    } else {
+      output.print('[')
+      self.key.print(output)
+      output.print(']')
+    }
+    if (self.value) {
+      output.print('=')
+      self.value.print(output)
+    }
+    output.semicolon()
+  })
+  def_output(ast_private_property, (self, output) => {
+    if (self.static) {
+      output.print('static')
+      output.space()
+    }
+    output.print('#')
+    print_property_name(self.key.name, self.quote, output)
+    if (self.value) {
+      output.print('=')
+      self.value.print(output)
+    }
+    output.semicolon()
+  })
+  def_output(ast_private_in, function (self, output) {
+    self.key.print(output)
+    output.space()
+    output.print('in')
+    output.space()
+    self.value.print(output)
+  })
+  def_output(ast_dot, function (self, output) {
+    const expr = self.expr
+    expr.print(output)
+    const prop = self.property
+    const print_computed = all_reserved_words.has(prop) ? false : !is_identifier_string(prop, true)
+    if (self.optional) output.print('?.')
+    if (print_computed) {
+      output.print('[')
+      output.add_mapping(self.end)
+      output.print_string(prop)
+      output.print(']')
+    } else {
+      if (expr instanceof ast_number && expr.get_value() >= 0 && !/[xa-f.)]/i.test(output.last())) output.print('.')
+      if (!self.optional) output.print('.')
+      output.add_mapping(self.end)
+      output.print_name(prop)
+    }
+  })
+  def_output(ast_dot_hash, function (self, output) {
+    const expr = self.expr
+    expr.print(output)
+    const prop = self.property
+    if (self.optional) output.print('?')
+    output.print('.#')
+    output.add_mapping(self.end)
+    output.print_name(prop)
+  })
+  def_output(ast_sub, function (self, output) {
+    self.expr.print(output)
+    if (self.optional) output.print('?.')
+    output.print('[')
+    self.property.print(output)
+    output.print(']')
+  })
+  ast_sequence.prototype._do_print = function (output) {
+    this.exprs.forEach(function (root, index) {
+      if (index > 0) {
+        output.comma()
+        if (output.should_break()) {
+          output.newline()
+          output.indent()
+        }
+      }
+      root.print(output)
+    })
+  }
+  def_output(ast_sequence, function (self, output) {
+    const p = output.parent()
+    if (p instanceof ast_state) {
+      output.with_indent(output.next_indent(), function () { self._do_print(output) })
+    } else {
+      self._do_print(output)
+    }
+  })
+  def_output(ast_state, function (self, output) {
+    self.body.print(output)
+    output.semicolon()
+  })
+  def_output(ast_statement, function (self, output) {
+    self.body.print(output)
+    output.semicolon()
+  })
+  def_output(ast_debugger, function (self, output) {
+    output.print('debugger')
+    output.semicolon()
+  })
+  ast_statement_with_body.prototype._do_print_body = function (output) {
+    print_maybe_braced_body(this.body, output)
+  }
+  def_output(ast_labeled_statement, function (self, output) {
+    self.label.print(output)
+    output.colon()
+    self.body.print(output)
+  })
+  def_output(ast_do, function (self, output) {
+    output.print('do')
+    output.space()
+    make_block(self.body, output)
+    output.space()
+    output.print('while')
+    output.space()
+    output.with_parens(function () { self.condition.print(output) })
+    output.semicolon()
+  })
+  def_output(ast_while, function (self, output) {
+    output.print('while')
+    output.space()
+    output.with_parens(function () { self.condition.print(output) })
+    output.space()
+    self._do_print_body(output)
+  })
+  def_output(ast_for, function (self, output) {
+    output.print('for')
+    output.space()
+    output.with_parens(function () {
+      if (self.init) {
+        self.init instanceof ast_definitions ? self.init.print(output) : parenthesis(self.init, output, true)
+        output.print(';')
+        output.space()
+      } else {
+        output.print(';')
+      }
+      if (self.condition) {
+        self.condition.print(output)
+        output.print(';')
+        output.space()
+      } else {
+        output.print(';')
+      }
+      if (self.step) self.step.print(output)
+    })
+    output.space()
+    self._do_print_body(output)
+  })
+  def_output(ast_for_in, function (self, output) {
+    output.print('for')
+    if (self.is_await) {
+      output.space()
+      output.print('await')
+    }
+    output.space()
+    output.with_parens(function () {
+      self.init.print(output)
+      output.space()
+      output.print(self instanceof ast_for_of ? 'of' : 'in')
+      output.space()
+      self.object.print(output)
+    })
+    output.space()
+    self._do_print_body(output)
+  })
+  def_output(ast_with, function (self, output) {
+    output.print('with')
+    output.space()
+    output.with_parens(function () {
+      self.expr.print(output)
+    })
+    output.space()
+    self._do_print_body(output)
+  })
+  ast_exit.prototype._do_print = function (output, kind) {
+    output.print(kind)
+    if (this.value) {
+      output.space()
+      const comments = this.value.start.comments_before
+      if (comments && comments.length && !output.printed_comments.has(comments)) {
+        output.print('(')
+        this.value.print(output)
+        output.print(')')
+      } else {
+        this.value.print(output)
+      }
+    }
+    output.semicolon()
+  }
+  def_output(ast_return, function (self, output) {
+    self._do_print(output, 'return')
+  })
+  def_output(ast_throw, function (self, output) {
+    self._do_print(output, 'throw')
+  })
+  ast_loop_control.prototype._do_print = function (output, kind) {
+    output.print(kind)
+    if (this.label) {
+      output.space()
+      this.label.print(output)
+    }
+    output.semicolon()
+  }
+  def_output(ast_break, function (self, output) {
+    self._do_print(output, 'break')
+  })
+  def_output(ast_continue, function (self, output) {
+    self._do_print(output, 'continue')
+  })
+
+  function make_then (self, output) {
+    let body = self.body
+    if (output.options['braces'] || body instanceof ast_do) return make_block(body, output)
+    if (!body) return output.force_semicolon()
+    while (true) {
+      if (body instanceof ast_if) {
+        if (!body.alt) {
+          make_block(self.body, output)
+          return
+        }
+        body = body.alt
+      } else if (body instanceof ast_statement_with_body) {
+        body = body.body
+      } else {
+        break
+      }
+    }
+    print_maybe_braced_body(self.body, output)
+  }
+
+  def_output(ast_if, function (self, output) {
+    output.print('if')
+    output.space()
+    output.with_parens(function () { self.condition.print(output) })
+    output.space()
+    if (self.alt) {
+      make_then(self, output)
+      output.space()
+      output.print('else')
+      output.space()
+      if (self.alt instanceof ast_if) {
+        self.alt.print(output)
+      } else {
+        print_maybe_braced_body(self.alt, output)
+      }
+    } else {
+      self._do_print_body(output)
+    }
+  })
+  def_output(ast_try, function (self, output) {
+    output.print('try')
+    output.space()
+    self.body.print(output)
+    if (self.catch) {
+      output.space()
+      self.catch.print(output)
+    }
+    if (self.finally) {
+      output.space()
+      self.finally.print(output)
+    }
+  })
+}
+
 function build (input, output, options={}) {
   options = defaults(options, {'format': {}, 'mangle': {}, 'module': false, 'reduce': {}, 'parse': {},
     'toplevel': true})
-  if (output.slice(-3) == '.js') output_js()
-  options.parse.module = options.module
-  options.reduce.module = options.module
-  options.reduce.toplevel = options.toplevel
   options.mangle.module = options.module
   options.mangle.toplevel = options.toplevel
   options.mangle = defaults(options.mangle, {'eval': false, 'module': false, 'reserved': []})
+  options.parse.module = options.module
   options.parse.toplevel = new ast_toplevel()
+  options.reduce.module = options.module
+  options.reduce.toplevel = options.toplevel
+  if (output.slice(-3) == '.js') output_js()
   const imported = []
   let imports = [input], file, text
   while (imports.length) {
