@@ -1,1 +1,1 @@
-javascript servers
+bundle and serve localhost web

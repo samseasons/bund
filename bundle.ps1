@@ -1,125 +1,254 @@
-# for windows
+# ./bundle.ps1 a.js y.js
 
+$base64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789$_'
 
-
-
-$func = {}
-$return_null = { return $null }
-$return_this = { return $this }
-$return_true = { return $true }
-$return_false = { return $false }
-
-class tree {
-    $type; tree ($props) {
-        $this.func('tree', @('a', 'z', 'f'), $props)
+function parse ($file, $imported, $modules) {
+    try {
+        $text = Get-Content $file -ErrorAction Stop
+    } catch {
+        return ''
     }
-}
-Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName func -Value { param($type, $args, $props)
-    $this.type = $type
-    if ($props) { foreach ($arg in $args) { $this[$arg] = $props[$arg] } }
-}
-Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName ascend -Value $func
-Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName branch -Value $func
-Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName _copy -Value { param($deep)
-    if ($deep) {
-        $self = $this.copy()
-        function return_root ($root) { if ($root -ne $self) { return $root.copy($true) } }
-
-        return $self.transform([transforms]::new((return_root)))
+    while ($text.Contains(" `n")) {
+        $text = $text.Replace(" `n", "`n")
     }
-    return $this::new()
-}
-Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName copy -Value { param($deep)
-    return $this._copy($deep)
-}
-Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName equals -Value $return_false
-Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName observe -Value { param($observer)
-    return $observer.observe($this)
-}
-Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName transform -Value { param($trees, $trim)
-    $trees += $this
-
-    if ($trees.before) { $transformed = $trees.before($this, $this.ascend, $trim) }
-    if (!$transformed) {
-        $transformed = $this
-        $this.ascend($transformed, $trees)
-        if ($trees.after) {
-            $after = $trees.after($transformed, $trim)
-            if ($after) { $transformed = $after }
+    while ($text.Contains("`n`n")) {
+        $text = $text.Replace("`n`n", "`n")
+    }
+    $lines = $text.Split("`n")
+    $text = ''
+    $remove = $false
+    foreach ($line in $lines) {
+        if ($line.TrimStart().StartsWith('//')) {
+            continue
         }
-    }
-    $trees = $trees[0..($trees.Length - 2)]
-    return $transformed
-}
-
-class menta : tree {
-    menta ($props) : base($props) {
-        $this.func('menta', @('a', 'z', 'f'), $props)
-    }
-}
-
-
-class observes {
-    $callback; $stack; observes ($callback) {
-        $this.callback = $callback
-        $this.stack = @()
-    }
-    observe ($root, $ascend) {
-        $this.stack += $root
-    }
-}
-
-class transforms : observes {
-    $after; $before; transforms ($before, $after) : base() {
-        $this.after = $after
-        $this.before = $before
-    }
-}
-
-
-function out ($la) {
-    if ($la -eq 'js') { Update-TypeData -Force -TypeName tree -MemberType ScriptMethod -MemberName show -Value $func }
-}
-
-function solve ($file, $folder) {
-    return (($file.split('/') | Select-Object -SkipLast $folder.IndexOf('/')) -join '/') + '/' + $folder.split('./')[-1]
-}
-
-function parse ($opt, $text) {
-    if ($false) {
-        $of = solve $opt.of $mod.value
-        if (($of -notin $opt.om) -and ($of -notin $opt.oq)) { $opt.om.push($of) }
-    }
-    return $opt
-}
-
-function build ($of, $fo) {
-    out 'js'
-    $opt = @{top = [tree]::new({})}
-    $om = @($of)
-    $oq = @()
-
-    while ($om.Length) {
-        $of = $om[0]
-        if ($of -in $oq) {
-            $om = $om[1..$om.Length]
-        } else {
-            try {
-                $text = Get-Content -Path $of
-            } catch {
-                $text = ''
+        if (!$remove -and $line.Contains('/*') -and !$line.Contains('//*')) {
+            if ($line.Contains('*/')) {
+                $line = $line.Substring(0, $line.IndexOf('/*')) + ' ' + $line.Substring($line.IndexOf('*/') + 2)
+            } else {
+                $line = $line.Substring(0, $line.IndexOf('/*'))
+                $remove = $true
             }
-            $opt.of = $of
-            $opt.om = $om
-            $opt.oq = $oq
-            $oq += $of
-            $opt = parse $opt $text
-            $om = $opt.om
+        }
+        if ($remove) {
+            if ($line.Contains('*/')) {
+                $line = $line.Substring($line.IndexOf('*/') + 2)
+                $remove = $false
+            } else {
+                continue
+            }
+        }
+        if ($line.Length -and $line.Replace(' ', '').Length) {
+            $text += $line.TrimEnd(' ') + "`n"
         }
     }
-    $output = $opt.top.show()
-    if ($output) { $output > $fo }
+    $texta = $text
+
+    function resolve ($f) {
+        if ($f.Substring(0, 2) -eq './') {
+            $f = $f.Substring(2)
+        }
+        if ($f[0] -ne '.' -and $f[0] -ne '/') {
+            $split = $file.Split('/')
+            $f = ($split[0..($split.Length - 2)] -join '/') + '/' + $f
+        } elseif ($f.StartsWith('../')) {
+            $i = 0
+            while ($f.StartsWith('../')) {
+                $f = $f.Substring(3)
+                $i += 1
+            }
+            $split = $file.Split('/')
+            $split = $split[0..($split.Length - 2 - $i)] -join '/'
+            $f = &{If($split.Length) {$split + '/' + $f} Else {$f}}
+        }
+        return &{If($f.Substring($f.Length - 3) -eq '.js') {$f} Else {$f + '.js'}}
+    }
+
+    $files = [ordered]@{}
+    $i = $text.IndexOf('import ')
+    while ($i -gt -1) {
+        if ($i -ne 0 -and $text[$i - 1] -notin @("`n", ' ')) {
+            $text = $text.Substring($i + 6)
+            $i = $text.IndexOf('import ')
+            continue
+        }
+        $text = $text.Substring($i)
+        $i = 6
+        while ($text[$i] -eq ' ') {
+            $i += 1
+        }
+        if ($text[$i] -eq '{') {
+            $text = $text.Substring($i)
+            $k = $text.IndexOf('}')
+            $names = $text.Substring(1, $k - 1).Split(',')
+            $names = $names.ForEach({$_.Replace(' ', '')})
+            $names = $names.Where({$_ -notin @('', '{', '}')})
+            $text = $text.Substring($k)
+            if ($text.Contains(' from ')) {
+                $i = $text.IndexOf(' from ') + 6
+                while ($text[$i] -eq ' ') {
+                    $i += 1
+                }
+                if ($text[$i] -eq "'") {
+                    $text = $text.Substring($i + 1)
+                    $f = resolve $text.Substring(0, $text.IndexOf("'"))
+                    $files[$f] = &{If($f -in $files.Keys) {@() + $files[$f] + $names} Else {$names}}
+                }
+            }
+        } else {
+            $names = @()
+            if ($text.Contains(' from ')) {
+                $j = $text.IndexOf(' ')
+                $k = $text.IndexOf(' from ')
+                while ($j -lt $k) {
+                    while ($text[$i] -eq ' ') {
+                        $i += 1
+                    }
+                    $name = $text.Substring($i, $k - $i).Split(' ')[0]
+                    if ($name -notin @('', '{', '}')) {
+                        $names += $name
+                    }
+                    $i = $j
+                    $text = $text.Substring($j)
+                    if ($text.Contains(',')) {
+                        $j = $text.IndexOf(',')
+                    }
+                    $k = $text.IndexOf(' from ')
+                }
+                $text = $text.Substring($k)
+                $i = 6
+            }
+            while ($text[$i] -eq ' ') {
+                $i += 1
+            }
+            if ($text[$i] -eq "'") {
+                $text = $text.Substring($i + 1)
+                $f = resolve $text.Substring(0, $text.IndexOf("'"))
+                $files[$f] = &{If($f -in $files.Keys) {@() + $files[$f] + $names} Else {$names}}
+            }
+        }
+        $i = $text.IndexOf('import ')
+    }
+    $modules[$file] = @($files.Keys)
+    if ($modules[$file].Where({$_ -notin $imported -and ($_ -notin $modules.Keys -or $file -notin $modules[$_])}).Length) {
+        return ''
+    }
+    $exporta = @('async', 'class', 'const', 'default', 'function', 'let', 'var')
+    $repeata = @("`n", ' ', '(', ',', '.', '[')
+    $text = $texta
+    $i = $text.IndexOf('export ')
+    while ($i -gt -1) {
+        $text = $text.Substring($i + 7)
+        foreach ($name in $exporta) {
+            $j = $text.IndexOf($name)
+            if ($j -gt -1 -and $j -lt 3) {
+                $text = $text.Substring($j + $name.Length)
+            }
+        }
+        if ($text.Contains("`n")) {
+            $names = $text.Substring(0, $text.IndexOf("`n"))
+        }
+        $split = @()
+        if (!$names.Contains('=') -or ($names.Contains('(') -and $names.IndexOf('=') -gt $names.IndexOf('('))) {
+            $split += $names
+        } else {
+            while ($names.Contains('=')) {
+                $split += $names.Substring(0, $names.IndexOf('='))
+                $names = $names.Substring($names.IndexOf('='))
+                $names = &{If($names.Contains(',')) {$names.Substring($names.IndexOf(','))} Else {''}}
+            }
+        }
+        $names = @()
+        foreach ($name in $split) {
+            while ($name[0] -in $repeata) {
+                $name = $name.Substring(1)
+            }
+            foreach ($j in $repeata) {
+                if ($name.Contains($j)) {
+                    $name = $name.Substring(0, $name.IndexOf($j))
+                }
+            }
+            $names += $name
+        }
+        $files[$file] = &{If($file -in $files.Keys) {@() + $files[$file] + $names} Else {$names}}
+        $i = $text.IndexOf('export ')
+    }
+
+    function replace ($text, $past, $next) {
+        $length = $past.Length
+        $a = 0
+        while ($text.Substring($a).Contains($past)) {
+            $a += $text.Substring($a).IndexOf($past)
+            if ($text.Length -lt $a + 1 + $length) {
+                return $text
+            }
+            $cont = $false
+            $textb = $text.Substring($a - 7, 7) + $next
+            foreach ($name in $exporta) {
+                if ($textb.Contains($name + '_')) {
+                    $cont = $true
+                }
+            }
+            if ($cont -or $base64.Contains($text[$a + $length]) -or ($base64 + "'.").Contains($text[$a - 1])) {
+                $a += $length
+                continue
+            }
+            $text = $text.Substring(0, $a) + $next + $text.Substring($a + $length)
+            $a += $next.Length
+        }
+        return $text
+    }
+
+    $text = $texta
+    foreach ($file in $files.Keys) {
+        $string = $file.Replace('.', '_').Replace('/', '_')
+        $split = $string.Split('_')
+        $string = $string.Substring(0, $string.Length - $split[$split.Length - 1].Length - 1)
+        foreach ($name in $files[$file]) {
+            $text = replace $text $name ($name + '_' + $string)
+        }
+    }
+    $lines = $text.Split("`n")
+    $text = ''
+    foreach ($line in $lines) {
+        if ($line.StartsWith('export default ')) {
+            $line = $line.Substring($line.IndexOf('export default ') + 15)
+        }
+        if ($line.StartsWith('export ')) {
+            $line = $line.Substring($line.IndexOf('export ') + 7)
+        }
+        if ($line.Length -and !$line.StartsWith('import ')) {
+            $text += $line + "`n"
+        }
+    }
+    return $text
 }
 
+function build ($file, $output) {
+    $imported = @()
+    $imports = @($file)
+    $modules = @{}
+    $texts = @{}
+    while ($imports.Length) {
+        $file = $imports[0]
+        if ($file -in $imported) {
+            $imports = $imports.Where({$_ -ne $file})
+        } else {
+            $texts[$file] = parse $file $imported $modules
+            $imports = $modules[$file] + $imports
+            if ($texts[$file].Length) {
+                $imported += $file
+            }
+        }
+    }
+    $text = ''
+    $imports = @()
+    foreach ($file in $imported) {
+        if ($file -notin $imports) {
+            $text += $texts[$file]
+            $imports += $file
+        }
+    }
+    $text.TrimEnd("`n") > $output
+}
 
 build $args[0] $args[1]
