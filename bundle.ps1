@@ -129,7 +129,7 @@ function parse ($file, $imported, $modules) {
         $i = $text.IndexOf('import ')
     }
     $modules[$file] = @($files.Keys)
-    if ($modules[$file].Where({$_ -notin $imported -and ($_ -notin $modules.Keys -or $file -notin $modules[$_])}).Length) {
+    if ($modules[$file].Where({$_ -notin $imported -and $file -notin $modules[$_]}).Length) {
         return ''
     }
     $exporta = @('async', 'class', 'const', 'default', 'function', 'let', 'var')
