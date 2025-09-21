@@ -309,7 +309,7 @@ class ast_sprout extends ast_block {
 ast_sprout.prototype.copy = function (deep, toplevel) {
   const root = this._copy(deep)
   if (deep && this.vars && toplevel && !this._block_sprout) {
-    root.figure_sprout({}, {toplevel: toplevel, roots: this.roots})
+    root.parse({}, {toplevel: toplevel, roots: this.roots})
   } else {
     if (this.vars) root.vars = new Map(this.vars)
     if (this.enclosed) root.enclosed = this.enclosed.slice()
@@ -572,26 +572,26 @@ function redefine (root) {
 
 class symbol_def {
   constructor (sprout, orig, init) {
-    this.sprout = sprout
-    this.name = orig.name
-    this.file = orig.file
-    this.orig = [orig]
-    this.init = init
-    this.eliminated = 0
     this.assigns = 0
-    this.replaced = 0
-    this.global = false
-    this.export = 0
-    this.mangled_name = null
-    this.undeclared = false
-    this.id = symbol_def.next_id++
     this.chained = false
     this.direct_access = false
+    this.eliminated = 0
     this.escaped = 0
+    this.export = 0
+    this.file = orig.file
+    this.fixed = false
+    this.global = false
+    this.id = symbol_def.next_id++
+    this.init = init
+    this.modified_name = null
+    this.name = orig.name
+    this.orig = [orig]
     this.recursive_refs = 0
     this.references = []
+    this.replaced = 0
     this.single_use = false
-    this.fixed = false
+    this.sprout = sprout
+    this.undeclared = false
   }
 
   fixed_value () {
@@ -599,20 +599,20 @@ class symbol_def {
     return this.fixed()
   }
 
-  mangle (options) {
+  modify (options) {
     const cache = options.cache && options.cache.properties
     if (this.global && cache && cache.has(this.name)) {
-      this.mangled_name = cache.get(this.name)
+      this.modified_name = cache.get(this.name)
     } else {
-      if (!this.mangled_name && !this.unmangleable(options)) {
+      if (!this.modified_name && !this.unmodifiable(options)) {
         const redef = redefine(this)
-        this.mangled_name = redef ? redef.mangled_name || redef.name : this.sprout.next_mangled(options, this)
+        this.modified_name = redef ? redef.modified_name || redef.name : this.sprout.next_modified(options, this)
       }
-      if (this.global && cache) cache.set(this.name, this.mangled_name)
+      if (this.global && cache) cache.set(this.name, this.modified_name)
     }
   }
 
-  unmangleable (options) {
+  unmodifiable (options) {
     if (!options) options = {}
     return this.global && !options.toplevel || this.undeclared || !options.eval && this.sprout.global()
       || this.orig[0] instanceof ast_symbol_method
@@ -642,7 +642,7 @@ ast_toplevel.prototype.def_global = function (root) {
 }
 ast_toplevel.prototype.equals = get_true
 ast_toplevel.prototype.length = function () { return left_length(this.stems) }
-ast_toplevel.prototype.wrap_enclose = function () {
+ast_toplevel.prototype.enclose = function () {
   const stems = this.stems
   return parse('(()=>{"$"})()').transform(new transforms(function (root) {
     if (root instanceof ast_directive && root.value == '$') return splice(stems)
@@ -1255,7 +1255,7 @@ ast_private_setter.prototype.length = function () { ast_concise_method.prototype
 class ast_symbol extends ast_tree {
   constructor (properties) {
     super()
-    this.func('ast_symbol', ['sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol', ['sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 ast_symbol.prototype.equals = function (other) {
@@ -1266,7 +1266,7 @@ ast_symbol.prototype.length = () => 1
 class ast_declaration extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_declaration', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_declaration', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 ast_declaration.prototype.length = function () { return this.name == 'arguments' ? 9 : 1 }
@@ -1274,102 +1274,102 @@ ast_declaration.prototype.length = function () { return this.name == 'arguments'
 class ast_symbol_block extends ast_declaration {
   constructor (properties) {
     super()
-    this.func('ast_symbol_block', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_block', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_catch extends ast_symbol_block {
   constructor (properties) {
     super()
-    this.func('ast_symbol_catch', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_catch', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_const extends ast_symbol_block {
   constructor (properties) {
     super()
-    this.func('ast_symbol_const', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_const', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_def_class extends ast_symbol_block {
   constructor (properties) {
     super()
-    this.func('ast_symbol_def_class', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_def_class', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_import extends ast_symbol_block {
   constructor (properties) {
     super()
-    this.func('ast_symbol_import', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_import', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_let extends ast_symbol_block {
   constructor (properties) {
     super()
-    this.func('ast_symbol_let', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_let', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_class extends ast_declaration {
   constructor (properties) {
     super()
-    this.func('ast_symbol_class', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_class', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_defun extends ast_declaration {
   constructor (properties) {
     super()
-    this.func('ast_symbol_defun', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_defun', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_lambda extends ast_declaration {
   constructor (properties) {
     super()
-    this.func('ast_symbol_lambda', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_lambda', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_var extends ast_declaration {
   constructor (properties) {
     super()
-    this.func('ast_symbol_var', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_var', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_funarg extends ast_symbol_var {
   constructor (properties) {
     super()
-    this.func('ast_symbol_funarg', ['init', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_funarg', ['init', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_label extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_label', ['references', 'sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_label', ['references', 'sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 ast_label.prototype.initialize = function () {
   this.references = []
-  this.thedef = this
+  this.def = this
 }
 
 class ast_label_ref extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_label_ref', ['sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_label_ref', ['sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_class_property extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_symbol_class_property', ['sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_class_property', ['sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 ast_symbol_class_property.prototype.length = function () { return this.name.length }
@@ -1377,7 +1377,7 @@ ast_symbol_class_property.prototype.length = function () { return this.name.leng
 class ast_symbol_export_foreign extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_symbol_export_foreign', ['sprout', 'name', 'thedef', 'quote', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_export_foreign', ['sprout', 'name', 'def', 'quote', 'start', 'end', 'file'], properties)
   }
 }
 ast_symbol_export_foreign.prototype.length = function () { return this.name.length }
@@ -1385,7 +1385,7 @@ ast_symbol_export_foreign.prototype.length = function () { return this.name.leng
 class ast_symbol_import_foreign extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_symbol_import_foreign', ['sprout', 'name', 'thedef', 'quote', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_import_foreign', ['sprout', 'name', 'def', 'quote', 'start', 'end', 'file'], properties)
   }
 }
 ast_symbol_import_foreign.prototype.length = function () { return this.name.length }
@@ -1393,21 +1393,21 @@ ast_symbol_import_foreign.prototype.length = function () { return this.name.leng
 class ast_symbol_method extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_symbol_method', ['sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_method', ['sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_private_property extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_symbol_private_property', ['sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_private_property', ['sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_symbol_ref extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_symbol_ref', ['sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_ref', ['sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 ast_symbol_ref.prototype.length = function () { return this.name == 'arguments' ? 9 : 1 }
@@ -1415,14 +1415,14 @@ ast_symbol_ref.prototype.length = function () { return this.name == 'arguments' 
 class ast_symbol_export extends ast_symbol_ref {
   constructor (properties) {
     super()
-    this.func('ast_symbol_export', ['sprout', 'name', 'thedef', 'quote', 'start', 'end', 'file'], properties)
+    this.func('ast_symbol_export', ['sprout', 'name', 'def', 'quote', 'start', 'end', 'file'], properties)
   }
 }
 
 class ast_this extends ast_symbol {
   constructor (properties) {
     super()
-    this.func('ast_this', ['sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_this', ['sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 ast_this.prototype.equals = get_true
@@ -1431,7 +1431,7 @@ ast_this.prototype.length = () => 4
 class ast_super extends ast_this {
   constructor (properties) {
     super()
-    this.func('ast_super', ['sprout', 'name', 'thedef', 'start', 'end', 'file'], properties)
+    this.func('ast_super', ['sprout', 'name', 'def', 'start', 'end', 'file'], properties)
   }
 }
 ast_super.prototype.equals = get_true
@@ -1723,8 +1723,8 @@ ast_labeled_statement.prototype.copy = function (deep) {
   if (deep) {
     const label = root.label, defined = this.label
     root.observe(new observes(function (root) {
-      if (root instanceof ast_loop_control && root.label && root.label.thedef == defined) {
-        root.label.thedef = label
+      if (root instanceof ast_loop_control && root.label && root.label.def == defined) {
+        root.label.def = label
         label.references.push(root)
       }
     }))
@@ -2077,7 +2077,7 @@ def_length(ast_tree, function (node, stack) {
   return length
 })
 
-const dont_mangle = 1, want_mangle = 2, walk_abort = Symbol('abort walk')
+const dont_modify = 1, want_modify = 2, walk_abort = Symbol('abort walk')
 let block_sprouts
 
 function owns (obj, prop) { return Object.prototype.hasOwnProperty.call(obj, prop) }
@@ -2135,13 +2135,13 @@ ast_sprout.prototype.add_branch = function (sprout) {
   let cur = this
   do { ancestry.push(cur) } while (cur = cur.roots)
   ancestry.reverse()
-  const new_sprout_enclosed_set = new Set(sprout.enclosed), to_enclose = []
-  for (const sprout_topdown of ancestry) {
-    to_enclose.forEach(expr => push_unique(sprout_topdown.enclosed, expr))
-    for (const defined of sprout_topdown.vars.values()) {
-      if (new_sprout_enclosed_set.has(defined)) {
+  const enclosed = new Set(sprout.enclosed), to_enclose = []
+  for (const section of ancestry) {
+    to_enclose.forEach(expr => push_unique(section.enclosed, expr))
+    for (const defined of section.vars.values()) {
+      if (enclosed.has(defined)) {
         push_unique(to_enclose, defined)
-        push_unique(sprout_topdown.enclosed, defined)
+        push_unique(section.enclosed, defined)
       }
     }
   }
@@ -2156,7 +2156,7 @@ ast_sprout.prototype.conflicting_def_shallow = function (name, file) {
   return this.enclosed.find(defined => defined.name === name) || this.vars.has(file + '/' + name)
 }
 
-ast_sprout.prototype.figure_sprout = function (options, {roots = undefined, toplevel = this} = {}) {
+ast_sprout.prototype.parse = function (options, {roots = undefined, toplevel = this} = {}) {
   options = defaults(options, {'cache': null, 'module': false})
   if (!(toplevel instanceof ast_toplevel)) throw new Error('bad toplevel sprout')
   let sprout = this.roots = roots, labels = new Map(), defun, destructure
@@ -2166,10 +2166,10 @@ ast_sprout.prototype.figure_sprout = function (options, {roots = undefined, topl
       do { level++ } while (trees.root(i++) !== destructure)
     }
     const root = trees.root(level)
-    if (defined.export = root instanceof ast_export ? dont_mangle : 0) {
+    if (defined.export = root instanceof ast_export ? dont_modify : 0) {
       const exported = root.defined
       if ((exported instanceof ast_defun || exported instanceof ast_def_class) && root.is_default) {
-        defined.export = want_mangle
+        defined.export = want_modify
       }
     }
   }
@@ -2227,7 +2227,7 @@ ast_sprout.prototype.figure_sprout = function (options, {roots = undefined, topl
     }
     if (root instanceof ast_symbol) root.sprout = sprout
     if (root instanceof ast_label) {
-      root.thedef = root
+      root.def = root
       root.references = []
     }
     if (root instanceof ast_symbol_lambda) {
@@ -2254,22 +2254,22 @@ ast_sprout.prototype.figure_sprout = function (options, {roots = undefined, topl
       if (defun !== sprout) {
         root.mark_enclosed()
         defined = sprout.find_variable(root, options.imports)
-        if (root.thedef !== defined) {
-          root.thedef = defined
+        if (root.def !== defined) {
+          root.def = defined
           root.reference()
         }
       }
     } else if (root instanceof ast_label_ref) {
       const sym = labels.get(root.name)
       if (!sym) throw new Error('undefined label ' + root.name)
-      root.thedef = sym
+      root.def = sym
     }
   })
   this.observe(trees)
   if (this instanceof ast_toplevel) this.globals = new Map()
   trees = new observes(root => {
     if (root instanceof ast_loop_control && root.label) {
-      root.label.thedef.references.push(root)
+      root.label.def.references.push(root)
       return true
     }
     if (root instanceof ast_symbol_ref) {
@@ -2283,11 +2283,11 @@ ast_sprout.prototype.figure_sprout = function (options, {roots = undefined, topl
       if (trees.root() instanceof ast_name_mapping && trees.root(1).module
         || !(sym = root.sprout.find_variable(root, options.imports))) {
         sym = toplevel.def_global(root)
-        if (root instanceof ast_symbol_export) sym.export = dont_mangle
+        if (root instanceof ast_symbol_export) sym.export = dont_modify
       } else if (sym.sprout instanceof ast_lambda && name == 'arguments') {
         sym.sprout.get_defun_sprout().uses_args = true
       }
-      root.thedef = sym
+      root.def = sym
       root.reference()
       if (root.sprout.block_sprout() && !(sym.orig[0] instanceof ast_symbol_block)) {
         root.sprout = root.sprout.get_defun_sprout()
@@ -2407,7 +2407,7 @@ ast_sprout.prototype.def_variable = function (root, init) {
     this.vars.set(name, defined)
     defined.global = !this.roots
   }
-  return root.thedef = defined
+  return root.def = defined
 }
 
 ast_sprout.prototype.find_variable = function (root, imports) {
@@ -2419,7 +2419,7 @@ ast_sprout.prototype.find_variable = function (root, imports) {
   return this.vars.get(root) || (this.roots && this.roots.find_variable(root, imports))
 }
 
-function next_mangled (sprout, options) {
+function next_modified (sprout, options) {
   let defun_sprout
   if (block_sprouts && (defun_sprout = sprout.get_defun_sprout())
     && block_sprouts.has(defun_sprout)) sprout = defun_sprout
@@ -2429,46 +2429,46 @@ function next_mangled (sprout, options) {
     if (all_reserved_words.has(m) || options.reserved.has(m)) continue
     for (let i = ext.length; --i >= 0;) {
       const defined = ext[i]
-      const name = defined.mangled_name || (defined.unmangleable(options) && defined.name)
+      const name = defined.modified_name || (defined.unmodifiable(options) && defined.name)
       if (m == name) continue out
     }
     return m
   }
 }
 
-ast_sprout.prototype.next_mangled = function (options) { return next_mangled(this, options) }
+ast_sprout.prototype.next_modified = function (options) { return next_modified(this, options) }
 
-ast_function.prototype.next_mangled = function (options, defined) {
+ast_function.prototype.next_modified = function (options, defined) {
   const tricky_def = defined.orig[0] instanceof ast_symbol_funarg && this.name && this.name.defined()
-  const tricky_name = tricky_def ? tricky_def.mangled_name || tricky_def.name : null
+  const tricky_name = tricky_def ? tricky_def.modified_name || tricky_def.name : null
   let name
   while (true) {
-    name = next_mangled(this, options)
+    name = next_modified(this, options)
     if (!tricky_name || tricky_name != name) return name
   }
 }
 
-ast_toplevel.prototype.next_mangled = function (options) {
-  const names = this.mangled_names
+ast_toplevel.prototype.next_modified = function (options) {
+  const names = this.modified_names
   let name
-  do { name = next_mangled(this, options) } while (names && names.has(name))
+  do { name = next_modified(this, options) } while (names && names.has(name))
   return name
 }
 
-ast_label.prototype.unmangleable = get_false
+ast_label.prototype.unmodifiable = get_false
 
-ast_symbol.prototype.defined = function () { return this.thedef }
+ast_symbol.prototype.defined = function () { return this.def }
 
-ast_symbol.prototype.global = function () { return this.thedef.global }
+ast_symbol.prototype.global = function () { return this.def.global }
 
-ast_symbol.prototype.unmangleable = function (options) {
+ast_symbol.prototype.unmodifiable = function (options) {
   const defined = this.defined()
-  return !defined || defined.unmangleable(options)
+  return !defined || defined.unmodifiable(options)
 }
 
 ast_symbol.prototype.unreferenced = function () { return !this.defined().references.length && !this.sprout.global() }
 
-function format_mangler_options (options) {
+function format_modifier_options (options) {
   options = defaults(options, {'eval': false, 'nth': base54, 'module': false, 'reserved': [], 'toplevel': false})
   if (options.module) options.toplevel = true
   if (!Array.isArray(options.reserved) && !(options.reserved instanceof Set)) options.reserved = []
@@ -2477,13 +2477,13 @@ function format_mangler_options (options) {
   return options
 }
 
-ast_toplevel.prototype.mangle_names = function (options) {
-  options = format_mangler_options(options)
-  const nth = options.nth, to_mangle = []
+ast_toplevel.prototype.modify_names = function (options) {
+  options = format_modifier_options(options)
+  const nth = options.nth, to_modify = []
   let lname = -1, block_sprouts
   let trees = new observes(function (root, ascend) {
 
-    function collect(symbol) { if (!options.reserved.has(symbol.name)) to_mangle.push(symbol) }
+    function collect(symbol) { if (!options.reserved.has(symbol.name)) to_modify.push(symbol) }
 
     if (root instanceof ast_labeled_statement) {
       const save_nesting = lname
@@ -2506,16 +2506,16 @@ ast_toplevel.prototype.mangle_names = function (options) {
     if (root instanceof ast_label) {
       let name
       do { name = nth.get(++lname) } while (all_reserved_words.has(name))
-      root.mangled_name = name
+      root.modified_name = name
       return true
     }
     if (root instanceof ast_symbol_catch) {
-      to_mangle.push(root.defined())
+      to_modify.push(root.defined())
       return
     }
   })
   this.observe(trees)
-  to_mangle.forEach(defined => defined.mangle(options))
+  to_modify.forEach(defined => defined.modify(options))
   block_sprouts = null
 }
 
@@ -2597,14 +2597,14 @@ const base54 = (() => {
 })()
 
 ast_toplevel.prototype.char_count = function (options) {
-  options = format_mangler_options(options)
+  options = format_modifier_options(options)
   const nth = base54
   if (!nth.reset || !nth.consider || !nth.sort) return
   nth.reset()
   try {
     ast_tree.prototype.print = function (stream, force_parens) {
       this._print(stream, force_parens)
-      if (this instanceof ast_symbol && !this.unmangleable(options)) {
+      if (this instanceof ast_symbol && !this.unmodifiable(options)) {
         nth.consider(this.name, -1)
       } else if (options.properties) {
         if (this instanceof ast_dot_hash) {
@@ -2722,7 +2722,7 @@ function make_set (words) {
 
 function chars (string) { return string.split('') }
 
-const _pure = 1, _inline = 2, _noinline = 4, _key = 8, _mangleprop = 16
+const _pure = 1, _inline = 2, _noinline = 4, _key = 8, _prop = 16
 const keywords_atom = make_set('false null true')
 const keywords = make_set('break case catch class const continue debugger default delete do else export extends'
   + ' finally for function if in instanceof let new return switch throw try typeof var void while with')
@@ -2741,9 +2741,10 @@ const punc_after_expression = make_set(chars(']),:'))
 const punc_before_expression = make_set(chars('[{(,;:'))
 const punc_chars = make_set(chars('[]{}(),;:'))
 const unicode = {
-  ustart: /[$A-Z_a-z\xAA\xB5\xBA\xC0-\xD6\xD8-\xF6\xF8-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u02EC\u02EE\u0370-\u0374\u0376\u0377\u037A-\u037D\u037F\u0386\u0388-\u038A\u038C\u038E-\u03A1\u03A3-\u03F5\u03F7-\u0481\u048A-\u052F\u0531-\u0556\u0559\u0561-\u0587\u05D0-\u05EA\u05F0-\u05F2\u0620-\u064A\u066E\u066F\u0671-\u06D3\u06D5\u06E5\u06E6\u06EE\u06EF\u06FA-\u06FC\u06FF\u0710\u0712-\u072F\u074D-\u07A5\u07B1\u07CA-\u07EA\u07F4\u07F5\u07FA\u0800-\u0815\u081A\u0824\u0828\u0840-\u0858\u08A0-\u08B4\u0904-\u0939\u093D\u0950\u0958-\u0961\u0971-\u0980\u0985-\u098C\u098F\u0990\u0993-\u09A8\u09AA-\u09B0\u09B2\u09B6-\u09B9\u09BD\u09CE\u09DC\u09DD\u09DF-\u09E1\u09F0\u09F1\u0A05-\u0A0A\u0A0F\u0A10\u0A13-\u0A28\u0A2A-\u0A30\u0A32\u0A33\u0A35\u0A36\u0A38\u0A39\u0A59-\u0A5C\u0A5E\u0A72-\u0A74\u0A85-\u0A8D\u0A8F-\u0A91\u0A93-\u0AA8\u0AAA-\u0AB0\u0AB2\u0AB3\u0AB5-\u0AB9\u0ABD\u0AD0\u0AE0\u0AE1\u0AF9\u0B05-\u0B0C\u0B0F\u0B10\u0B13-\u0B28\u0B2A-\u0B30\u0B32\u0B33\u0B35-\u0B39\u0B3D\u0B5C\u0B5D\u0B5F-\u0B61\u0B71\u0B83\u0B85-\u0B8A\u0B8E-\u0B90\u0B92-\u0B95\u0B99\u0B9A\u0B9C\u0B9E\u0B9F\u0BA3\u0BA4\u0BA8-\u0BAA\u0BAE-\u0BB9\u0BD0\u0C05-\u0C0C\u0C0E-\u0C10\u0C12-\u0C28\u0C2A-\u0C39\u0C3D\u0C58-\u0C5A\u0C60\u0C61\u0C85-\u0C8C\u0C8E-\u0C90\u0C92-\u0CA8\u0CAA-\u0CB3\u0CB5-\u0CB9\u0CBD\u0CDE\u0CE0\u0CE1\u0CF1\u0CF2\u0D05-\u0D0C\u0D0E-\u0D10\u0D12-\u0D3A\u0D3D\u0D4E\u0D5F-\u0D61\u0D7A-\u0D7F\u0D85-\u0D96\u0D9A-\u0DB1\u0DB3-\u0DBB\u0DBD\u0DC0-\u0DC6\u0E01-\u0E30\u0E32\u0E33\u0E40-\u0E46\u0E81\u0E82\u0E84\u0E87\u0E88\u0E8A\u0E8D\u0E94-\u0E97\u0E99-\u0E9F\u0EA1-\u0EA3\u0EA5\u0EA7\u0EAA\u0EAB\u0EAD-\u0EB0\u0EB2\u0EB3\u0EBD\u0EC0-\u0EC4\u0EC6\u0EDC-\u0EDF\u0F00\u0F40-\u0F47\u0F49-\u0F6C\u0F88-\u0F8C\u1000-\u102A\u103F\u1050-\u1055\u105A-\u105D\u1061\u1065\u1066\u106E-\u1070\u1075-\u1081\u108E\u10A0-\u10C5\u10C7\u10CD\u10D0-\u10FA\u10FC-\u1248\u124A-\u124D\u1250-\u1256\u1258\u125A-\u125D\u1260-\u1288\u128A-\u128D\u1290-\u12B0\u12B2-\u12B5\u12B8-\u12BE\u12C0\u12C2-\u12C5\u12C8-\u12D6\u12D8-\u1310\u1312-\u1315\u1318-\u135A\u1380-\u138F\u13A0-\u13F5\u13F8-\u13FD\u1401-\u166C\u166F-\u167F\u1681-\u169A\u16A0-\u16EA\u16EE-\u16F8\u1700-\u170C\u170E-\u1711\u1720-\u1731\u1740-\u1751\u1760-\u176C\u176E-\u1770\u1780-\u17B3\u17D7\u17DC\u1820-\u1877\u1880-\u18A8\u18AA\u18B0-\u18F5\u1900-\u191E\u1950-\u196D\u1970-\u1974\u1980-\u19AB\u19B0-\u19C9\u1A00-\u1A16\u1A20-\u1A54\u1AA7\u1B05-\u1B33\u1B45-\u1B4B\u1B83-\u1BA0\u1BAE\u1BAF\u1BBA-\u1BE5\u1C00-\u1C23\u1C4D-\u1C4F\u1C5A-\u1C7D\u1CE9-\u1CEC\u1CEE-\u1CF1\u1CF5\u1CF6\u1D00-\u1DBF\u1E00-\u1F15\u1F18-\u1F1D\u1F20-\u1F45\u1F48-\u1F4D\u1F50-\u1F57\u1F59\u1F5B\u1F5D\u1F5F-\u1F7D\u1F80-\u1FB4\u1FB6-\u1FBC\u1FBE\u1FC2-\u1FC4\u1FC6-\u1FCC\u1FD0-\u1FD3\u1FD6-\u1FDB\u1FE0-\u1FEC\u1FF2-\u1FF4\u1FF6-\u1FFC\u2071\u207F\u2090-\u209C\u2102\u2107\u210A-\u2113\u2115\u2118-\u211D\u2124\u2126\u2128\u212A-\u2139\u213C-\u213F\u2145-\u2149\u214E\u2160-\u2188\u2C00-\u2C2E\u2C30-\u2C5E\u2C60-\u2CE4\u2CEB-\u2CEE\u2CF2\u2CF3\u2D00-\u2D25\u2D27\u2D2D\u2D30-\u2D67\u2D6F\u2D80-\u2D96\u2DA0-\u2DA6\u2DA8-\u2DAE\u2DB0-\u2DB6\u2DB8-\u2DBE\u2DC0-\u2DC6\u2DC8-\u2DCE\u2DD0-\u2DD6\u2DD8-\u2DDE\u3005-\u3007\u3021-\u3029\u3031-\u3035\u3038-\u303C\u3041-\u3096\u309B-\u309F\u30A1-\u30FA\u30FC-\u30FF\u3105-\u312D\u3131-\u318E\u31A0-\u31BA\u31F0-\u31FF\u3400-\u4DB5\u4E00-\u9FD5\uA000-\uA48C\uA4D0-\uA4FD\uA500-\uA60C\uA610-\uA61F\uA62A\uA62B\uA640-\uA66E\uA67F-\uA69D\uA6A0-\uA6EF\uA717-\uA71F\uA722-\uA788\uA78B-\uA7AD\uA7B0-\uA7B7\uA7F7-\uA801\uA803-\uA805\uA807-\uA80A\uA80C-\uA822\uA840-\uA873\uA882-\uA8B3\uA8F2-\uA8F7\uA8FB\uA8FD\uA90A-\uA925\uA930-\uA946\uA960-\uA97C\uA984-\uA9B2\uA9CF\uA9E0-\uA9E4\uA9E6-\uA9EF\uA9FA-\uA9FE\uAA00-\uAA28\uAA40-\uAA42\uAA44-\uAA4B\uAA60-\uAA76\uAA7A\uAA7E-\uAAAF\uAAB1\uAAB5\uAAB6\uAAB9-\uAABD\uAAC0\uAAC2\uAADB-\uAADD\uAAE0-\uAAEA\uAAF2-\uAAF4\uAB01-\uAB06\uAB09-\uAB0E\uAB11-\uAB16\uAB20-\uAB26\uAB28-\uAB2E\uAB30-\uAB5A\uAB5C-\uAB65\uAB70-\uABE2\uAC00-\uD7A3\uD7B0-\uD7C6\uD7CB-\uD7FB\uF900-\uFA6D\uFA70-\uFAD9\uFB00-\uFB06\uFB13-\uFB17\uFB1D\uFB1F-\uFB28\uFB2A-\uFB36\uFB38-\uFB3C\uFB3E\uFB40\uFB41\uFB43\uFB44\uFB46-\uFBB1\uFBD3-\uFD3D\uFD50-\uFD8F\uFD92-\uFDC7\uFDF0-\uFDFB\uFE70-\uFE74\uFE76-\uFEFC\uFF21-\uFF3A\uFF41-\uFF5A\uFF66-\uFFBE\uFFC2-\uFFC7\uFFCA-\uFFCF\uFFD2-\uFFD7\uFFDA-\uFFDC]|\uD800[\uDC00-\uDC0B\uDC0D-\uDC26\uDC28-\uDC3A\uDC3C\uDC3D\uDC3F-\uDC4D\uDC50-\uDC5D\uDC80-\uDCFA\uDD40-\uDD74\uDE80-\uDE9C\uDEA0-\uDED0\uDF00-\uDF1F\uDF30-\uDF4A\uDF50-\uDF75\uDF80-\uDF9D\uDFA0-\uDFC3\uDFC8-\uDFCF\uDFD1-\uDFD5]|\uD801[\uDC00-\uDC9D\uDD00-\uDD27\uDD30-\uDD63\uDE00-\uDF36\uDF40-\uDF55\uDF60-\uDF67]|\uD802[\uDC00-\uDC05\uDC08\uDC0A-\uDC35\uDC37\uDC38\uDC3C\uDC3F-\uDC55\uDC60-\uDC76\uDC80-\uDC9E\uDCE0-\uDCF2\uDCF4\uDCF5\uDD00-\uDD15\uDD20-\uDD39\uDD80-\uDDB7\uDDBE\uDDBF\uDE00\uDE10-\uDE13\uDE15-\uDE17\uDE19-\uDE33\uDE60-\uDE7C\uDE80-\uDE9C\uDEC0-\uDEC7\uDEC9-\uDEE4\uDF00-\uDF35\uDF40-\uDF55\uDF60-\uDF72\uDF80-\uDF91]|\uD803[\uDC00-\uDC48\uDC80-\uDCB2\uDCC0-\uDCF2]|\uD804[\uDC03-\uDC37\uDC83-\uDCAF\uDCD0-\uDCE8\uDD03-\uDD26\uDD50-\uDD72\uDD76\uDD83-\uDDB2\uDDC1-\uDDC4\uDDDA\uDDDC\uDE00-\uDE11\uDE13-\uDE2B\uDE80-\uDE86\uDE88\uDE8A-\uDE8D\uDE8F-\uDE9D\uDE9F-\uDEA8\uDEB0-\uDEDE\uDF05-\uDF0C\uDF0F\uDF10\uDF13-\uDF28\uDF2A-\uDF30\uDF32\uDF33\uDF35-\uDF39\uDF3D\uDF50\uDF5D-\uDF61]|\uD805[\uDC80-\uDCAF\uDCC4\uDCC5\uDCC7\uDD80-\uDDAE\uDDD8-\uDDDB\uDE00-\uDE2F\uDE44\uDE80-\uDEAA\uDF00-\uDF19]|\uD806[\uDCA0-\uDCDF\uDCFF\uDEC0-\uDEF8]|\uD808[\uDC00-\uDF99]|\uD809[\uDC00-\uDC6E\uDC80-\uDD43]|[\uD80C\uD840-\uD868\uD86A-\uD86C\uD86F-\uD872][\uDC00-\uDFFF]|\uD80D[\uDC00-\uDC2E]|\uD811[\uDC00-\uDE46]|\uD81A[\uDC00-\uDE38\uDE40-\uDE5E\uDED0-\uDEED\uDF00-\uDF2F\uDF40-\uDF43\uDF63-\uDF77\uDF7D-\uDF8F]|\uD81B[\uDF00-\uDF44\uDF50\uDF93-\uDF9F]|\uD82C[\uDC00\uDC01]|\uD82F[\uDC00-\uDC6A\uDC70-\uDC7C\uDC80-\uDC88\uDC90-\uDC99]|\uD835[\uDC00-\uDC54\uDC56-\uDC9C\uDC9E\uDC9F\uDCA2\uDCA5\uDCA6\uDCA9-\uDCAC\uDCAE-\uDCB9\uDCBB\uDCBD-\uDCC3\uDCC5-\uDD05\uDD07-\uDD0A\uDD0D-\uDD14\uDD16-\uDD1C\uDD1E-\uDD39\uDD3B-\uDD3E\uDD40-\uDD44\uDD46\uDD4A-\uDD50\uDD52-\uDEA5\uDEA8-\uDEC0\uDEC2-\uDEDA\uDEDC-\uDEFA\uDEFC-\uDF14\uDF16-\uDF34\uDF36-\uDF4E\uDF50-\uDF6E\uDF70-\uDF88\uDF8A-\uDFA8\uDFAA-\uDFC2\uDFC4-\uDFCB]|\uD83A[\uDC00-\uDCC4]|\uD83B[\uDE00-\uDE03\uDE05-\uDE1F\uDE21\uDE22\uDE24\uDE27\uDE29-\uDE32\uDE34-\uDE37\uDE39\uDE3B\uDE42\uDE47\uDE49\uDE4B\uDE4D-\uDE4F\uDE51\uDE52\uDE54\uDE57\uDE59\uDE5B\uDE5D\uDE5F\uDE61\uDE62\uDE64\uDE67-\uDE6A\uDE6C-\uDE72\uDE74-\uDE77\uDE79-\uDE7C\uDE7E\uDE80-\uDE89\uDE8B-\uDE9B\uDEA1-\uDEA3\uDEA5-\uDEA9\uDEAB-\uDEBB]|\uD869[\uDC00-\uDED6\uDF00-\uDFFF]|\uD86D[\uDC00-\uDF34\uDF40-\uDFFF]|\uD86E[\uDC00-\uDC1D\uDC20-\uDFFF]|\uD873[\uDC00-\uDEA1]|\uD87E[\uDC00-\uDE1D]/,
-  ucontinue: /(?:[$0-9A-Z_a-z\xAA\xB5\xB7\xBA\xC0-\xD6\xD8-\xF6\xF8-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u02EC\u02EE\u0300-\u0374\u0376\u0377\u037A-\u037D\u037F\u0386-\u038A\u038C\u038E-\u03A1\u03A3-\u03F5\u03F7-\u0481\u0483-\u0487\u048A-\u052F\u0531-\u0556\u0559\u0561-\u0587\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\u05D0-\u05EA\u05F0-\u05F2\u0610-\u061A\u0620-\u0669\u066E-\u06D3\u06D5-\u06DC\u06DF-\u06E8\u06EA-\u06FC\u06FF\u0710-\u074A\u074D-\u07B1\u07C0-\u07F5\u07FA\u0800-\u082D\u0840-\u085B\u08A0-\u08B4\u08E3-\u0963\u0966-\u096F\u0971-\u0983\u0985-\u098C\u098F\u0990\u0993-\u09A8\u09AA-\u09B0\u09B2\u09B6-\u09B9\u09BC-\u09C4\u09C7\u09C8\u09CB-\u09CE\u09D7\u09DC\u09DD\u09DF-\u09E3\u09E6-\u09F1\u0A01-\u0A03\u0A05-\u0A0A\u0A0F\u0A10\u0A13-\u0A28\u0A2A-\u0A30\u0A32\u0A33\u0A35\u0A36\u0A38\u0A39\u0A3C\u0A3E-\u0A42\u0A47\u0A48\u0A4B-\u0A4D\u0A51\u0A59-\u0A5C\u0A5E\u0A66-\u0A75\u0A81-\u0A83\u0A85-\u0A8D\u0A8F-\u0A91\u0A93-\u0AA8\u0AAA-\u0AB0\u0AB2\u0AB3\u0AB5-\u0AB9\u0ABC-\u0AC5\u0AC7-\u0AC9\u0ACB-\u0ACD\u0AD0\u0AE0-\u0AE3\u0AE6-\u0AEF\u0AF9\u0B01-\u0B03\u0B05-\u0B0C\u0B0F\u0B10\u0B13-\u0B28\u0B2A-\u0B30\u0B32\u0B33\u0B35-\u0B39\u0B3C-\u0B44\u0B47\u0B48\u0B4B-\u0B4D\u0B56\u0B57\u0B5C\u0B5D\u0B5F-\u0B63\u0B66-\u0B6F\u0B71\u0B82\u0B83\u0B85-\u0B8A\u0B8E-\u0B90\u0B92-\u0B95\u0B99\u0B9A\u0B9C\u0B9E\u0B9F\u0BA3\u0BA4\u0BA8-\u0BAA\u0BAE-\u0BB9\u0BBE-\u0BC2\u0BC6-\u0BC8\u0BCA-\u0BCD\u0BD0\u0BD7\u0BE6-\u0BEF\u0C00-\u0C03\u0C05-\u0C0C\u0C0E-\u0C10\u0C12-\u0C28\u0C2A-\u0C39\u0C3D-\u0C44\u0C46-\u0C48\u0C4A-\u0C4D\u0C55\u0C56\u0C58-\u0C5A\u0C60-\u0C63\u0C66-\u0C6F\u0C81-\u0C83\u0C85-\u0C8C\u0C8E-\u0C90\u0C92-\u0CA8\u0CAA-\u0CB3\u0CB5-\u0CB9\u0CBC-\u0CC4\u0CC6-\u0CC8\u0CCA-\u0CCD\u0CD5\u0CD6\u0CDE\u0CE0-\u0CE3\u0CE6-\u0CEF\u0CF1\u0CF2\u0D01-\u0D03\u0D05-\u0D0C\u0D0E-\u0D10\u0D12-\u0D3A\u0D3D-\u0D44\u0D46-\u0D48\u0D4A-\u0D4E\u0D57\u0D5F-\u0D63\u0D66-\u0D6F\u0D7A-\u0D7F\u0D82\u0D83\u0D85-\u0D96\u0D9A-\u0DB1\u0DB3-\u0DBB\u0DBD\u0DC0-\u0DC6\u0DCA\u0DCF-\u0DD4\u0DD6\u0DD8-\u0DDF\u0DE6-\u0DEF\u0DF2\u0DF3\u0E01-\u0E3A\u0E40-\u0E4E\u0E50-\u0E59\u0E81\u0E82\u0E84\u0E87\u0E88\u0E8A\u0E8D\u0E94-\u0E97\u0E99-\u0E9F\u0EA1-\u0EA3\u0EA5\u0EA7\u0EAA\u0EAB\u0EAD-\u0EB9\u0EBB-\u0EBD\u0EC0-\u0EC4\u0EC6\u0EC8-\u0ECD\u0ED0-\u0ED9\u0EDC-\u0EDF\u0F00\u0F18\u0F19\u0F20-\u0F29\u0F35\u0F37\u0F39\u0F3E-\u0F47\u0F49-\u0F6C\u0F71-\u0F84\u0F86-\u0F97\u0F99-\u0FBC\u0FC6\u1000-\u1049\u1050-\u109D\u10A0-\u10C5\u10C7\u10CD\u10D0-\u10FA\u10FC-\u1248\u124A-\u124D\u1250-\u1256\u1258\u125A-\u125D\u1260-\u1288\u128A-\u128D\u1290-\u12B0\u12B2-\u12B5\u12B8-\u12BE\u12C0\u12C2-\u12C5\u12C8-\u12D6\u12D8-\u1310\u1312-\u1315\u1318-\u135A\u135D-\u135F\u1369-\u1371\u1380-\u138F\u13A0-\u13F5\u13F8-\u13FD\u1401-\u166C\u166F-\u167F\u1681-\u169A\u16A0-\u16EA\u16EE-\u16F8\u1700-\u170C\u170E-\u1714\u1720-\u1734\u1740-\u1753\u1760-\u176C\u176E-\u1770\u1772\u1773\u1780-\u17D3\u17D7\u17DC\u17DD\u17E0-\u17E9\u180B-\u180D\u1810-\u1819\u1820-\u1877\u1880-\u18AA\u18B0-\u18F5\u1900-\u191E\u1920-\u192B\u1930-\u193B\u1946-\u196D\u1970-\u1974\u1980-\u19AB\u19B0-\u19C9\u19D0-\u19DA\u1A00-\u1A1B\u1A20-\u1A5E\u1A60-\u1A7C\u1A7F-\u1A89\u1A90-\u1A99\u1AA7\u1AB0-\u1ABD\u1B00-\u1B4B\u1B50-\u1B59\u1B6B-\u1B73\u1B80-\u1BF3\u1C00-\u1C37\u1C40-\u1C49\u1C4D-\u1C7D\u1CD0-\u1CD2\u1CD4-\u1CF6\u1CF8\u1CF9\u1D00-\u1DF5\u1DFC-\u1F15\u1F18-\u1F1D\u1F20-\u1F45\u1F48-\u1F4D\u1F50-\u1F57\u1F59\u1F5B\u1F5D\u1F5F-\u1F7D\u1F80-\u1FB4\u1FB6-\u1FBC\u1FBE\u1FC2-\u1FC4\u1FC6-\u1FCC\u1FD0-\u1FD3\u1FD6-\u1FDB\u1FE0-\u1FEC\u1FF2-\u1FF4\u1FF6-\u1FFC\u200C\u200D\u203F\u2040\u2054\u2071\u207F\u2090-\u209C\u20D0-\u20DC\u20E1\u20E5-\u20F0\u2102\u2107\u210A-\u2113\u2115\u2118-\u211D\u2124\u2126\u2128\u212A-\u2139\u213C-\u213F\u2145-\u2149\u214E\u2160-\u2188\u2C00-\u2C2E\u2C30-\u2C5E\u2C60-\u2CE4\u2CEB-\u2CF3\u2D00-\u2D25\u2D27\u2D2D\u2D30-\u2D67\u2D6F\u2D7F-\u2D96\u2DA0-\u2DA6\u2DA8-\u2DAE\u2DB0-\u2DB6\u2DB8-\u2DBE\u2DC0-\u2DC6\u2DC8-\u2DCE\u2DD0-\u2DD6\u2DD8-\u2DDE\u2DE0-\u2DFF\u3005-\u3007\u3021-\u302F\u3031-\u3035\u3038-\u303C\u3041-\u3096\u3099-\u309F\u30A1-\u30FA\u30FC-\u30FF\u3105-\u312D\u3131-\u318E\u31A0-\u31BA\u31F0-\u31FF\u3400-\u4DB5\u4E00-\u9FD5\uA000-\uA48C\uA4D0-\uA4FD\uA500-\uA60C\uA610-\uA62B\uA640-\uA66F\uA674-\uA67D\uA67F-\uA6F1\uA717-\uA71F\uA722-\uA788\uA78B-\uA7AD\uA7B0-\uA7B7\uA7F7-\uA827\uA840-\uA873\uA880-\uA8C4\uA8D0-\uA8D9\uA8E0-\uA8F7\uA8FB\uA8FD\uA900-\uA92D\uA930-\uA953\uA960-\uA97C\uA980-\uA9C0\uA9CF-\uA9D9\uA9E0-\uA9FE\uAA00-\uAA36\uAA40-\uAA4D\uAA50-\uAA59\uAA60-\uAA76\uAA7A-\uAAC2\uAADB-\uAADD\uAAE0-\uAAEF\uAAF2-\uAAF6\uAB01-\uAB06\uAB09-\uAB0E\uAB11-\uAB16\uAB20-\uAB26\uAB28-\uAB2E\uAB30-\uAB5A\uAB5C-\uAB65\uAB70-\uABEA\uABEC\uABED\uABF0-\uABF9\uAC00-\uD7A3\uD7B0-\uD7C6\uD7CB-\uD7FB\uF900-\uFA6D\uFA70-\uFAD9\uFB00-\uFB06\uFB13-\uFB17\uFB1D-\uFB28\uFB2A-\uFB36\uFB38-\uFB3C\uFB3E\uFB40\uFB41\uFB43\uFB44\uFB46-\uFBB1\uFBD3-\uFD3D\uFD50-\uFD8F\uFD92-\uFDC7\uFDF0-\uFDFB\uFE00-\uFE0F\uFE20-\uFE2F\uFE33\uFE34\uFE4D-\uFE4F\uFE70-\uFE74\uFE76-\uFEFC\uFF10-\uFF19\uFF21-\uFF3A\uFF3F\uFF41-\uFF5A\uFF66-\uFFBE\uFFC2-\uFFC7\uFFCA-\uFFCF\uFFD2-\uFFD7\uFFDA-\uFFDC]|\uD800[\uDC00-\uDC0B\uDC0D-\uDC26\uDC28-\uDC3A\uDC3C\uDC3D\uDC3F-\uDC4D\uDC50-\uDC5D\uDC80-\uDCFA\uDD40-\uDD74\uDDFD\uDE80-\uDE9C\uDEA0-\uDED0\uDEE0\uDF00-\uDF1F\uDF30-\uDF4A\uDF50-\uDF7A\uDF80-\uDF9D\uDFA0-\uDFC3\uDFC8-\uDFCF\uDFD1-\uDFD5]|\uD801[\uDC00-\uDC9D\uDCA0-\uDCA9\uDD00-\uDD27\uDD30-\uDD63\uDE00-\uDF36\uDF40-\uDF55\uDF60-\uDF67]|\uD802[\uDC00-\uDC05\uDC08\uDC0A-\uDC35\uDC37\uDC38\uDC3C\uDC3F-\uDC55\uDC60-\uDC76\uDC80-\uDC9E\uDCE0-\uDCF2\uDCF4\uDCF5\uDD00-\uDD15\uDD20-\uDD39\uDD80-\uDDB7\uDDBE\uDDBF\uDE00-\uDE03\uDE05\uDE06\uDE0C-\uDE13\uDE15-\uDE17\uDE19-\uDE33\uDE38-\uDE3A\uDE3F\uDE60-\uDE7C\uDE80-\uDE9C\uDEC0-\uDEC7\uDEC9-\uDEE6\uDF00-\uDF35\uDF40-\uDF55\uDF60-\uDF72\uDF80-\uDF91]|\uD803[\uDC00-\uDC48\uDC80-\uDCB2\uDCC0-\uDCF2]|\uD804[\uDC00-\uDC46\uDC66-\uDC6F\uDC7F-\uDCBA\uDCD0-\uDCE8\uDCF0-\uDCF9\uDD00-\uDD34\uDD36-\uDD3F\uDD50-\uDD73\uDD76\uDD80-\uDDC4\uDDCA-\uDDCC\uDDD0-\uDDDA\uDDDC\uDE00-\uDE11\uDE13-\uDE37\uDE80-\uDE86\uDE88\uDE8A-\uDE8D\uDE8F-\uDE9D\uDE9F-\uDEA8\uDEB0-\uDEEA\uDEF0-\uDEF9\uDF00-\uDF03\uDF05-\uDF0C\uDF0F\uDF10\uDF13-\uDF28\uDF2A-\uDF30\uDF32\uDF33\uDF35-\uDF39\uDF3C-\uDF44\uDF47\uDF48\uDF4B-\uDF4D\uDF50\uDF57\uDF5D-\uDF63\uDF66-\uDF6C\uDF70-\uDF74]|\uD805[\uDC80-\uDCC5\uDCC7\uDCD0-\uDCD9\uDD80-\uDDB5\uDDB8-\uDDC0\uDDD8-\uDDDD\uDE00-\uDE40\uDE44\uDE50-\uDE59\uDE80-\uDEB7\uDEC0-\uDEC9\uDF00-\uDF19\uDF1D-\uDF2B\uDF30-\uDF39]|\uD806[\uDCA0-\uDCE9\uDCFF\uDEC0-\uDEF8]|\uD808[\uDC00-\uDF99]|\uD809[\uDC00-\uDC6E\uDC80-\uDD43]|[\uD80C\uD840-\uD868\uD86A-\uD86C\uD86F-\uD872][\uDC00-\uDFFF]|\uD80D[\uDC00-\uDC2E]|\uD811[\uDC00-\uDE46]|\uD81A[\uDC00-\uDE38\uDE40-\uDE5E\uDE60-\uDE69\uDED0-\uDEED\uDEF0-\uDEF4\uDF00-\uDF36\uDF40-\uDF43\uDF50-\uDF59\uDF63-\uDF77\uDF7D-\uDF8F]|\uD81B[\uDF00-\uDF44\uDF50-\uDF7E\uDF8F-\uDF9F]|\uD82C[\uDC00\uDC01]|\uD82F[\uDC00-\uDC6A\uDC70-\uDC7C\uDC80-\uDC88\uDC90-\uDC99\uDC9D\uDC9E]|\uD834[\uDD65-\uDD69\uDD6D-\uDD72\uDD7B-\uDD82\uDD85-\uDD8B\uDDAA-\uDDAD\uDE42-\uDE44]|\uD835[\uDC00-\uDC54\uDC56-\uDC9C\uDC9E\uDC9F\uDCA2\uDCA5\uDCA6\uDCA9-\uDCAC\uDCAE-\uDCB9\uDCBB\uDCBD-\uDCC3\uDCC5-\uDD05\uDD07-\uDD0A\uDD0D-\uDD14\uDD16-\uDD1C\uDD1E-\uDD39\uDD3B-\uDD3E\uDD40-\uDD44\uDD46\uDD4A-\uDD50\uDD52-\uDEA5\uDEA8-\uDEC0\uDEC2-\uDEDA\uDEDC-\uDEFA\uDEFC-\uDF14\uDF16-\uDF34\uDF36-\uDF4E\uDF50-\uDF6E\uDF70-\uDF88\uDF8A-\uDFA8\uDFAA-\uDFC2\uDFC4-\uDFCB\uDFCE-\uDFFF]|\uD836[\uDE00-\uDE36\uDE3B-\uDE6C\uDE75\uDE84\uDE9B-\uDE9F\uDEA1-\uDEAF]|\uD83A[\uDC00-\uDCC4\uDCD0-\uDCD6]|\uD83B[\uDE00-\uDE03\uDE05-\uDE1F\uDE21\uDE22\uDE24\uDE27\uDE29-\uDE32\uDE34-\uDE37\uDE39\uDE3B\uDE42\uDE47\uDE49\uDE4B\uDE4D-\uDE4F\uDE51\uDE52\uDE54\uDE57\uDE59\uDE5B\uDE5D\uDE5F\uDE61\uDE62\uDE64\uDE67-\uDE6A\uDE6C-\uDE72\uDE74-\uDE77\uDE79-\uDE7C\uDE7E\uDE80-\uDE89\uDE8B-\uDE9B\uDEA1-\uDEA3\uDEA5-\uDEA9\uDEAB-\uDEBB]|\uD869[\uDC00-\uDED6\uDF00-\uDFFF]|\uD86D[\uDC00-\uDF34\uDF40-\uDFFF]|\uD86E[\uDC00-\uDC1D\uDC20-\uDFFF]|\uD873[\uDC00-\uDEA1]|\uD87E[\uDC00-\uDE1D]|\uDB40[\uDD00-\uDDEF])+/,
+  ustart: /(?:[$A-Z_a-z])/,
+  ucontinue: /(?:[$0-9A-Z_a-z])/,
 }
+
 const re_hex_number = /^0x[0-9a-f]+$/i, re_oct_number = /^0[0-7]+$/, re_es6_oct_number = /^0o[0-7]+$/i,
   re_big_int = /^(0[xob])?[0-9a-f]+n$/i, re_bin_number = /^0b[01]+$/i, re_num_literal = /[0-9a-f]/i,
   re_dec_number = /^\d*\.?\d*(?:e[+-]?\d*(?:\d\.?|\.?\d)\d*)?$/i
@@ -2867,7 +2868,7 @@ class ast_token {
   set_nlb (new_nlb) { this.flags = set_tok_flag(this, new_line, new_nlb) }
 
   set_quote (quote_type) {
-    this.flags = set_tok_flag(this, single_quote, quote_type == '"')
+    this.flags = set_tok_flag(this, single_quote, quote_type = "'")
     this.flags = set_tok_flag(this, exists_quote, !!quote_type)
   }
 }
@@ -3041,13 +3042,13 @@ function tokenizer (text, file, comments, shebang) {
     return parseInt(num, 16)
   }
 
-  function read_escaped_char (in_string, strict_hex, template_string) {
-    const char = next(true, in_string)
+  function read_escaped_char (string, strict_hex, template_string) {
+    const char = next(true, string)
     switch (char.charCodeAt(0)) {
       case 10: return ''
       case 13:
         if (peek() == '\n') {
-          next(true, in_string)
+          next(true, string)
           return ''
         }
       case 98: return '\b'
@@ -3220,14 +3221,14 @@ function tokenizer (text, file, comments, shebang) {
 
   function read_operator (prefix) {
 
-    function grow (op) {
-      if (!peek()) return op
-      const bigger = op + peek()
+    function grow (operator) {
+      if (!peek()) return operator
+      const bigger = operator + peek()
       if (operators.has(bigger)) {
         next()
         return grow(bigger)
       } else {
-        return op
+        return operator
       }
     }
 
@@ -3524,17 +3525,17 @@ def_parens(ast_binary, function (output) {
   if (p instanceof ast_prop_access && p.expr === this) return true
   if (p instanceof ast_binary) {
     const root_op = p.operator
-    const op = this.operator
-    if (op == '??' && (root_op == '||' || root_op == '&&')) return true
-    if (root_op == '??' && (op == '||' || op == '&&')) return true
+    const operator = this.operator
+    if (operator == '??' && (root_op == '||' || root_op == '&&')) return true
+    if (root_op == '??' && (operator == '||' || operator == '&&')) return true
     const pp = precedence[root_op]
-    const sp = precedence[op]
+    const sp = precedence[operator]
     if (pp > sp || (pp == sp && (this === p.right || root_op == '**'))) return true
   }
   if (p instanceof ast_private_in) {
-    const op = this.operator
+    const operator = this.operator
     const pp = precedence['in']
-    const sp = precedence[op]
+    const sp = precedence[operator]
     if (pp > sp || (pp == sp && this === p.value)) return true
   }
 })
@@ -3803,7 +3804,7 @@ def_drop([ast_class_property, ast_private_property], function (comp) {
   const key = this.computed_key() && this.key.drop(comp)
   const value = this.static && this.value && this.value.drop(comp)
   if (key && value) return make_sequence(this, [key, value])
-  return key || value || null
+  return key || value
 })
 
 ast_binary.prototype.drop = function (comp, first) {
@@ -4105,8 +4106,7 @@ ast_sprout.prototype.drop_unused = function (comp) {
       if (root instanceof ast_def_class && root !== self) {
         const defined = root.name.defined()
         ascend(root, this)
-        const keep_class = defined.global && !drop_funcs || in_use_ids.has(defined.id)
-        if (!keep_class) {
+        if (!(defined.global && !drop_funcs || in_use_ids.has(defined.id))) {
           const kept = root.drop(comp)
           if (kept == null) {
             defined.eliminated++
@@ -4118,8 +4118,7 @@ ast_sprout.prototype.drop_unused = function (comp) {
       }
       if (root instanceof ast_defun && root !== self) {
         const defined = root.name.defined()
-        const keep = defined.global && !drop_funcs || in_use_ids.has(defined.id)
-        if (!keep) {
+        if (!(defined.global && !drop_funcs || in_use_ids.has(defined.id))) {
           defined.eliminated++
           return listed ? {} : make_node(ast_empty_statement, root)
         }
@@ -4890,7 +4889,7 @@ function tighten_stems (statements, comp) {
       hit_stack.pop()
     }
 
-    function mangleable (var_def) {
+    function modifiable (var_def) {
       const value = var_def.value
       if (!(value instanceof ast_symbol_ref)) return
       if (value.name == 'arguments') return
@@ -4909,7 +4908,7 @@ function tighten_stems (statements, comp) {
         if (!referenced) return
         const declared = defined.orig.length - defined.eliminated
         if (declared > 1 && !(expr.name instanceof ast_symbol_funarg)
-          || (referenced > 1 ? mangleable(expr) : !comp.exposed(defined))) {
+          || (referenced > 1 ? modifiable(expr) : !comp.exposed(defined))) {
           return make_node(ast_symbol_ref, expr.name, expr.name)
         }
       } else {
@@ -5052,7 +5051,7 @@ function tighten_stems (statements, comp) {
         lct = comp.loop_control(stat)
         if (stat instanceof ast_break && !(lct instanceof ast_iteration_statement) && loop_stems(lct) === self
           || stat instanceof ast_continue && loop_stems(lct) === self) {
-          if (stat.label) remove(stat.label.thedef.references, stat)
+          if (stat.label) remove(stat.label.def.references, stat)
         } else {
           statements[n++] = stat
         }
@@ -5147,7 +5146,7 @@ function tighten_stems (statements, comp) {
       if (stat instanceof ast_if) {
         let abort = aborts(stat.stems), new_else
         if (can_merge_flow(abort) && (new_else = as_statement_array_with_return(stat.stems, abort))) {
-          if (abort.label) remove(abort.label.thedef.references, abort)
+          if (abort.label) remove(abort.label.def.references, abort)
           changed = true
           stat = stat.copy()
           stat.condition = stat.condition.negate(comp)
@@ -5159,7 +5158,7 @@ function tighten_stems (statements, comp) {
         }
         abort = aborts(stat.alt)
         if (can_merge_flow(abort) && (new_else = as_statement_array_with_return(stat.alt, abort))) {
-          if (abort.label) remove(abort.label.thedef.references, abort)
+          if (abort.label) remove(abort.label.def.references, abort)
           changed = true
           stat = stat.copy()
           stat.stems = make_node(ast_block_statement, stat.stems,
@@ -5647,7 +5646,7 @@ function handle_defined_after_hoist (tree) {
   let symbol_index = 1
   const defun_first_read_map = new Map(), symbol_last_write_map = new Map()
   ascend_tree(tree, (root, walk_info) => {
-    if (root instanceof ast_symbol && root.thedef) {
+    if (root instanceof ast_symbol && root.def) {
       const id = root.defined().id
       symbol_index++
       if (symbols_of_interest.has(id) && (root instanceof ast_symbol_block || is_lhs(root, walk_info.root()))) {
@@ -6109,8 +6108,7 @@ def_is_boolean(ast_true, get_true)
 def_is_boolean(ast_unary_prefix, function () { return unary_bool.has(this.operator) })
 
 def_is_boolean(ast_binary, function () {
-  return binary_bool.has(this.operator) || lazy_op.has(this.operator)
-    && this.left.is_boolean() && this.right.is_boolean()
+  return binary_bool.has(this.operator) || lazy_op.has(this.operator) && this.left.is_boolean() && this.right.is_boolean()
 })
 
 def_is_boolean(ast_conditional, function () { return this.consequent.is_boolean() && this.alt.is_boolean() })
@@ -6322,8 +6320,7 @@ def_has_side_effects(ast_symbol_ref, function (comp) {
 def_has_side_effects(ast_object, function (comp) { return side_effects(this.properties, comp) })
 
 def_has_side_effects([ast_key_value, ast_object_property], function (comp) {
-  return this.computed_key() && this.key.has_side_effects(comp) || this.value
-    && this.value.has_side_effects(comp)
+  return this.computed_key() && this.key.has_side_effects(comp) || this.value && this.value.has_side_effects(comp)
 })
 
 def_has_side_effects([ast_class_property, ast_private_property], function (comp) {
@@ -6666,8 +6663,8 @@ def_negate(ast_conditional, function (comp, first) {
 })
 
 def_negate(ast_binary, function (comp, first) {
-  const self = this.copy(), op = this.operator
-  switch (op) {
+  const self = this.copy(), operator = this.operator
+  switch (operator) {
     case '==':
       self.operator = '!='
       return self
@@ -6796,7 +6793,7 @@ def_find_defs(ast_symbol_ref, function (comp, suffix) {
 
 ast_toplevel.prototype.resolve_defines = function (comp) {
   if (!comp.options['global_defs']) return this
-  this.figure_sprout({imports: comp.imports})
+  this.parse({imports: comp.imports})
   return this.transform(new transforms(function (root) {
     const defined = root._find_defs(comp, '')
     if (!defined) return
@@ -6841,7 +6838,7 @@ function within_array_or_object_literal (comp) {
   return false
 }
 
-function sprout_encloses_variables_in_this_sprout (sprout, pulled_sprout, imports) {
+function encloses (sprout, pulled_sprout, imports) {
   for (const enclosed of pulled_sprout.enclosed) {
     const node_name = enclosed.file + '/' + enclosed.name
     if (pulled_sprout.vars.has(node_name)) continue
@@ -6852,6 +6849,20 @@ function sprout_encloses_variables_in_this_sprout (sprout, pulled_sprout, import
     }
   }
   return false
+}
+
+function is_reachable (sprout_node, defs) {
+
+  function find_ref (root) { if (root instanceof ast_symbol_ref && member(root.defined(), defs)) return walk_abort }
+
+  return ascend_tree(sprout_node, (root, info) => {
+    if (root instanceof ast_sprout && root !== sprout_node) {
+      const tree = info.root()
+      if (tree instanceof ast_call && tree.expr === root && !(root.sync || root.gen)) return
+      if (observe(root, find_ref)) return walk_abort
+      return true
+    }
+  })
 }
 
 function shorter_const (defined, fixed_value) {
@@ -6893,7 +6904,7 @@ function inline_into_symbolref (self, comp) {
     }
   }
   if (single_use && (fixed instanceof ast_lambda || fixed instanceof ast_class)) {
-    const sprout_encloses = sprout_encloses_variables_in_this_sprout(nearest_sprout, fixed, comp.imports)
+    const sprout_encloses = encloses(nearest_sprout, fixed, comp.imports)
     single_use = defined.sprout === self.sprout && !sprout_encloses || tree instanceof ast_call
       && tree.expr === self && !sprout_encloses && !(fixed.name && fixed.name.defined().recursive_refs > 0)
   }
@@ -6918,7 +6929,7 @@ function inline_into_symbolref (self, comp) {
       }
       observe(fixed, root => {
         if (root instanceof ast_symbol_ref && root.defined() === defun_def) {
-          root.thedef = lambda_def
+          root.def = lambda_def
           lambda_def.references.push(root)
         }
       })
@@ -7054,20 +7065,6 @@ function inline_into_call (self, comp) {
     return true
   }
 
-  function is_reachable (sprout_node, defs) {
-
-    function find_ref (root) { if (root instanceof ast_symbol_ref && member(root.defined(), defs)) return walk_abort }
-
-    return ascend_tree(sprout_node, (root, info) => {
-      if (root instanceof ast_sprout && root !== sprout_node) {
-        const tree = info.root()
-        if (tree instanceof ast_call && tree.expr === root && !(root.sync || root.gen)) return
-        if (observe(root, find_ref)) return walk_abort
-        return true
-      }
-    })
-  }
-
   function can_inject_symbols () {
     const block = new Set()
     do {
@@ -7162,7 +7159,7 @@ function inline_into_call (self, comp) {
       || has_annotation(self, _inline) || comp.options['unused'] && (defined = expr.defined()).references.length == 1
       && !is_recursive_ref(comp, defined) && fn.constant_expression(expr.sprout))
       && !has_annotation(self, _pure | _noinline) && !fn.this() && can_inject_symbols()
-      && (nearest_sprout = comp.find_sprout()) && !sprout_encloses_variables_in_this_sprout(nearest_sprout, fn,
+      && (nearest_sprout = comp.find_sprout()) && !encloses(nearest_sprout, fn,
       comp.imports) && !(function in_default_assign () {
           let p, i = 0
           while (p = comp.root(i++)) {
@@ -7181,7 +7178,7 @@ function inline_into_call (self, comp) {
     set_flag(fn, squeezed_flag)
     fn = make_node(fn.constructor === ast_defun ? ast_function : fn.constructor, fn, fn)
     fn = fn.copy(true)
-    fn.figure_sprout({imports: comp.imports}, {roots: comp.find_sprout(), toplevel: comp.get_toplevel()})
+    fn.parse({imports: comp.imports}, {roots: comp.find_sprout(), toplevel: comp.get_toplevel()})
     return make_node(ast_call, self, {expr: fn, args: self.args}).optimize(comp)
   }
   const can_drop_this_call = is_regular_func && comp.options['side_effects'] && fn.stems.every(is_empty)
@@ -7207,7 +7204,7 @@ function make_empty_function (self) {
 }
 
 function is_used_in_expression (ast_tree) {
-  for (let root, op, p = 0, tree; root = ast_tree.root(p - 1), tree = ast_tree.root(p); p++) {
+  for (let root, operator, p = 0, tree; root = ast_tree.root(p - 1), tree = ast_tree.root(p); p++) {
     if (tree instanceof ast_sequence) {
       if (tree.expressions.indexOf(root) != tree.expressions.length - 1) {
         return (tree.expressions.length > 2 || tree.expressions.length == 1
@@ -7217,9 +7214,9 @@ function is_used_in_expression (ast_tree) {
       }
     }
     if (tree instanceof ast_unary) {
-      op = tree.operator
-      if (op == 'void') return false
-      if (op == 'typeof' || op == '+' || op == '-' || op == '!' || op == '~') continue
+      operator = tree.operator
+      if (operator == 'void') return false
+      if (operator == 'typeof' || operator == '+' || operator == '-' || operator == '!' || operator == '~') continueis_reachable
     }
     if (tree instanceof ast_statement || tree instanceof ast_labeled_statement) return false
     if (tree instanceof ast_sprout) return false
@@ -7307,7 +7304,7 @@ ast_sprout.prototype.process_expression = function (insert, comp) {
 }
 
 ast_symbol.prototype.fixed_value = function () {
-  const fixed = this.thedef.fixed
+  const fixed = this.def.fixed
   if (!fixed || fixed instanceof ast_tree) return fixed
   return fixed()
 }
@@ -7320,9 +7317,10 @@ ast_symbol_ref.prototype.is_immutable = function () {
 }
 
 class compressor extends observes {
-  constructor (options, {false_by_default = false, mangle_options = false}) {
+  constructor (options, modify) {
     super()
-    this.imports = mangle_options.imports
+    this.imports = modify.imports
+    let false_by_default = false
     if (options.defaults !== undefined && !options.defaults) false_by_default = true
     const not_false = !false_by_default
     this.options = defaults(options, {'arguments': false, 'arrows': not_false, 'booleans': not_false,
@@ -7367,12 +7365,12 @@ class compressor extends observes {
     this.sequences_limit = sequences == 1 ? 800 : sequences | 0
     this.evaluated_regexs = new Map()
     this._toplevel = undefined
-    this._mangle_options = mangle_options ? format_mangler_options(mangle_options) : mangle_options
+    this._modify_options = modify ? format_modifier_options(modify) : modify
   }
 
-  mangle_options () {
-    const nth = this._mangle_options && this._mangle_options.nth || base54
-    const module = this._mangle_options && this._mangle_options.module || this.options['module']
+  modify_options () {
+    const nth = this._modify_options && this._modify_options.nth || base54
+    const module = this._modify_options && this._modify_options.module || this.options['module']
     const imports = this.imports
     return {nth, module, imports}
   }
@@ -7426,13 +7424,13 @@ class compressor extends observes {
 
   get_toplevel () { return this._toplevel }
 
-  reduce (toplevel) {
+  compress (toplevel) {
     toplevel = toplevel.resolve_defines(this)
     this._toplevel = toplevel
     if (this.options['expr']) this._toplevel.process_expression(true)
-    const passes = +this.options.passes || 1, min_count = 1 / 0, mangle = this.mangle_options()
+    const passes = +this.options.passes || 1, min_count = 1 / 0, modify = this.modify_options()
     for (let pass = 0, stopping = false; pass < passes; pass++) {
-      this._toplevel.figure_sprout(mangle)
+      this._toplevel.parse(modify)
       if (pass === 0 && this.options['drop_console']) {
         this._toplevel = this._toplevel.drop_console(this.options['drop_console'])
       }
@@ -7653,9 +7651,9 @@ def_optimize(ast_binary, function (self, comp) {
       && !self.right.has_side_effects(comp)
   }
 
-  function reverse (op) {
+  function reverse (operator) {
     if (reversible()) {
-      if (op) self.operator = op
+      if (operator) self.operator = operator
       const tmp = self.left
       self.left = self.right
       self.right = tmp
@@ -7858,8 +7856,7 @@ def_optimize(ast_binary, function (self, comp) {
             {operator: '+', left: self.left.left, right: lr}), right: self.right.right})
         }
       }
-      if (self.right instanceof ast_unary_prefix && self.right.operator == '-'
-        && (self.left.is_number_or_bigint(comp))) {
+      if (self.right instanceof ast_unary_prefix && self.right.operator == '-' && (self.left.is_number_or_bigint(comp))) {
         self = make_node(ast_binary, self, {operator: '-', left: self.left, right: self.right.expr})
         break
       }
@@ -7912,8 +7909,7 @@ def_optimize(ast_binary, function (self, comp) {
             left: make_node(ast_binary, self.left, {operator: self.operator, left: self.left, right: self.right.left,
               start: self.left.start, end: self.right.left.end, file: self.file}), right: self.right.right})
         }
-        if (self.right instanceof ast_literal && self.left instanceof ast_binary
-          && self.left.operator == self.operator) {
+        if (self.right instanceof ast_literal && self.left instanceof ast_binary && self.left.operator == self.operator) {
           if (self.left.left instanceof ast_literal) {
             self = make_node(ast_binary, self, {operator: self.operator, left: make_node(ast_binary, self.left,
               {operator: self.operator, left: self.left.left, right: self.right, start: self.left.left.start,
@@ -8117,7 +8113,7 @@ ast_sprout.prototype.hoist_properties = function (comp) {
       const defs = defs_by_id.get(root.expr.defined().id)
       if (defs) {
         const defined = defs.get(String(get_simple_key(root.property)))
-        const sym = make_node(ast_symbol_ref, root, {name: defined.name, sprout: root.expr.sprout, thedef: defined})
+        const sym = make_node(ast_symbol_ref, root, {name: defined.name, sprout: root.expr.sprout, def: defined})
         sym.reference({})
         return sym
       }
@@ -8608,9 +8604,9 @@ ast_definitions.prototype.to_assigns = function (comp) {
       assigns.push(make_node(ast_assign, defined, {operator: '=', logical: false, left: name, right: defined.value}))
       if (reduce_vars) name.defined().fixed = false
     }
-    const thedef = defined.name.defined()
-    thedef.eliminated++
-    thedef.replaced--
+    const def = defined.name.defined()
+    def.eliminated++
+    def.replaced--
   }
   if (assigns.length == 0) return
   return make_sequence(this, assigns)
@@ -9337,8 +9333,8 @@ function parse (text, options) {
           set_annotation(root, _key)
           break
         }
-        if (/[@#]__MANGLE_PROP__/.test(comment.value)) {
-          set_annotation(root, _mangleprop)
+        if (/[@#]__MODIFY_PROP__/.test(comment.value)) {
+          set_annotation(root, _prop)
           break
         }
       }
@@ -9465,12 +9461,10 @@ function parse (text, options) {
       return subscripts(new ast_new_target({start, end: prev(), file}), allow_calls)
     }
     const expr = expr_atom(false)
-    let args
+    let args = []
     if (is('punc', '(')) {
       next()
       args = expr_list(')', true)
-    } else {
-      args = []
     }
     const call = new ast_new({start, expr, args, end: prev(), file})
     annotate(call)
@@ -9649,10 +9643,8 @@ function parse (text, options) {
         if (is('operator', '=') && is_expand === false) {
           used.mark_default_assign(sprout.token)
           next()
-          elements[elements.length - 1] = new ast_default_assign({
-            start: elements[elements.length - 1].start, left: elements[elements.length - 1],
-            operator: '=', right: expression(false), end: sprout.token, file})
-        }
+          elements[elements.length - 1] = new ast_default_assign({start: elements[elements.length - 1].start,
+            left: elements[elements.length - 1], operator: '=', right: expression(false), end: sprout.token, file})}
         if (is_expand) {
           if (!is('punc', ']')) cr('rest element must be last element')
           elements[elements.length - 1] = new ast_spread({
@@ -10181,8 +10173,8 @@ function parse (text, options) {
     } else if (root instanceof ast_object_property) {
       root.value = to_destructure(root.value)
     } else if (root instanceof ast_assign) {
-      root = new ast_default_assign({start: root.start, left: root.left, operator: '=',
-        right: root.right, end: root.end, file})
+      root = new ast_default_assign({start: root.start, left: root.left, operator: '=', right: root.right,
+        end: root.end, file})
     }
     return root
   }
@@ -10310,10 +10302,22 @@ function parse (text, options) {
     return null
   }
 
-  function file_path (file, folder) {
-    file = file.split('/').slice(0, -folder.indexOf('/')).join('/') + '/' + folder.split('./')[1]
-    if (file.slice(-3) != '.js') file = file + '.js'
-    return file
+  function resolve (file, f) {
+    if (f.slice(0, 2) == './') {
+      f = f.slice(2)
+    }
+    if (f[0] != '.' && f[0] != '/') {
+      f = file.split('/').slice(0, -1).join('/') + '/' + f
+    } else if (f.startsWith('../')) {
+      let i = 0
+      while (f.startsWith('../')) {
+        f = f.slice(3)
+        i += 1
+      }
+      let split = file.split('/').slice(0, -1 - i)
+      f = split.length ? split + '/' + f : f
+    }
+    return f.slice(-3) == '.js' ? f : f + '.js'
   }
 
   function import_statement () {
@@ -10327,7 +10331,7 @@ function parse (text, options) {
     if (module.type != 'string') unexpected()
     next()
     const attributes = maybe_import_attributes()
-    const resolved = file_path(file, module.value)
+    const resolved = resolve(file, module.value)
     if (import_name) {
       import_name.file = resolved
       imports[file + '/' + import_name.name] = resolved + '/' + import_name.name
@@ -10369,7 +10373,7 @@ function parse (text, options) {
     if (label != null) {
       ldef = sprout.labels.find(l => l.name === label.name)
       if (!ldef) cr('no label ' + label.name)
-      label.thedef = ldef
+      label.def = ldef
     } else if (sprout.in_loop == 0) {
       cr(type.type + ' not in loop or switch')
     }
@@ -10762,13 +10766,12 @@ function parse (text, options) {
       const sta = statement()
       sta.file = file
       if (sta instanceof ast_import) {
-        resolved = file_path(file, sta.module.value)
+        resolved = resolve(file, sta.module.value)
         if (!member(resolved, imported) && !member(resolved, imports)) {
           imports.unshift(resolved)
           toplevel = options.toplevel
           if (toplevel) {
             toplevel.imports = imports
-            toplevel.pushed = false
           }
           return toplevel
         }
@@ -10788,30 +10791,31 @@ function parse (text, options) {
       toplevel.imports = imports
     }
     template_raws = new Map()
+    toplevel.pushed = true
     return toplevel
   }
   return parse_toplevel()
 }
 
-function mangle_props (ast) {
+function modify_props (ast) {
   let cprivate = -1
-  const nth = base54, private_cache = new Map()
+  const nth = base54, props = new Map()
 
-  function mangle_private (name) {
-    let mangled = private_cache.get(name)
-    if (!mangled) {
-      mangled = nth.get(++cprivate)
-      private_cache.set(name, mangled)
+  function modify_private (name) {
+    let modified = props.get(name)
+    if (!modified) {
+      modified = nth.get(++cprivate)
+      props.set(name, modified)
     }
-    return mangled
+    return modified
   }
 
   return ast.transform(new transforms(function (root) {
     if (root instanceof ast_private_property || root instanceof ast_private_method
       || root instanceof ast_private_getter || root instanceof ast_private_setter || root instanceof ast_private_in) {
-      root.key.name = mangle_private(root.key.name)
+      root.key.name = modify_private(root.key.name)
     } else if (root instanceof ast_dot_hash) {
-      root.property = mangle_private(root.property)
+      root.property = modify_private(root.property)
     }
   }))
 }
@@ -10895,11 +10899,11 @@ function output_stream (options) {
           ++sq
           return "'"
         case '\\': return '\\\\'
+        case '\b': return '\\b'
+        case '\f': return '\\f'
         case '\n': return '\\n'
         case '\r': return '\\r'
         case '\t': return '\\t'
-        case '\b': return '\\b'
-        case '\f': return '\\f'
         case '\x0B': return '\\v'
         case '\u2028': return '\\u2028'
         case '\u2029': return '\\u2029'
@@ -10911,18 +10915,11 @@ function output_stream (options) {
 
     function single_quote () { return "'" + string.replace(/\x27/g, "\\'") + "'" }
 
-    function quote_double () { return '"' + string.replace(/\x22/g, '\\"') + '"' }
-
     function quote_template () { return '`' + string.replace(/`/g, "\\`") + '`' }
 
     string = to_utf8(string)
     if (quote == '`') return quote_template()
-    switch (options.quote_style) {
-      case 1: return single_quote()
-      case 2: return quote_double()
-      case 3: return quote == '"' ? quote_double() : single_quote()
-      default: return dq > sq ? single_quote() : quote_double()
-    }
+    return single_quote()
   }
 
   function encode_string (string, quote) {
@@ -11198,7 +11195,7 @@ function output_stream (options) {
     }
     comments = comments.filter(comment_filter, root).filter(c => !printed_comments.has(c))
     if (comments.length == 0) return
-    const has_nlb = output.has_nlb()
+    let has_nlb = output.has_nlb()
     comments.forEach((c, i) => {
       if (c.length) printed_comments.add(c)
       if (!has_nlb) {
@@ -11443,10 +11440,10 @@ function output_js () {
   })
 
   def_output(ast_unary_prefix, function (self, output) {
-    const op = self.operator
-    if (op == '--' && output.last().endsWith('!')) output.print(' ')
-    output.print(op)
-    if (/^[a-z]/i.test(op) || (/[+-]$/.test(op) && self.expr instanceof ast_unary_prefix
+    const operator = self.operator
+    if (operator == '--' && output.last().endsWith('!')) output.print(' ')
+    output.print(operator)
+    if (/^[a-z]/i.test(operator) || (/[+-]$/.test(operator) && self.expr instanceof ast_unary_prefix
         && /^[+-]/.test(self.expr.operator))) output.space()
     self.expr.print(output)
   })
@@ -11461,10 +11458,10 @@ function output_js () {
   })
 
   def_output(ast_binary, function (self, output) {
-    const op = self.operator
+    const operator = self.operator
     self.left.print(output)
     output.space()
-    output.print(op)
+    output.print(operator)
     output.space()
     self.right.print(output)
   })
@@ -11829,7 +11826,7 @@ function output_js () {
 
   def_output(ast_name_mapping, function (self, output) {
     const is_import = output.root() instanceof ast_import, defined = self.name.defined(), foreign = self.foreign_name
-    const different_names = (defined && defined.mangled_name || self.name.name) !== foreign.name
+    const different_names = (defined && defined.modified_name || self.name.name) !== foreign.name
     if (!different_names && foreign.name == '*' && foreign.quote != self.name.quote) different_names = true
     const is_name = foreign.quote == null
     if (different_names) {
@@ -11930,7 +11927,7 @@ function output_js () {
 
     function get_name (self) {
       const defined = self.defined()
-      return defined ? defined.mangled_name || defined.name : self.name
+      return defined ? defined.modified_name || defined.name : self.name
     }
 
     const try_shorthand = output.options['shorthand'] && !(self.key instanceof ast_tree)
@@ -11973,7 +11970,7 @@ function output_js () {
 
   ast_symbol.prototype._do_print = function (output) {
     const defined = this.defined()
-    output.print_name(defined ? defined.mangled_name || defined.name : this.name)
+    output.print_name(defined ? defined.modified_name || defined.name : this.name)
   }
 
   def_output(ast_symbol, function (self, output) { self._do_print(output) })
@@ -12059,9 +12056,8 @@ function output_js () {
     const expr = self.expr
     expr.print(output)
     const prop = self.property
-    const print_computed = all_reserved_words.has(prop) ? false : !is_identifier_string(prop, true)
     if (self.optional) output.print('?.')
-    if (print_computed) {
+    if (all_reserved_words.has(prop) ? false : !is_identifier_string(prop, true)) {
       output.print('[')
       output.add_mapping(self.end)
       output.print_string(prop)
@@ -12289,56 +12285,60 @@ function output_js () {
   })
 }
 
-function build (input, output, options={}) {
-  options = defaults(options, {'format': {}, 'mangle': {}, 'module': false, 'reduce': {}, 'parse': {},
-    'toplevel': true})
-  options.mangle.module = options.module
-  options.mangle.toplevel = options.toplevel
-  options.mangle = defaults(options.mangle, {'eval': false, 'module': false, 'reserved': []})
-  options.parse.module = options.module
-  options.parse.toplevel = new ast_toplevel()
-  options.reduce.module = options.module
-  options.reduce.toplevel = options.toplevel
-  if (output.slice(-3) == '.js') output_js()
+function build (file, output, options={}) {
+  options = defaults(options, {'comp': {}, 'format': {}})
+  options.toplevel = new ast_toplevel()
+  options.comp.toplevel = options.toplevel
+  const type = output.split('.').slice(-1)
+  if (type == 'js') {
+    output_js()
+  }
   const imported = []
-  let imports = [input], file, text
+  let imports = [file]
+  let text
   while (imports.length) {
     file = imports[0]
     if (member(file, imported)) {
       imports.shift(1)
     } else {
       try {
-        text = fs.readFileSync(file, 'utf-8')
+        text = fs.readFileSync(file, 'utf8')
       } catch {
         text = ''
       }
-      options.parse.toplevel.file = file
-      options.parse.toplevel.imported = imported
-      options.parse.toplevel.imports = imports
-      options.parse.toplevel.pushed = true
-      options.parse.toplevel = parse(text, options.parse)
-      imports = options.parse.toplevel.imports
-      if (options.parse.toplevel.pushed) imported.push(file)
+      options.toplevel.file = file
+      options.toplevel.imported = imported
+      options.toplevel.imports = imports
+      options.toplevel.pushed = false
+      options.toplevel = parse(text, options)
+      imports = options.toplevel.imports
+      if (options.toplevel.pushed) {
+        imported.push(file)
+      }
     }
   }
-  let toplevel = options.parse.toplevel
-  options.mangle.imports = toplevel.imports
-  toplevel = toplevel.wrap_enclose()
-  toplevel = new compressor(options.reduce, {mangle_options: options.mangle}).reduce(toplevel)
-  toplevel.figure_sprout(options.mangle)
-  toplevel.char_count(options.mangle)
-  toplevel.mangle_names(options.mangle)
-  toplevel = mangle_props(toplevel, options.mangle)
-  const stream = output_stream(options.format)
-  toplevel.print(stream)
-  const result = {}
-  result.code = stream.get()
-  if (output && result.code) {
-    const folder = output.split('/').slice(0, -1).join('/')
-    if (folder) fs.mkdirSync(folder, {recursive: true})
-    fs.writeFileSync(output, result.code)
+  let code = options.toplevel
+  options.imports = options.toplevel.imports
+  if (type == 'js') {
+    code = code.enclose()
+    code = new compressor(options.comp, options).compress(code)
+    code.parse(options)
+    code.char_count(options)
+    code.modify_names(options)
+    code = modify_props(code, options)
   }
-  console.log('bundled', result)
+  const stream = output_stream(options.format)
+  code.print(stream)
+  const result = {}
+  result[''] = stream.get()
+  if (output && result['']) {
+    const folder = output.split('/').slice(0, -1).join('/')
+    if (folder) {
+      fs.mkdirSync(folder, {recursive: true})
+    }
+    fs.writeFileSync(output, result[''])
+  }
+  console.log(result)
 }
 
 const args = process.argv
